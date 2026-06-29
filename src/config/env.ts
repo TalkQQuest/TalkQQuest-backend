@@ -1,0 +1,25 @@
+import "dotenv/config";
+import { z } from "zod";
+
+// 서버 구동에 필요한 환경 변수를 한 곳에서 검증합니다.
+// .env 가 없거나 필수 값이 비어 있으면 부팅 시점에 바로 에러를 던집니다.
+const envSchema = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  PORT: z.coerce.number().default(3000),
+  DATABASE_URL: z.string().min(1, "DATABASE_URL이 필요합니다"),
+  REDIS_URL: z.string().min(1, "REDIS_URL이 필요합니다"),
+  JWT_ACCESS_SECRET: z.string().min(1),
+  JWT_REFRESH_SECRET: z.string().min(1),
+  JWT_ACCESS_EXPIRES_IN: z.string().default("1h"),
+  JWT_REFRESH_EXPIRES_IN: z.string().default("14d"),
+});
+
+const parsed = envSchema.safeParse(process.env);
+
+if (!parsed.success) {
+  // logger는 env 검증 통과를 전제로 만들어지므로(config/logger.ts) 여기서는 console을 그대로 사용합니다.
+  console.error("환경 변수 검증 실패:", parsed.error.flatten().fieldErrors);
+  throw new Error("환경 변수가 올바르게 설정되지 않았습니다. .env.example을 참고하세요.");
+}
+
+export const env = parsed.data;

@@ -1,6 +1,6 @@
-// TalkQuest Prisma Schema (MySQL)
-// design.md의 ERD를 그대로 옮긴 초기 스키마입니다.
-// 기능 확정에 따라 컬럼/관계는 계속 변경될 수 있습니다.
+// prisma/schema.prisma
+// A101 ~ E101까지의 스키마
+
 
 generator client {
   provider = "prisma-client-js"
@@ -11,10 +11,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Provider {
-  kakao
-  naver
-}
+// ============================================================
+// ENUMS
+// ============================================================
 
 enum UserStatus {
   active
@@ -22,10 +21,39 @@ enum UserStatus {
   deleted
 }
 
+enum Provider {
+  email
+  kakao
+  naver
+}
+
 enum PersonalityType {
   introvert
   extrovert
   ambivert
+}
+
+enum TermsType {
+  terms
+  privacy
+}
+
+enum PrepItemType {
+  question  // 추천 질문
+  starter   // 대화 시작 문장
+  tip       // 준비 팁
+}
+
+enum ConversationStatus {
+  in_progress
+  completed
+  abandoned
+}
+
+enum MessageRole {
+  user
+  guide
+  system
 }
 
 enum MissionResult {
@@ -39,354 +67,335 @@ enum MissionRecordStatus {
   completed
 }
 
-enum MessageRole {
-  user
-  assistant
-}
-
-enum CommunityMemberStatus {
-  active
-  waiting
-}
-
-enum TokenTransactionType {
-  earn
-  spend
-  purchase
-}
-
-enum SubscriptionPlan {
-  free
-  basic
-  premium
-}
-
-enum PaymentStatus {
+enum FeedbackStatus {
   pending
-  completed
+  ready
   failed
-  refunded
 }
 
-enum DevicePlatform {
-  android
+// ============================================================
+// MODELS
+// ============================================================
+
+// ----------------------------
+// Users
+// 서비스 사용자 정보. 인증 수단은 Auth_Identities로 분리.
+// ----------------------------
+model Users {
+  id              String     @id @default(uuid()) @db.Char(36)
+  name            String     @db.VarChar(50)
+  school_or_job   String     @db.VarChar(100)
+  birth_date      String     @db.VarChar(10)
+  terms_agreed_at DateTime?
+  created_at      DateTime   @default(now())
+  last_login_at   DateTime?
+  status          UserStatus @default(active)
+  deleted_at      DateTime?
+
+  // Relations
+  auth_identities Auth_Identities[]
+  refresh_tokens  Refresh_Tokens[]
+  user_profile    User_Profiles?
+  goals           Goals[]
+  mission_saves   Mission_Saves[]
+  conversations   Conversations[]
+  mission_records Mission_Records[]
+  xp_history      XP_History[]
+  feedbacks       Feedbacks[]
+  saved_phrases   Saved_Phrases[]
+
+  @@map("Users")
 }
 
-model User {
-  id            String     @id @default(uuid()) @db.Char(36)
-  email         String     @unique @db.VarChar(255)
-  nickname      String?    @db.VarChar(50)
-  provider      Provider
-  providerId    String     @map("provider_id") @db.VarChar(255)
-  termsAgreedAt DateTime?  @map("terms_agreed_at")
-  createdAt     DateTime   @default(now()) @map("created_at")
-  lastLoginAt   DateTime?  @map("last_login_at")
-  status        UserStatus @default(active)
-  deletedAt     DateTime?  @map("deleted_at")
-
-  profile              UserProfile?
-  loginHistories       LoginHistory[]
-  refreshTokens        RefreshToken[]
-  missionRecords       MissionRecord[]
-  missionRecommendations MissionRecommendation[]
-  badges               UserBadge[]
-  coachingSessions     CoachingSession[]
-  communityMemberships CommunityMember[]
-  chatMessages         ChatMessage[]
-  tokenAccount         TokenAccount?
-  tokenTransactions    TokenTransaction[]
-  subscriptions        Subscription[]
-  payments             Payment[]
-  deviceTokens         DeviceToken[]
-  notificationSetting  NotificationSetting?
-
-  @@map("users")
-}
-
-model UserProfile {
-  id                   String           @id @default(uuid()) @db.Char(36)
-  userId               String           @unique @map("user_id") @db.Char(36)
-  personalityType      PersonalityType? @map("personality_type")
-  conversationBurden   Int?             @map("conversation_burden")
-  difficultSituations  Json?            @map("difficult_situations")
-  purpose              String?          @db.VarChar(255)
-  goals                Json?
-  preferredStyle       String?          @map("preferred_style") @db.VarChar(255)
-  interests            Json?
-  level                Int              @default(1)
-  experience           Int              @default(0)
-  onboardingCompleted  Boolean          @default(false) @map("onboarding_completed")
-  onboardingStep       Int              @default(0) @map("onboarding_step")
-  onboardingTempData   Json?            @map("onboarding_temp_data")
-  createdAt            DateTime         @default(now()) @map("created_at")
-  updatedAt            DateTime         @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("user_profiles")
-}
-
-model LoginHistory {
-  id         String   @id @default(uuid()) @db.Char(36)
-  userId     String   @map("user_id") @db.Char(36)
-  deviceInfo Json?    @map("device_info")
-  ipAddress  String?  @map("ip_address") @db.VarChar(45)
-  loggedInAt DateTime @map("logged_in_at")
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("login_history")
-}
-
-model RefreshToken {
-  id         String   @id @default(uuid()) @db.Char(36)
-  userId     String   @map("user_id") @db.Char(36)
-  token      String   @unique @db.VarChar(512)
-  deviceInfo Json?    @map("device_info")
-  expiresAt  DateTime @map("expires_at")
-  revoked    Boolean  @default(false)
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("refresh_tokens")
-}
-
-model Mission {
-  id              String   @id @default(uuid()) @db.Char(36)
-  title           String   @db.VarChar(255)
-  description     String   @db.Text
-  preparationTip  String?  @map("preparation_tip") @db.Text
-  caution         String?  @db.Text
-  difficulty      Int
-  estimatedTime   Int      @map("estimated_time")
-  category        String   @db.VarChar(100)
-  isTemplate      Boolean  @default(false) @map("is_template")
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  records         MissionRecord[]
-  recommendations MissionRecommendation[]
-
-  @@map("missions")
-}
-
-model MissionRecord {
-  id                String              @id @default(uuid()) @db.Char(36)
-  userId            String              @map("user_id") @db.Char(36)
-  missionId         String              @map("mission_id") @db.Char(36)
-  result            MissionResult
-  memo              String?             @db.Text
-  durationMinutes   Int?                @map("duration_minutes")
-  emotion           String?             @db.VarChar(50)
-  tokensEarned      Int                 @default(0) @map("tokens_earned")
-  experienceEarned  Int                 @default(0) @map("experience_earned")
-  tempData          Json?               @map("temp_data")
-  status            MissionRecordStatus @default(in_progress)
-  createdAt         DateTime            @default(now()) @map("created_at")
-  completedAt       DateTime?           @map("completed_at")
-
-  user    User    @relation(fields: [userId], references: [id])
-  mission Mission @relation(fields: [missionId], references: [id])
-
-  @@map("mission_records")
-}
-
-model MissionRecommendation {
-  id                 String   @id @default(uuid()) @db.Char(36)
-  userId             String   @map("user_id") @db.Char(36)
-  missionId          String   @map("mission_id") @db.Char(36)
-  reason             String   @db.Text
-  expectedEffect     String?  @map("expected_effect") @db.Text
-  difficultyForUser  Int      @map("difficulty_for_user")
-  isActive           Boolean  @default(true) @map("is_active")
-  createdAt          DateTime @default(now()) @map("created_at")
-
-  user    User    @relation(fields: [userId], references: [id])
-  mission Mission @relation(fields: [missionId], references: [id])
-
-  @@map("mission_recommendations")
-}
-
-model Badge {
-  id          String  @id @default(uuid()) @db.Char(36)
-  name        String  @db.VarChar(100)
-  description String? @db.Text
-  condition   Json
-  iconUrl     String? @map("icon_url") @db.VarChar(500)
-
-  userBadges UserBadge[]
-
-  @@map("badges")
-}
-
-model UserBadge {
-  id       String   @id @default(uuid()) @db.Char(36)
-  userId   String   @map("user_id") @db.Char(36)
-  badgeId  String   @map("badge_id") @db.Char(36)
-  earnedAt DateTime @map("earned_at")
-
-  user  User  @relation(fields: [userId], references: [id])
-  badge Badge @relation(fields: [badgeId], references: [id])
-
-  @@map("user_badges")
-}
-
-model CoachingSession {
-  id                 String   @id @default(uuid()) @db.Char(36)
-  userId             String   @map("user_id") @db.Char(36)
-  context            Json?
-  toneSetting        String?  @map("tone_setting") @db.VarChar(50)
-  difficultySetting  Int?     @map("difficulty_setting")
-  tokensUsed         Int      @default(0) @map("tokens_used")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-
-  user     User               @relation(fields: [userId], references: [id])
-  messages CoachingMessage[]
-
-  @@map("coaching_sessions")
-}
-
-model CoachingMessage {
-  id        String      @id @default(uuid()) @db.Char(36)
-  sessionId String      @map("session_id") @db.Char(36)
-  role      MessageRole
-  content   String      @db.Text
-  createdAt DateTime    @default(now()) @map("created_at")
-
-  session CoachingSession @relation(fields: [sessionId], references: [id])
-
-  @@map("coaching_messages")
-}
-
-model Community {
-  id                 String   @id @default(uuid()) @db.Char(36)
-  name               String   @db.VarChar(200)
-  description        String?  @db.Text
-  capacity           Int
-  currentMembers     Int      @default(0) @map("current_members")
-  joinCondition      Json?    @map("join_condition")
-  activityFrequency  String?  @map("activity_frequency") @db.VarChar(50)
-  interests          Json?
-  createdAt          DateTime @default(now()) @map("created_at")
-
-  members      CommunityMember[]
-  chatMessages ChatMessage[]
-
-  @@map("communities")
-}
-
-model CommunityMember {
-  id            String                 @id @default(uuid()) @db.Char(36)
-  communityId   String                 @map("community_id") @db.Char(36)
-  userId        String                 @map("user_id") @db.Char(36)
-  status        CommunityMemberStatus
-  joinedAt      DateTime?              @map("joined_at")
-  waitlistedAt  DateTime?              @map("waitlisted_at")
-
-  community Community @relation(fields: [communityId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
-
-  @@map("community_members")
-}
-
-model ChatMessage {
-  id          String   @id @default(uuid()) @db.Char(36)
-  communityId String   @map("community_id") @db.Char(36)
-  userId      String   @map("user_id") @db.Char(36)
-  content     String   @db.Text
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  community Community @relation(fields: [communityId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
-
-  @@map("chat_messages")
-}
-
-model TokenAccount {
-  id          String   @id @default(uuid()) @db.Char(36)
-  userId      String   @unique @map("user_id") @db.Char(36)
-  balance     Int      @default(0)
-  totalEarned Int      @default(0) @map("total_earned")
-  totalUsed   Int      @default(0) @map("total_used")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("token_accounts")
-}
-
-model TokenTransaction {
-  id          String               @id @default(uuid()) @db.Char(36)
-  userId      String               @map("user_id") @db.Char(36)
-  amount      Int
-  type        TokenTransactionType
-  reason      String               @db.VarChar(255)
-  referenceId String?              @map("reference_id") @db.Char(36)
-  createdAt   DateTime             @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("token_transactions")
-}
-
-model Subscription {
-  id        String            @id @default(uuid()) @db.Char(36)
-  userId    String            @map("user_id") @db.Char(36)
-  plan      SubscriptionPlan
-  startedAt DateTime          @map("started_at")
-  expiresAt DateTime?         @map("expires_at")
-  isActive  Boolean           @default(true) @map("is_active")
-  createdAt DateTime          @default(now()) @map("created_at")
-
-  user     User      @relation(fields: [userId], references: [id])
-  payments Payment[]
-
-  @@map("subscriptions")
-}
-
-model Payment {
-  id             String        @id @default(uuid()) @db.Char(36)
-  userId         String        @map("user_id") @db.Char(36)
-  subscriptionId String?       @map("subscription_id") @db.Char(36)
-  amount         Decimal       @db.Decimal(10, 2)
-  currency       String        @default("KRW") @db.VarChar(3)
-  method         String        @db.VarChar(50)
-  status         PaymentStatus
-  externalId     String?       @map("external_id") @db.VarChar(255)
-  retryCount     Int           @default(0) @map("retry_count")
-  createdAt      DateTime      @default(now()) @map("created_at")
-  completedAt    DateTime?     @map("completed_at")
-
-  user         User          @relation(fields: [userId], references: [id])
-  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
-
-  @@map("payments")
-}
-
-model DeviceToken {
-  id           String         @id @default(uuid()) @db.Char(36)
-  userId       String         @map("user_id") @db.Char(36)
-  fcmToken     String         @map("fcm_token") @db.VarChar(500)
-  platform     DevicePlatform @default(android)
-  lastActiveAt DateTime       @map("last_active_at")
-  createdAt    DateTime       @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("device_tokens")
-}
-
-model NotificationSetting {
+// ----------------------------
+// Auth_Identities
+// 1 User : N 로그인 수단
+// EMAIL  → email + password_hash, provider_user_id = NULL
+// KAKAO/NAVER → provider_user_id, password_hash = NULL
+// ----------------------------
+model Auth_Identities {
   id               String   @id @default(uuid()) @db.Char(36)
-  userId           String   @unique @map("user_id") @db.Char(36)
-  missionReminder  Boolean  @default(true) @map("mission_reminder")
-  communityChat    Boolean  @default(true) @map("community_chat")
-  tokenWarning     Boolean  @default(true) @map("token_warning")
-  marketing        Boolean  @default(false)
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  user_id          String   @db.Char(36)
+  provider         Provider
+  provider_user_id String?  @db.VarChar(255)
+  email            String?  @db.VarChar(255)
+  password_hash    String?  @db.VarChar(255)
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
+  user Users @relation(fields: [user_id], references: [id])
 
-  @@map("notification_settings")
+  @@unique([provider, provider_user_id])
+  @@unique([provider, email])
+  @@map("Auth_Identities")
+}
+
+// ----------------------------
+// Refresh_Tokens
+// JWT 재발급 및 로그아웃 처리
+// revoked = true → 해당 토큰 무효화
+// ----------------------------
+model Refresh_Tokens {
+  id          String   @id @default(uuid()) @db.Char(36)
+  user_id     String   @db.Char(36)
+  token       String   @unique @db.VarChar(512)
+  device_info Json?
+  expires_at  DateTime
+  revoked     Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  user Users @relation(fields: [user_id], references: [id])
+
+  @@map("Refresh_Tokens")
+}
+
+// ----------------------------
+// Terms
+// GET /api/v1/terms/latest, GET /api/v1/legal/terms|privacy
+// ----------------------------
+model Terms {
+  id         String    @id @default(uuid()) @db.Char(36)
+  type       TermsType
+  version    String    @db.VarChar(20)
+  content    String    @db.Text
+  is_active  Boolean   @default(false)
+  created_at DateTime  @default(now())
+
+  @@map("Terms")
+}
+
+// ----------------------------
+// User_Profiles
+// 온보딩 중 단계별로 채워지므로 대부분 nullable
+// ----------------------------
+model User_Profiles {
+  id                      String           @id @default(uuid()) @db.Char(36)
+  user_id                 String           @unique @db.Char(36)
+  nickname                String?          @db.VarChar(50)
+  status_type             String?          @db.VarChar(50)
+  personality_type        PersonalityType?
+  difficult_situations    Json?
+  preferred_style         String?          @db.VarChar(255)
+  interests               Json?
+  purpose                 String?          @db.VarChar(255)
+  avatar_url              String?          @db.VarChar(500)
+  bio                     String?          @db.Text
+  daily_conversation_goal Int              @default(1)
+  level                   Int              @default(1)
+  xp                      Int              @default(0)
+  onboarding_completed    Boolean          @default(false)
+  onboarding_step         Int              @default(0)
+  onboarding_temp_data    Json?
+  created_at              DateTime
+  updated_at              DateTime         @updatedAt
+
+  user Users @relation(fields: [user_id], references: [id])
+
+  @@map("User_Profiles")
+}
+
+// ----------------------------
+// Goals
+// POST /api/v1/goals
+// ----------------------------
+model Goals {
+  id         String   @id @default(uuid()) @db.Char(36)
+  user_id    String   @db.Char(36)
+  goal_type  String   @db.VarChar(50)
+  target     String   @db.VarChar(255)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  user Users @relation(fields: [user_id], references: [id])
+
+  @@map("Goals")
+}
+
+// ----------------------------
+// Missions
+// preparation_tip: Mission_Prep_Items 분리 후 deprecated 예정
+// ----------------------------
+model Missions {
+  id                String   @id @default(uuid()) @db.Char(36)
+  title             String   @db.VarChar(255)
+  description       String   @db.Text
+  preparation_tip   String?  @db.Text  // deprecated 예정 → Mission_Prep_Items로 이전
+  caution           String?  @db.Text
+  difficulty        Int                // 1=쉬움, 2=보통, 3=어려움
+  estimated_minutes Int
+  reward_xp         Int      @default(0)
+  category          String   @db.VarChar(100)
+  is_template       Boolean  @default(false)
+  created_at        DateTime @default(now())
+
+  // Relations
+  prep_items      Mission_Prep_Items[]
+  saves           Mission_Saves[]
+  conversations   Conversations[]
+  mission_records Mission_Records[]
+
+  @@map("Missions")
+}
+
+// ----------------------------
+// Mission_Prep_Items
+// GET /api/v1/missions/{missionId}/prep
+// type별로 그룹핑해서 응답 (questions[], starters[], tips[])
+// ----------------------------
+model Mission_Prep_Items {
+  id          String       @id @default(uuid()) @db.Char(36)
+  mission_id  String       @db.Char(36)
+  type        PrepItemType
+  content     String       @db.Text
+  order_index Int          @default(0)
+  created_at  DateTime     @default(now())
+
+  mission Missions @relation(fields: [mission_id], references: [id])
+
+  @@map("Mission_Prep_Items")
+}
+
+// ----------------------------
+// Mission_Saves
+// POST/DELETE /api/v1/missions/{missionId}/save
+// ----------------------------
+model Mission_Saves {
+  id         String   @id @default(uuid()) @db.Char(36)
+  user_id    String   @db.Char(36)
+  mission_id String   @db.Char(36)
+  created_at DateTime @default(now())
+
+  user    Users    @relation(fields: [user_id], references: [id])
+  mission Missions @relation(fields: [mission_id], references: [id])
+
+  @@unique([user_id, mission_id])
+  @@map("Mission_Saves")
+}
+
+// ----------------------------
+// Conversations
+// POST /api/v1/conversations
+// ----------------------------
+model Conversations {
+  id             String             @id @default(uuid()) @db.Char(36)
+  user_id        String             @db.Char(36)
+  mission_id     String             @db.Char(36)
+  mode           String?            @db.VarChar(50)
+  selected_topic String?            @db.VarChar(255)
+  status         ConversationStatus @default(in_progress)
+  started_at     DateTime           @default(now())
+  finished_at    DateTime?
+
+  user            Users                   @relation(fields: [user_id], references: [id])
+  mission         Missions                @relation(fields: [mission_id], references: [id])
+  messages        Conversation_Messages[]
+  mission_records Mission_Records[]
+  feedbacks       Feedbacks[]
+  saved_phrases   Saved_Phrases[]
+
+  @@map("Conversations")
+}
+
+// ----------------------------
+// Conversation_Messages
+// POST /api/v1/conversations/{id}/messages
+// ----------------------------
+model Conversation_Messages {
+  id              String      @id @default(uuid()) @db.Char(36)
+  conversation_id String      @db.Char(36)
+  role            MessageRole
+  content         String      @db.Text
+  created_at      DateTime    @default(now())
+
+  conversation Conversations @relation(fields: [conversation_id], references: [id])
+
+  @@map("Conversation_Messages")
+}
+
+// ----------------------------
+// Mission_Records
+// POST /api/v1/missions/{missionId}/complete
+// 트랜잭션: Conversations 종료 + MissionRecord + XP_History + User xp 증가
+// ----------------------------
+model Mission_Records {
+  id               String              @id @default(uuid()) @db.Char(36)
+  user_id          String              @db.Char(36)
+  mission_id       String              @db.Char(36)
+  conversation_id  String?             @db.Char(36)
+  result           MissionResult
+  memo             String?             @db.Text
+  duration_minutes Int?
+  emotion          String?             @db.VarChar(50)
+  xp_earned        Int                 @default(0)
+  status           MissionRecordStatus @default(in_progress)
+  created_at       DateTime            @default(now())
+  completed_at     DateTime?
+
+  user         Users          @relation(fields: [user_id], references: [id])
+  mission      Missions       @relation(fields: [mission_id], references: [id])
+  conversation Conversations? @relation(fields: [conversation_id], references: [id])
+
+  @@map("Mission_Records")
+}
+
+// ----------------------------
+// XP_History
+// GET /api/v1/xp/history
+// ----------------------------
+model XP_History {
+  id             String   @id @default(uuid()) @db.Char(36)
+  user_id        String   @db.Char(36)
+  amount         Int                      // 양수=획득, 음수=차감
+  reason         String   @db.VarChar(255)
+  reference_id   String?  @db.Char(36)   // 직접 지급 등 없을 경우 null
+  reference_type String?  @db.VarChar(50) // mission_record / badge / event 등
+  created_at     DateTime @default(now())
+
+  user Users @relation(fields: [user_id], references: [id])
+
+  @@map("XP_History")
+}
+
+// ----------------------------
+// Feedbacks
+// POST /api/v1/feedback, GET /api/v1/feedback/{feedbackId}
+// status=pending → AI 처리 완료 시 ready, 점수 컬럼 채워짐
+// ----------------------------
+model Feedbacks {
+  id                  String         @id @default(uuid()) @db.Char(36)
+  user_id             String         @db.Char(36)
+  conversation_id     String         @db.Char(36)
+  kindness_score      Int?           // pending 상태일 때 null
+  initiative_score    Int?
+  empathy_score       Int?
+  question_link_score Int?
+  strengths           Json?
+  improvements        Json?
+  saved_phrase        String?        @db.Text
+  status              FeedbackStatus @default(pending)
+  created_at          DateTime       @default(now())
+
+  user         Users         @relation(fields: [user_id], references: [id])
+  conversation Conversations @relation(fields: [conversation_id], references: [id])
+
+  @@map("Feedbacks")
+}
+
+// ----------------------------
+// Saved_Phrases
+// POST /api/v1/archives/phrases
+// ----------------------------
+model Saved_Phrases {
+  id              String   @id @default(uuid()) @db.Char(36)
+  user_id         String   @db.Char(36)
+  conversation_id String?  @db.Char(36) // 대화 외 직접 저장 시 null
+  content         String   @db.Text
+  memo            String?  @db.Text
+  created_at      DateTime @default(now())
+
+  user         Users          @relation(fields: [user_id], references: [id])
+  conversation Conversations? @relation(fields: [conversation_id], references: [id])
+
+  @@map("Saved_Phrases")
 }

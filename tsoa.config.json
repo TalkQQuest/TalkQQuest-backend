@@ -1,0 +1,15 @@
+{
+  "entryFile": "src/app.ts",
+  "noImplicitAdditionalProperties": "throw-on-extras",
+  "controllerPathGlobs": ["src/modules/**/controllers/*.controller.ts"],
+  "spec": {
+    "outputDirectory": "dist",
+    "specVersion": 3,
+    "name": "TalkQuest API",
+    "description": "TalkQuest 백엔드 API 명세 (자동 생성)",
+    "basePath": "/api/v1"
+  },
+  "routes": {
+    "routesDir": "src/generated"
+  }
+}

@@ -1,0 +1,392 @@
+// TalkQuest Prisma Schema (MySQL)
+// design.md의 ERD를 그대로 옮긴 초기 스키마입니다.
+// 기능 확정에 따라 컬럼/관계는 계속 변경될 수 있습니다.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Provider {
+  kakao
+  naver
+}
+
+enum UserStatus {
+  active
+  inactive
+  deleted
+}
+
+enum PersonalityType {
+  introvert
+  extrovert
+  ambivert
+}
+
+enum MissionResult {
+  success
+  failure
+  avoidance
+}
+
+enum MissionRecordStatus {
+  in_progress
+  completed
+}
+
+enum MessageRole {
+  user
+  assistant
+}
+
+enum CommunityMemberStatus {
+  active
+  waiting
+}
+
+enum TokenTransactionType {
+  earn
+  spend
+  purchase
+}
+
+enum SubscriptionPlan {
+  free
+  basic
+  premium
+}
+
+enum PaymentStatus {
+  pending
+  completed
+  failed
+  refunded
+}
+
+enum DevicePlatform {
+  android
+}
+
+model User {
+  id            String     @id @default(uuid()) @db.Char(36)
+  email         String     @unique @db.VarChar(255)
+  nickname      String?    @db.VarChar(50)
+  provider      Provider
+  providerId    String     @map("provider_id") @db.VarChar(255)
+  termsAgreedAt DateTime?  @map("terms_agreed_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  lastLoginAt   DateTime?  @map("last_login_at")
+  status        UserStatus @default(active)
+  deletedAt     DateTime?  @map("deleted_at")
+
+  profile              UserProfile?
+  loginHistories       LoginHistory[]
+  refreshTokens        RefreshToken[]
+  missionRecords       MissionRecord[]
+  missionRecommendations MissionRecommendation[]
+  badges               UserBadge[]
+  coachingSessions     CoachingSession[]
+  communityMemberships CommunityMember[]
+  chatMessages         ChatMessage[]
+  tokenAccount         TokenAccount?
+  tokenTransactions    TokenTransaction[]
+  subscriptions        Subscription[]
+  payments             Payment[]
+  deviceTokens         DeviceToken[]
+  notificationSetting  NotificationSetting?
+
+  @@map("users")
+}
+
+model UserProfile {
+  id                   String           @id @default(uuid()) @db.Char(36)
+  userId               String           @unique @map("user_id") @db.Char(36)
+  personalityType      PersonalityType? @map("personality_type")
+  conversationBurden   Int?             @map("conversation_burden")
+  difficultSituations  Json?            @map("difficult_situations")
+  purpose              String?          @db.VarChar(255)
+  goals                Json?
+  preferredStyle       String?          @map("preferred_style") @db.VarChar(255)
+  interests            Json?
+  level                Int              @default(1)
+  experience           Int              @default(0)
+  onboardingCompleted  Boolean          @default(false) @map("onboarding_completed")
+  onboardingStep       Int              @default(0) @map("onboarding_step")
+  onboardingTempData   Json?            @map("onboarding_temp_data")
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_profiles")
+}
+
+model LoginHistory {
+  id         String   @id @default(uuid()) @db.Char(36)
+  userId     String   @map("user_id") @db.Char(36)
+  deviceInfo Json?    @map("device_info")
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  loggedInAt DateTime @map("logged_in_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("login_history")
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid()) @db.Char(36)
+  userId     String   @map("user_id") @db.Char(36)
+  token      String   @unique @db.VarChar(512)
+  deviceInfo Json?    @map("device_info")
+  expiresAt  DateTime @map("expires_at")
+  revoked    Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("refresh_tokens")
+}
+
+model Mission {
+  id              String   @id @default(uuid()) @db.Char(36)
+  title           String   @db.VarChar(255)
+  description     String   @db.Text
+  preparationTip  String?  @map("preparation_tip") @db.Text
+  caution         String?  @db.Text
+  difficulty      Int
+  estimatedTime   Int      @map("estimated_time")
+  category        String   @db.VarChar(100)
+  isTemplate      Boolean  @default(false) @map("is_template")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  records         MissionRecord[]
+  recommendations MissionRecommendation[]
+
+  @@map("missions")
+}
+
+model MissionRecord {
+  id                String              @id @default(uuid()) @db.Char(36)
+  userId            String              @map("user_id") @db.Char(36)
+  missionId         String              @map("mission_id") @db.Char(36)
+  result            MissionResult
+  memo              String?             @db.Text
+  durationMinutes   Int?                @map("duration_minutes")
+  emotion           String?             @db.VarChar(50)
+  tokensEarned      Int                 @default(0) @map("tokens_earned")
+  experienceEarned  Int                 @default(0) @map("experience_earned")
+  tempData          Json?               @map("temp_data")
+  status            MissionRecordStatus @default(in_progress)
+  createdAt         DateTime            @default(now()) @map("created_at")
+  completedAt       DateTime?           @map("completed_at")
+
+  user    User    @relation(fields: [userId], references: [id])
+  mission Mission @relation(fields: [missionId], references: [id])
+
+  @@map("mission_records")
+}
+
+model MissionRecommendation {
+  id                 String   @id @default(uuid()) @db.Char(36)
+  userId             String   @map("user_id") @db.Char(36)
+  missionId          String   @map("mission_id") @db.Char(36)
+  reason             String   @db.Text
+  expectedEffect     String?  @map("expected_effect") @db.Text
+  difficultyForUser  Int      @map("difficulty_for_user")
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id])
+  mission Mission @relation(fields: [missionId], references: [id])
+
+  @@map("mission_recommendations")
+}
+
+model Badge {
+  id          String  @id @default(uuid()) @db.Char(36)
+  name        String  @db.VarChar(100)
+  description String? @db.Text
+  condition   Json
+  iconUrl     String? @map("icon_url") @db.VarChar(500)
+
+  userBadges UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id       String   @id @default(uuid()) @db.Char(36)
+  userId   String   @map("user_id") @db.Char(36)
+  badgeId  String   @map("badge_id") @db.Char(36)
+  earnedAt DateTime @map("earned_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  badge Badge @relation(fields: [badgeId], references: [id])
+
+  @@map("user_badges")
+}
+
+model CoachingSession {
+  id                 String   @id @default(uuid()) @db.Char(36)
+  userId             String   @map("user_id") @db.Char(36)
+  context            Json?
+  toneSetting        String?  @map("tone_setting") @db.VarChar(50)
+  difficultySetting  Int?     @map("difficulty_setting")
+  tokensUsed         Int      @default(0) @map("tokens_used")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  user     User               @relation(fields: [userId], references: [id])
+  messages CoachingMessage[]
+
+  @@map("coaching_sessions")
+}
+
+model CoachingMessage {
+  id        String      @id @default(uuid()) @db.Char(36)
+  sessionId String      @map("session_id") @db.Char(36)
+  role      MessageRole
+  content   String      @db.Text
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  session CoachingSession @relation(fields: [sessionId], references: [id])
+
+  @@map("coaching_messages")
+}
+
+model Community {
+  id                 String   @id @default(uuid()) @db.Char(36)
+  name               String   @db.VarChar(200)
+  description        String?  @db.Text
+  capacity           Int
+  currentMembers     Int      @default(0) @map("current_members")
+  joinCondition      Json?    @map("join_condition")
+  activityFrequency  String?  @map("activity_frequency") @db.VarChar(50)
+  interests          Json?
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  members      CommunityMember[]
+  chatMessages ChatMessage[]
+
+  @@map("communities")
+}
+
+model CommunityMember {
+  id            String                 @id @default(uuid()) @db.Char(36)
+  communityId   String                 @map("community_id") @db.Char(36)
+  userId        String                 @map("user_id") @db.Char(36)
+  status        CommunityMemberStatus
+  joinedAt      DateTime?              @map("joined_at")
+  waitlistedAt  DateTime?              @map("waitlisted_at")
+
+  community Community @relation(fields: [communityId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("community_members")
+}
+
+model ChatMessage {
+  id          String   @id @default(uuid()) @db.Char(36)
+  communityId String   @map("community_id") @db.Char(36)
+  userId      String   @map("user_id") @db.Char(36)
+  content     String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  community Community @relation(fields: [communityId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("chat_messages")
+}
+
+model TokenAccount {
+  id          String   @id @default(uuid()) @db.Char(36)
+  userId      String   @unique @map("user_id") @db.Char(36)
+  balance     Int      @default(0)
+  totalEarned Int      @default(0) @map("total_earned")
+  totalUsed   Int      @default(0) @map("total_used")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("token_accounts")
+}
+
+model TokenTransaction {
+  id          String               @id @default(uuid()) @db.Char(36)
+  userId      String               @map("user_id") @db.Char(36)
+  amount      Int
+  type        TokenTransactionType
+  reason      String               @db.VarChar(255)
+  referenceId String?              @map("reference_id") @db.Char(36)
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("token_transactions")
+}
+
+model Subscription {
+  id        String            @id @default(uuid()) @db.Char(36)
+  userId    String            @map("user_id") @db.Char(36)
+  plan      SubscriptionPlan
+  startedAt DateTime          @map("started_at")
+  expiresAt DateTime?         @map("expires_at")
+  isActive  Boolean           @default(true) @map("is_active")
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  user     User      @relation(fields: [userId], references: [id])
+  payments Payment[]
+
+  @@map("subscriptions")
+}
+
+model Payment {
+  id             String        @id @default(uuid()) @db.Char(36)
+  userId         String        @map("user_id") @db.Char(36)
+  subscriptionId String?       @map("subscription_id") @db.Char(36)
+  amount         Decimal       @db.Decimal(10, 2)
+  currency       String        @default("KRW") @db.VarChar(3)
+  method         String        @db.VarChar(50)
+  status         PaymentStatus
+  externalId     String?       @map("external_id") @db.VarChar(255)
+  retryCount     Int           @default(0) @map("retry_count")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  completedAt    DateTime?     @map("completed_at")
+
+  user         User          @relation(fields: [userId], references: [id])
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  @@map("payments")
+}
+
+model DeviceToken {
+  id           String         @id @default(uuid()) @db.Char(36)
+  userId       String         @map("user_id") @db.Char(36)
+  fcmToken     String         @map("fcm_token") @db.VarChar(500)
+  platform     DevicePlatform @default(android)
+  lastActiveAt DateTime       @map("last_active_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("device_tokens")
+}
+
+model NotificationSetting {
+  id               String   @id @default(uuid()) @db.Char(36)
+  userId           String   @unique @map("user_id") @db.Char(36)
+  missionReminder  Boolean  @default(true) @map("mission_reminder")
+  communityChat    Boolean  @default(true) @map("community_chat")
+  tokenWarning     Boolean  @default(true) @map("token_warning")
+  marketing        Boolean  @default(false)
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notification_settings")
+}

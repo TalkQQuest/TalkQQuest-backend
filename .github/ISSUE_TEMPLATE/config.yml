@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 컨벤션 문서
+    url: https://github.com/TalkQQuest/TalkQQuest-backend/blob/main/docs/CONVENTION.md
+    about: 이슈/브랜치/커밋/PR 규칙은 여기서 확인하세요.

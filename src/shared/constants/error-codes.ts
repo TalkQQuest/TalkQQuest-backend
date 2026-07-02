@@ -2,26 +2,15 @@
 // 도메인 에러가 늘어나면 여기에 먼저 등록하고, 각 도메인의 *.error.ts 에서 사용합니다.
 
 export const ErrorCodes = {
-  // 공통 (E)
-  VALIDATION_ERROR: "E4001",
-  NOT_FOUND: "E4041",
-  INTERNAL_SERVER_ERROR: "E5001",
+  // 공통 (기능명세서 PDF 확정)
+  VALIDATION_ERROR: "VALIDATION_ERROR",
+  UNAUTHORIZED: "UNAUTHORIZED",
+  NOT_FOUND: "NOT_FOUND",
+  DUPLICATED: "DUPLICATED",
+  SERVER_ERROR: "SERVER_ERROR",
 
-  // Auth (A)
-  UNAUTHORIZED: "A4011",
-  FORBIDDEN: "A4031",
-
-  // Token (T)
-  INSUFFICIENT_TOKENS: "T4021",
-
-  // Community (CM)
-  COMMUNITY_FULL: "CM4091",
-
-  // Payment (P)
-  PAYMENT_FAILED: "P4022",
-
-  // AI Engine
-  AI_SERVICE_UNAVAILABLE: "AI5031",
+  // 공통 (PDF에 없음 — 403이 필요한 케이스가 생기면 그때 확정)
+  FORBIDDEN: "FORBIDDEN",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

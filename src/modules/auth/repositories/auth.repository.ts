@@ -40,6 +40,41 @@ export const createUserWithIdentity = (
     return { user, identity };
   });
 
+export const createUserWithEmailIdentity = (params: {
+  email: string;
+  passwordHash: string;
+  name: string;
+  birthDate: string;
+  schoolOrJob: string;
+}) =>
+  prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const user = await tx.users.create({
+      data: {
+        name: params.name,
+        birth_date: params.birthDate,
+        school_or_job: params.schoolOrJob,
+        terms_agreed_at: new Date(),
+      },
+    });
+
+    const identity = await tx.auth_Identities.create({
+      data: {
+        user_id: user.id,
+        provider: "email",
+        email: params.email,
+        password_hash: params.passwordHash,
+      },
+    });
+
+    return { user, identity };
+  });
+
+export const findLatestActiveTerms = (type: "terms" | "privacy") =>
+  prisma.terms.findFirst({
+    where: { type, is_active: true },
+    orderBy: { created_at: "desc" },
+  });
+
 export const createRefreshToken = (
   userId: string,
   token: string,

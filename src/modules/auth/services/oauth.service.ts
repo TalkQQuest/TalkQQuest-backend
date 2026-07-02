@@ -1,4 +1,4 @@
-import { Provider } from "@prisma/client";
+import { Prisma, Provider } from "@prisma/client";
 import {
   createUserWithIdentity,
   findIdentityByProvider,
@@ -8,6 +8,29 @@ import {
 import { OAuthLoginRequestDto, OAuthLoginResponseDto } from "../dtos/oauth.dto";
 import { verifyKakaoToken, verifyNaverToken } from "./provider.service";
 import { issueTokens } from "./token.service";
+
+const isUniqueConstraintError = (error: unknown): boolean =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+
+const loginExistingIdentity = async (
+  provider: Provider,
+  identity: NonNullable<Awaited<ReturnType<typeof findIdentityByProvider>>>,
+  deviceInfo?: OAuthLoginRequestDto["deviceInfo"]
+): Promise<OAuthLoginResponseDto> => {
+  await touchLastLogin(identity.user_id);
+  const tokens = await issueTokens(identity.user_id, identity.email, deviceInfo);
+  return {
+    ...tokens,
+    isNewUser: false,
+    needsLinking: false,
+    user: {
+      id: identity.user_id,
+      email: identity.email,
+      nickname: identity.user.user_profile?.nickname ?? null,
+      provider,
+    },
+  };
+};
 
 // CONVENTION.md `## 3.9 인증 (JWT)` > 계정 연동 문단 참고.
 const loginWithProvider = async (
@@ -22,23 +45,7 @@ const loginWithProvider = async (
   const existingIdentity = await findIdentityByProvider(provider, profile.providerUserId);
 
   if (existingIdentity) {
-    await touchLastLogin(existingIdentity.user_id);
-    const tokens = await issueTokens(
-      existingIdentity.user_id,
-      existingIdentity.email,
-      request.deviceInfo
-    );
-    return {
-      ...tokens,
-      isNewUser: false,
-      needsLinking: false,
-      user: {
-        id: existingIdentity.user_id,
-        email: existingIdentity.email,
-        nickname: existingIdentity.user.user_profile?.nickname ?? null,
-        provider,
-      },
-    };
+    return loginExistingIdentity(provider, existingIdentity, request.deviceInfo);
   }
 
   // 같은 이메일로 다른 수단(카카오/네이버/이메일)이 이미 가입되어 있으면 새 계정을 만들지 않는다.
@@ -66,24 +73,37 @@ const loginWithProvider = async (
     }
   }
 
-  const { user, identity } = await createUserWithIdentity(
-    provider,
-    profile.providerUserId,
-    profile.email
-  );
-  const tokens = await issueTokens(user.id, identity.email, request.deviceInfo);
-
-  return {
-    ...tokens,
-    isNewUser: true,
-    needsLinking: false,
-    user: {
-      id: user.id,
-      email: identity.email,
-      nickname: null,
+  try {
+    const { user, identity } = await createUserWithIdentity(
       provider,
-    },
-  };
+      profile.providerUserId,
+      profile.email
+    );
+    const tokens = await issueTokens(user.id, identity.email, request.deviceInfo);
+
+    return {
+      ...tokens,
+      isNewUser: true,
+      needsLinking: false,
+      user: {
+        id: user.id,
+        email: identity.email,
+        nickname: null,
+        provider,
+      },
+    };
+  } catch (error) {
+    // 동시에 들어온 중복 요청(연타/재시도)이 먼저 계정을 만든 경우, (provider, provider_user_id)
+    // 유니크 제약(P2002)에 걸린다. 실패로 처리하지 않고 방금 생성된 계정으로 로그인 처리한다.
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+    const raceWinnerIdentity = await findIdentityByProvider(provider, profile.providerUserId);
+    if (!raceWinnerIdentity) {
+      throw error;
+    }
+    return loginExistingIdentity(provider, raceWinnerIdentity, request.deviceInfo);
+  }
 };
 
 export const loginWithKakao = (request: OAuthLoginRequestDto) => loginWithProvider("kakao", request);

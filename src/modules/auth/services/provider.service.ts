@@ -10,8 +10,27 @@ interface ProviderProfile {
   email: string | null;
 }
 
+// Provider가 응답을 지연시키거나 네트워크 문제가 생기면 요청이 무기한 대기하며
+// 서버 워커를 점유할 수 있어, 짧은 타임아웃으로 abort한다.
+const PROVIDER_REQUEST_TIMEOUT_MS = 5000;
+
+const fetchWithTimeout = async (url: string, init: RequestInit): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PROVIDER_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new InvalidProviderTokenError("Provider 응답이 지연되어 요청을 중단했습니다");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 export const verifyKakaoToken = async (providerAccessToken: string): Promise<ProviderProfile> => {
-  const res = await fetch("https://kapi.kakao.com/v2/user/me", {
+  const res = await fetchWithTimeout("https://kapi.kakao.com/v2/user/me", {
     headers: { Authorization: `Bearer ${providerAccessToken}` },
   });
 
@@ -32,7 +51,7 @@ export const verifyKakaoToken = async (providerAccessToken: string): Promise<Pro
 };
 
 export const verifyNaverToken = async (providerAccessToken: string): Promise<ProviderProfile> => {
-  const res = await fetch("https://openapi.naver.com/v1/nid/me", {
+  const res = await fetchWithTimeout("https://openapi.naver.com/v1/nid/me", {
     headers: { Authorization: `Bearer ${providerAccessToken}` },
   });
 

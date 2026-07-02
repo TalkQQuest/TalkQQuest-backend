@@ -58,6 +58,13 @@ export const createRefreshToken = (
 export const touchLastLogin = (userId: string) =>
   prisma.users.update({ where: { id: userId }, data: { last_login_at: new Date() } });
 
+export const findAnyIdentityEmailByUserId = async (userId: string): Promise<string | null> => {
+  const identity = await prisma.auth_Identities.findFirst({
+    where: { user_id: userId, email: { not: null } },
+  });
+  return identity?.email ?? null;
+};
+
 export const findActiveRefreshToken = (token: string) =>
   prisma.refresh_Tokens.findFirst({
     where: { token, revoked: false, expires_at: { gt: new Date() } },

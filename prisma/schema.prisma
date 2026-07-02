@@ -1,7 +1,6 @@
 // prisma/schema.prisma
 // A101 ~ E101까지의 스키마
 
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -39,9 +38,9 @@ enum TermsType {
 }
 
 enum PrepItemType {
-  question  // 추천 질문
-  starter   // 대화 시작 문장
-  tip       // 준비 팁
+  question // 추천 질문
+  starter // 대화 시작 문장
+  tip // 준비 팁
 }
 
 enum ConversationStatus {
@@ -220,9 +219,9 @@ model Missions {
   id                String   @id @default(uuid()) @db.Char(36)
   title             String   @db.VarChar(255)
   description       String   @db.Text
-  preparation_tip   String?  @db.Text  // deprecated 예정 → Mission_Prep_Items로 이전
+  preparation_tip   String?  @db.Text // deprecated 예정 → Mission_Prep_Items로 이전
   caution           String?  @db.Text
-  difficulty        Int                // 1=쉬움, 2=보통, 3=어려움
+  difficulty        Int // 1=쉬움, 2=보통, 3=어려움
   estimated_minutes Int
   reward_xp         Int      @default(0)
   category          String   @db.VarChar(100)
@@ -346,9 +345,9 @@ model Mission_Records {
 model XP_History {
   id             String   @id @default(uuid()) @db.Char(36)
   user_id        String   @db.Char(36)
-  amount         Int                      // 양수=획득, 음수=차감
+  amount         Int // 양수=획득, 음수=차감
   reason         String   @db.VarChar(255)
-  reference_id   String?  @db.Char(36)   // 직접 지급 등 없을 경우 null
+  reference_id   String?  @db.Char(36) // 직접 지급 등 없을 경우 null
   reference_type String?  @db.VarChar(50) // mission_record / badge / event 등
   created_at     DateTime @default(now())
 
@@ -366,7 +365,7 @@ model Feedbacks {
   id                  String         @id @default(uuid()) @db.Char(36)
   user_id             String         @db.Char(36)
   conversation_id     String         @db.Char(36)
-  kindness_score      Int?           // pending 상태일 때 null
+  kindness_score      Int? // pending 상태일 때 null
   initiative_score    Int?
   empathy_score       Int?
   question_link_score Int?

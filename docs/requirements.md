@@ -25,19 +25,22 @@ TalkQuest는 AI 기반 현실 대화 미션을 통해 청년의 오프라인 관
 
 ## Requirements
 
-### Requirement 1: 소셜 로그인 인증
+### Requirement 1: 소셜 로그인 및 이메일 로그인 인증
 
-**User Story:** As a User, I want to 카카오 또는 네이버 계정으로 로그인할 수 있기를, so that 별도 회원가입 절차 없이 빠르게 서비스를 이용할 수 있다.
+**User Story:** As a User, I want to 카카오·네이버 계정 또는 이메일로 로그인할 수 있기를, so that 원하는 방식으로 빠르게 서비스를 이용할 수 있다.
 
 #### Acceptance Criteria
 
 1. WHEN User가 Android 카카오 SDK로 발급받은 Provider Access Token을 전송하면, THE Auth_Service SHALL 해당 토큰으로 OAuth_Provider의 사용자 정보 조회 API를 호출하여 인증을 수행한다.
 2. WHEN User가 Android 네이버 SDK로 발급받은 Provider Access Token을 전송하면, THE Auth_Service SHALL 해당 토큰으로 OAuth_Provider의 사용자 정보 조회 API를 호출하여 인증을 수행한다.
-3. WHEN 인증된 사용자의 이메일이 기존 계정에 존재하지 않으면, THE Auth_Service SHALL 가입 채널, 최초 접속 시각, 약관 동의 이력을 포함하여 신규 계정을 생성한다.
-4. WHEN 인증된 사용자의 이메일이 기존 계정에 이미 존재하면, THE Auth_Service SHALL 계정 연동 안내 정보를 응답에 포함한다.
-5. WHEN 인증이 성공하면, THE Auth_Service SHALL Access_Token과 Refresh_Token을 발급하고 로그인 이력, 접속 시간, 기기 정보를 기록한다.
-6. WHEN Access_Token이 만료되면, THE Auth_Service SHALL 유효한 Refresh_Token을 검증하고 새로운 Access_Token을 발급한다.
-7. IF Refresh_Token이 만료되었거나 유효하지 않으면, THEN THE Auth_Service SHALL 401 Unauthorized 응답을 반환하고 재로그인을 요구한다.
+3. WHEN User가 이메일로 회원가입을 요청하면, THE Auth_Service SHALL 이메일 인증(인증번호 발송/확인)을 먼저 완료시키고, 이름·생년월일·학교또는직업·비밀번호·약관 동의를 입력받아 계정을 생성한다.
+4. THE Auth_Service SHALL 이메일 회원가입의 비밀번호가 8자 이상이며 숫자·영문·특수문자를 각각 1개 이상 포함하는지 검증하고, bcrypt로 해시하여 저장한다.
+5. WHEN User가 이메일과 비밀번호로 로그인을 요청하면, THE Auth_Service SHALL 저장된 해시와 비교하여 인증을 수행한다.
+6. WHEN 인증(소셜 또는 이메일)된 사용자가 기존 계정에 존재하지 않으면, THE Auth_Service SHALL 새로운 계정과 해당 로그인 수단(Auth_Identity)을 생성한다.
+7. WHEN 인증된 사용자의 이메일이 다른 로그인 수단으로 이미 가입된 계정과 일치하면, THE Auth_Service SHALL 새 계정을 만들지 않고 계정 연동 안내 정보를 응답에 포함한다.
+8. WHEN 인증이 성공하면, THE Auth_Service SHALL Access_Token과 Refresh_Token을 발급하고 로그인 이력, 접속 시간, 기기 정보를 기록한다.
+9. WHEN Access_Token이 만료되면, THE Auth_Service SHALL 유효한 Refresh_Token을 검증하고 새로운 Access_Token을 발급한다.
+10. IF Refresh_Token이 만료되었거나 유효하지 않으면, THEN THE Auth_Service SHALL 401 Unauthorized 응답을 반환하고 재로그인을 요구한다.
 
 ### Requirement 2: 온보딩 성향 분석
 
@@ -143,7 +146,7 @@ TalkQuest는 AI 기반 현실 대화 미션을 통해 청년의 오프라인 관
 
 #### Acceptance Criteria
 
-1. THE Backend_Server SHALL 모든 API 응답을 `{ success: boolean, data: object | null, error: object | null }` 형식으로 반환한다.
+1. THE Backend_Server SHALL 모든 API 응답을 `{ success: boolean, message: string, data: object | null, errorCode: string | null }` 형식으로 반환한다.
 2. THE Backend_Server SHALL RESTful URL 규칙을 따르고 API 버전을 경로에 포함한다 (예: `/api/v1/...`).
 3. WHEN 인증이 필요한 API에 유효하지 않은 Access_Token이 전달되면, THE Backend_Server SHALL 401 상태 코드와 에러 메시지를 반환한다.
 4. WHEN 요청 데이터의 유효성 검증이 실패하면, THE Backend_Server SHALL 400 상태 코드와 실패한 필드 정보를 포함한 에러 응답을 반환한다.

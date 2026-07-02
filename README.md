@@ -76,11 +76,10 @@ src/
 
 ## 공통 응답 / 에러 포맷
 
-모든 API는 `{ success, data, error }` 형식으로 응답합니다 (`src/shared/utils/response.ts`).
-에러 코드는 도메인 접두사 + 번호 스킴을 사용합니다 (`src/shared/constants/error-codes.ts`, [docs/CONVENTION.md](docs/CONVENTION.md) `## 3.8` 참고).
+모든 API는 `{ success, message, data, errorCode }` 형식으로 응답합니다 (`src/shared/utils/response.ts`).
+에러 코드는 `VALIDATION_ERROR`, `UNAUTHORIZED`처럼 SCREAMING_SNAKE_CASE 문자열 상수를 사용합니다 (`src/shared/constants/error-codes.ts`, [docs/CONVENTION.md](docs/CONVENTION.md) `## 3.8` 참고).
 
 ## 아직 결정되지 않은 것
 
-- 실제 GitHub repository 연결 (현재는 로컬 폴더만 존재, git init도 하지 않은 상태)
 - DB 접속 정보 (MySQL 로컬/원격 여부)
 - Kakao/Naver OAuth, FCM 연동 키 값

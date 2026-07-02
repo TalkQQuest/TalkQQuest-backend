@@ -88,260 +88,31 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 ## ERD (Entity Relationship Diagram)
 
-### Users
+> **source of truth는 [`prisma/schema.prisma`](../prisma/schema.prisma)다.** 컬럼/타입/제약조건/관계의 정확한 내용은 항상 스키마 파일을 직접 확인한다. 이 섹션은 도메인별 테이블 역할을 빠르게 훑기 위한 요약이며, 스키마가 바뀔 때마다 표를 다시 베끼지 않는다 (예전엔 그렇게 하다가 스키마와 문서가 어긋나는 문제가 반복됐다).
 
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| email | VARCHAR(255) | UNIQUE, NOT NULL |
-| nickname | VARCHAR(50) | NULL |
-| provider | ENUM('kakao','naver') | NOT NULL |
-| provider_id | VARCHAR(255) | NOT NULL |
-| terms_agreed_at | TIMESTAMP | NULL |
-| created_at | TIMESTAMP | NOT NULL, DEFAULT NOW() |
-| last_login_at | TIMESTAMP | NULL |
-| status | ENUM('active','inactive','deleted') | DEFAULT 'active' |
-| deleted_at | TIMESTAMP | NULL |
+### 현재 구현 범위 (1차 제출 P0 기준, `prisma/schema.prisma`에 반영됨)
 
-### User_Profiles
+| 도메인 | 테이블 | 역할 |
+|---|---|---|
+| 인증 | `Users` | 서비스 사용자 본체 (name, school_or_job, birth_date 등). 로그인 수단 정보는 갖지 않음 |
+| 인증 | `Auth_Identities` | `Users` 1 : N 관계. 카카오/네이버/이메일 로그인 수단을 각각 한 행으로 저장 (email 방식만 `password_hash` 사용) |
+| 인증 | `Refresh_Tokens` | JWT Refresh Token, 기기정보, 폐기(revoked) 여부 |
+| 인증 | `Terms` | 이용약관/개인정보처리방침 버전 관리 |
+| 프로필/온보딩 | `User_Profiles` | 닉네임, 성향, 레벨/XP, 온보딩 진행 상태 (온보딩 중 단계별로 채워지므로 대부분 nullable) |
+| 프로필/온보딩 | `Goals` | 개인 목표/하루 대화 목표 |
+| 미션 | `Missions` | 미션 템플릿 (제목/난이도/카테고리/보상 XP) |
+| 미션 | `Mission_Prep_Items` | 미션별 준비 질문/시작 문장/팁 |
+| 미션 | `Mission_Saves` | 미션 저장(북마크) |
+| 미션 | `Mission_Records` | 미션 수행 결과, XP 지급 내역과 연결 |
+| 대화 | `Conversations` | 미션 기반 대화 세션 |
+| 대화 | `Conversation_Messages` | 대화 메시지 |
+| 성장 | `XP_History` | XP 지급/차감 내역 (레벨 시스템의 원장) |
+| 피드백/아카이브 | `Feedbacks` | AI 피드백 점수(친절함/주도성/공감/질문 연결성) |
+| 피드백/아카이브 | `Saved_Phrases` | 저장한 문장 |
 
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id, UNIQUE |
-| personality_type | ENUM('introvert','extrovert','ambivert') | NULL |
-| conversation_burden | INT (1-5) | NULL |
-| difficult_situations | JSON | NULL |
-| purpose | VARCHAR(255) | NULL |
-| goals | JSON | NULL |
-| preferred_style | VARCHAR(255) | NULL |
-| interests | JSON | NULL |
-| level | INT | DEFAULT 1 |
-| experience | INT | DEFAULT 0 |
-| onboarding_completed | BOOLEAN | DEFAULT FALSE |
-| onboarding_step | INT | DEFAULT 0 |
-| onboarding_temp_data | JSON | NULL |
-| created_at | TIMESTAMP | NOT NULL |
-| updated_at | TIMESTAMP | NOT NULL |
+### 아직 스키마에 없는 범위 (기획 단계, P1 이후)
 
-### Login_History
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id |
-| device_info | JSON | NULL |
-| ip_address | VARCHAR(45) | NULL |
-| logged_in_at | TIMESTAMP | NOT NULL |
-
-### Refresh_Tokens
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id |
-| token | VARCHAR(512) | NOT NULL, UNIQUE |
-| device_info | JSON | NULL |
-| expires_at | TIMESTAMP | NOT NULL |
-| revoked | BOOLEAN | DEFAULT FALSE |
-| created_at | TIMESTAMP | NOT NULL |
-
-### Missions
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| title | VARCHAR(255) | NOT NULL |
-| description | TEXT | NOT NULL |
-| preparation_tip | TEXT | NULL |
-| caution | TEXT | NULL |
-| difficulty | INT (1-5) | NOT NULL |
-| estimated_time | INT (minutes) | NOT NULL |
-| category | VARCHAR(100) | NOT NULL |
-| is_template | BOOLEAN | DEFAULT FALSE |
-| created_at | TIMESTAMP | NOT NULL |
-
-### Mission_Records
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id |
-| mission_id | CHAR(36) | FK → Missions.id |
-| result | ENUM('success','failure','avoidance') | NOT NULL |
-| memo | TEXT | NULL |
-| duration_minutes | INT | NULL |
-| emotion | VARCHAR(50) | NULL |
-| tokens_earned | INT | DEFAULT 0 |
-| experience_earned | INT | DEFAULT 0 |
-| temp_data | JSON | NULL |
-| status | ENUM('in_progress','completed') | DEFAULT 'in_progress' |
-| created_at | TIMESTAMP | NOT NULL |
-| completed_at | TIMESTAMP | NULL |
-
-### Mission_Recommendations
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id |
-| mission_id | CHAR(36) | FK → Missions.id |
-| reason | TEXT | NOT NULL |
-| expected_effect | TEXT | NULL |
-| difficulty_for_user | INT (1-5) | NOT NULL |
-| is_active | BOOLEAN | DEFAULT TRUE |
-| created_at | TIMESTAMP | NOT NULL |
-
-### Badges
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| name | VARCHAR(100) | NOT NULL |
-| description | TEXT | NULL |
-| condition | JSON | NOT NULL |
-| icon_url | VARCHAR(500) | NULL |
-
-### User_Badges
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id |
-| badge_id | CHAR(36) | FK → Badges.id |
-| earned_at | TIMESTAMP | NOT NULL |
-
-### Coaching_Sessions
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id |
-| context | JSON | NULL |
-| tone_setting | VARCHAR(50) | NULL |
-| difficulty_setting | INT (1-5) | NULL |
-| tokens_used | INT | DEFAULT 0 |
-| created_at | TIMESTAMP | NOT NULL |
-| updated_at | TIMESTAMP | NOT NULL |
-
-### Coaching_Messages
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| session_id | CHAR(36) | FK → Coaching_Sessions.id |
-| role | ENUM('user','assistant') | NOT NULL |
-| content | TEXT | NOT NULL |
-| created_at | TIMESTAMP | NOT NULL |
-
-### Communities
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| name | VARCHAR(200) | NOT NULL |
-| description | TEXT | NULL |
-| capacity | INT | NOT NULL |
-| current_members | INT | DEFAULT 0 |
-| join_condition | JSON | NULL |
-| activity_frequency | VARCHAR(50) | NULL |
-| interests | JSON | NULL |
-| created_at | TIMESTAMP | NOT NULL |
-
-### Community_Members
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| community_id | CHAR(36) | FK → Communities.id |
-| user_id | CHAR(36) | FK → Users.id |
-| status | ENUM('active','waiting') | NOT NULL |
-| joined_at | TIMESTAMP | NULL |
-| waitlisted_at | TIMESTAMP | NULL |
-
-### Chat_Messages
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| community_id | CHAR(36) | FK → Communities.id |
-| user_id | CHAR(36) | FK → Users.id |
-| content | TEXT | NOT NULL |
-| created_at | TIMESTAMP | NOT NULL |
-
-### Token_Accounts
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id, UNIQUE |
-| balance | INT | DEFAULT 0 |
-| total_earned | INT | DEFAULT 0 |
-| total_used | INT | DEFAULT 0 |
-| updated_at | TIMESTAMP | NOT NULL |
-
-### Token_Transactions
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id |
-| amount | INT | NOT NULL |
-| type | ENUM('earn','spend','purchase') | NOT NULL |
-| reason | VARCHAR(255) | NOT NULL |
-| reference_id | CHAR(36) | NULL |
-| created_at | TIMESTAMP | NOT NULL |
-
-### Subscriptions
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id |
-| plan | ENUM('free','basic','premium') | NOT NULL |
-| started_at | TIMESTAMP | NOT NULL |
-| expires_at | TIMESTAMP | NULL |
-| is_active | BOOLEAN | DEFAULT TRUE |
-| created_at | TIMESTAMP | NOT NULL |
-
-### Payments
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id |
-| subscription_id | CHAR(36) | FK → Subscriptions.id, NULL |
-| amount | DECIMAL(10,2) | NOT NULL |
-| currency | VARCHAR(3) | DEFAULT 'KRW' |
-| method | VARCHAR(50) | NOT NULL |
-| status | ENUM('pending','completed','failed','refunded') | NOT NULL |
-| external_id | VARCHAR(255) | NULL |
-| retry_count | INT | DEFAULT 0 |
-| created_at | TIMESTAMP | NOT NULL |
-| completed_at | TIMESTAMP | NULL |
-
-### Device_Tokens
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id |
-| fcm_token | VARCHAR(500) | NOT NULL |
-| platform | ENUM('android') | NOT NULL, DEFAULT 'android' |
-| last_active_at | TIMESTAMP | NOT NULL |
-| created_at | TIMESTAMP | NOT NULL |
-
-### Notification_Settings
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | CHAR(36) | PK |
-| user_id | CHAR(36) | FK → Users.id, UNIQUE |
-| mission_reminder | BOOLEAN | DEFAULT TRUE |
-| community_chat | BOOLEAN | DEFAULT TRUE |
-| token_warning | BOOLEAN | DEFAULT TRUE |
-| marketing | BOOLEAN | DEFAULT FALSE |
-| updated_at | TIMESTAMP | NOT NULL |
+커뮤니티/모임, 결제/구독, 리포트, 알림(FCM), 아카이브 폴더, 안전(차단/신고), 캘린더 관련 테이블(`Communities`, `Community_Members`, `Community_Join_Requests`, `Chat_Messages`, `Plans`, `Subscriptions`, `Payments`, `Reports`, `Notifications`, `Notification_Settings`, `Device_Tokens`, `Archive_Folders`, `Archive_Items`, `Badges`, `User_Badges`, `Blocked_Users`, `Safety_Reports`, `Calendar_Events`, `Usage` 등)은 기획 ERD에는 존재하지만 아직 `prisma/schema.prisma`에 반영되지 않았다. 해당 도메인 구현이 시작되면 스키마에 먼저 추가하고, 이 표도 같이 갱신한다.
 
 ## API Specification
 
@@ -356,8 +127,9 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 ```json
 {
   "success": true,
+  "message": "OK",
   "data": { ... },
-  "error": null
+  "errorCode": null
 }
 ```
 
@@ -366,26 +138,37 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 ```json
 {
   "success": false,
+  "message": "입력값이 올바르지 않습니다",
   "data": null,
-  "error": {
-    "code": "E4001",
-    "message": "입력값이 올바르지 않습니다",
-    "details": [{ "field": "email", "message": "유효한 이메일 형식이 아닙니다" }]
-  }
+  "errorCode": "VALIDATION_ERROR"
 }
 ```
+
+- `errorCode`는 SCREAMING_SNAKE_CASE 문자열 코드다. 전체 목록은 `## Error Codes` 참고.
+- 기능명세서 PDF 원안은 `{ success, message, data }`까지만 제시했지만, 클라이언트가 에러 종류를 분기 처리할 수 있도록 팀 논의를 거쳐 `errorCode` 필드를 추가했다.
+- 검증 실패 시 필드별 상세 정보(어떤 필드가 왜 틀렸는지)를 어디에 실을지는 아직 미정이다. 우선은 `message` 문자열로만 표현한다.
 
 ### Auth APIs
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | /auth/kakao | 카카오 OAuth 로그인 |
-| POST | /auth/naver | 네이버 OAuth 로그인 |
+| POST | /auth/oauth/kakao | 카카오 로그인 |
+| POST | /auth/oauth/naver | 네이버 로그인 |
+| POST | /auth/signup | 이메일 회원가입 |
+| POST | /auth/login | 이메일 로그인 |
+| POST | /auth/email/request | 이메일 인증번호 발송 |
+| POST | /auth/email/verify | 이메일 인증번호 확인 |
 | POST | /auth/refresh | Access Token 재발급 |
 | POST | /auth/logout | 로그아웃 |
-| DELETE | /auth/account | 계정 삭제 요청 |
+| GET | /terms/latest | 약관/개인정보 동의 항목 조회 |
 
-> **Android 클라이언트 인증 방식**: 프론트엔드가 Android 네이티브 앱으로 고정되므로, Kakao SDK / Naver SDK는 디바이스에서 OAuth 인가 코드(authorization code)를 직접 토큰으로 교환한 뒤 **Provider Access Token**을 발급한다. 따라서 백엔드는 Authorization Code → Token 교환을 수행하지 않고, **클라이언트가 전달한 Provider Access Token을 그대로 카카오/네이버의 사용자 정보 조회 API에 전달해 검증**하는 방식으로 구현한다. (웹 OAuth Redirect 플로우 전제로 한 `code` 파라미터는 사용하지 않음)
+> 계정 삭제 API는 Auth 도메인이 아니라 `DELETE /api/v1/users/me`(G103 안전/개인정보 설정)에 정의되어 있다. Profile & Settings APIs 섹션은 이번 PR 범위 밖이라 아직 PDF 기준으로 갱신되지 않았다 (별도 이슈 필요).
+
+> **소셜 로그인(Android 클라이언트) 인증 방식**: 프론트엔드가 Android 네이티브 앱으로 고정되므로, Kakao SDK / Naver SDK가 디바이스에서 로그인을 처리하고 **Provider Access Token**을 앱에 직접 발급한다. 백엔드는 Authorization Code → Token 교환을 수행하지 않고, **클라이언트가 전달한 Provider Access Token을 그대로 카카오/네이버의 사용자 정보 조회 API에 전달해 검증**하는 방식으로 구현한다. (기능명세서 반영 이후에도 이 방식을 유지하기로 재확인함)
+>
+> **이메일 로그인**: `/auth/signup`은 이메일 인증(`/auth/email/request` → `/auth/email/verify`) 완료 후 비밀번호와 이름/생년월일/학교·직업을 받아 계정을 생성한다. 비밀번호는 8자 이상 + 숫자 + 영문 + 특수문자 포함 규칙을 적용하고 bcrypt로 해시하여 저장한다.
+>
+> **계정 연동**: 카카오/네이버/이메일 중 이미 가입된 이메일로 다른 수단의 로그인을 시도하면, 새 계정을 만들지 않고 응답에 계정 연동 안내 정보를 포함한다.
 
 #### POST /auth/kakao
 
@@ -645,8 +428,9 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 ```json
 {
   "success": false,
+  "message": "토큰이 부족합니다",
   "data": null,
-  "error": { "code": "T4021", "message": "토큰이 부족합니다" }
+  "errorCode": "INSUFFICIENT_TOKENS"
 }
 ```
 
@@ -777,12 +561,9 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 ```json
 {
   "success": false,
+  "message": "결제에 실패했습니다. 다른 결제 수단을 시도해주세요",
   "data": null,
-  "error": {
-    "code": "P4022",
-    "message": "결제에 실패했습니다",
-    "details": [{ "field": "method", "message": "다른 결제 수단을 시도해주세요" }]
-  }
+  "errorCode": "PAYMENT_FAILED"
 }
 ```
 
@@ -883,22 +664,38 @@ Android 앱이 FCM 토큰을 최초 발급/갱신할 때마다 호출한다.
 
 ## Error Codes
 
-도메인 접두사 + 일련번호 형식으로 코드를 부여한다 (예: `A`=Auth, `O`=Onboarding, `M`=Mission, `C`=Coaching, `CM`=Community, `T`=Token, `P`=Payment, `R`=Report, `E`=공통/Common).
-같은 도메인 안에서도 에러 종류별로 별도 클래스(`*.error.ts`)를 만들고, 공통 `AppError`를 상속해 `errorCode`/`statusCode`/`message`/`data`를 갖도록 한다.
+에러 코드는 **SCREAMING_SNAKE_CASE 문자열**을 사용한다. 접두사 규칙은 없으며, 코드 이름 자체가 곧 문서다. 같은 도메인 안에서도 에러 종류별로 별도 클래스(`*.error.ts`)를 만들고, 공통 `AppError`를 상속해 `errorCode`/`statusCode`/`message`/`data`를 갖도록 한다.
 
-| Code | Name | HTTP Status | Description |
-|------|------|-------------|-------------|
-| E4001 | VALIDATION_ERROR | 400 | 요청 데이터 유효성 검증 실패 |
-| A4011 | UNAUTHORIZED | 401 | Access Token 누락/만료/무효 |
-| A4031 | FORBIDDEN | 403 | 권한 없음 |
-| E4041 | NOT_FOUND | 404 | 리소스를 찾을 수 없음 |
-| T4021 | INSUFFICIENT_TOKENS | 402 | 토큰 잔여량 부족 |
-| CM4091 | COMMUNITY_FULL | 409 | 모임 정원 초과 (대기 등록으로 처리) |
-| P4022 | PAYMENT_FAILED | 402 | 결제 처리 실패 |
-| AI5031 | AI_SERVICE_UNAVAILABLE | 503 | AI_Engine 응답 실패 (재시도/템플릿 대체 후에도 실패) |
-| E5001 | INTERNAL_SERVER_ERROR | 500 | 서버 내부 오류 |
+**공통 에러 코드**
 
-> 도메인별로 에러가 늘어나면 동일 접두사 내에서 번호를 이어서 부여한다 (예: 인증 도메인 추가 에러는 `A4012`, `A4013`...).
+기능명세서 PDF가 명시한 공통 코드는 `VALIDATION_ERROR`, `UNAUTHORIZED`, `NOT_FOUND`, `DUPLICATED`, `SERVER_ERROR` 5개다. `FORBIDDEN`은 PDF에 없음 — 403이 필요한 케이스가 생기면 그때 확정한다.
+
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| VALIDATION_ERROR | 400 | 요청 데이터 유효성 검증 실패 |
+| UNAUTHORIZED | 401 | Access Token 누락/만료/무효 |
+| FORBIDDEN | 403 | 권한 없음 (PDF에는 없음) |
+| NOT_FOUND | 404 | 리소스를 찾을 수 없음 |
+| DUPLICATED | 409 | 리소스 중복 (일반) |
+| SERVER_ERROR | 500 | 서버 내부 오류 |
+
+**도메인별 세부 코드 (예시)**
+
+`INSUFFICIENT_TOKENS`, `COMMUNITY_FULL`, `PAYMENT_FAILED`, `AI_SERVICE_UNAVAILABLE`는 PDF에 명시된 적이 없다. 특히 `INSUFFICIENT_TOKENS`는 새 ERD에 `Token_Accounts`/`Token_Transactions` 테이블 자체가 보이지 않아(`XP_History`/`Usage`/`Plans`로 대체된 것으로 추정) 토큰 시스템 개념 자체가 아직 유효한지 불확실하다. 해당 도메인(토큰/커뮤니티/결제/AI 코칭) 담당자가 확인 후 정리해야 한다.
+
+| Code | HTTP Status | Description | 출처 |
+|------|-------------|-------------|------|
+| DUPLICATED_EMAIL | 409 | 이미 가입된 이메일 | PDF (A103) |
+| INVALID_VERIFICATION_CODE | 400 | 이메일 인증번호 불일치/만료 | PDF (A103) |
+| TERMS_REQUIRED | 400 | 필수 약관 미동의 | PDF (A103) |
+| FEEDBACK_NOT_READY | 202 | AI 피드백이 아직 준비되지 않음 | PDF (예외 E-1) |
+| FEEDBACK_INPUT_TOO_SHORT | 400 | 피드백 생성에 필요한 대화 분량 부족 | PDF (예외 E-1) |
+| INSUFFICIENT_TOKENS | 402 | 토큰 잔여량 부족 | PDF에 없음, 재검토 필요 |
+| COMMUNITY_FULL | 409 | 모임 정원 초과 (대기 등록으로 처리) | PDF에 없음, 재검토 필요 |
+| PAYMENT_FAILED | 402 | 결제 처리 실패 | PDF에 없음, 재검토 필요 |
+| AI_SERVICE_UNAVAILABLE | 503 | AI_Engine 응답 실패 (재시도/템플릿 대체 후에도 실패) | PDF에 없음, 재검토 필요 |
+
+> 도메인별 세부 코드는 필요할 때마다 위 표에 추가한다. 이름은 다른 도메인 코드와 겹치지 않게, 의미가 분명하도록 짓는다.
 
 ## Non-Functional Considerations
 

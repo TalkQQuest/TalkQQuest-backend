@@ -32,7 +32,22 @@
 ✨ Feat: 미션 추천 API 개발 (#2)
 ```
 
-### Branch Convention (GitHub Flow)
+### Branch Convention
+
+**브랜치 구조**: `main` / `dev` / 작업 브랜치(`init`, `feat`, `fix`, `refactor`, `docs`, `chore` ...) 3단 구조를 사용한다.
+
+- `main`: 배포 가능한 상태만 유지. 평소에는 직접 push/merge하지 않는다.
+- `dev`: 통합 브랜치. 모든 작업 브랜치는 `dev`에서 분기하고 `dev`로 PR을 보낸다.
+- 작업 브랜치: `dev`에서 분기해서 작업하고, 끝나면 `dev`로 PR → 병합 후 삭제한다.
+- `dev → main`은 릴리즈(배포) 시점에 별도로 병합한다 (평소 작업 흐름에는 포함되지 않음).
+
+```
+main ── dev ── feat/#12/mission-recommendation
+            └─ fix/#13/token-balance
+            └─ docs/#5-6/branch-and-doc-sync
+```
+
+> 예외: 프로젝트 극초기(레포에 커밋이 거의 없던 시점)에 만들어진 `init/#1/init`, `feat/#3/db-init`은 `dev`가 생기기 전이라 `main`에 직접 병합했다. 이 두 건 이후로는 전부 `dev`를 거친다.
 
 **브랜치 종류**
 
@@ -42,14 +57,17 @@
 | `feat` | 새로운 기능 추가 |
 | `fix` | 버그 수정 |
 | `refactor` | 코드 리팩토링 |
+| `docs` | 문서 추가/수정 |
+| `chore` | 빌드, 설정, 브랜치 전략 등 기타 작업 |
 
-**형식**: `브랜치종류/#이슈번호/상세기능`
+**형식**: `브랜치종류/#이슈번호/상세기능` (이슈가 여러 개에 걸친 작업이면 `#5-6`처럼 번호를 이어 쓴다)
 
 **예시**
 ```
 init/#1/init
 feat/#2/mission-recommendation
 fix/#3/token-balance
+docs/#5-6/branch-and-doc-sync
 ```
 
 ---
@@ -232,51 +250,49 @@ export const completeMission = async (
 // shared/utils/response.ts
 export interface ApiResponse<T> {
   success: boolean;
+  message: string;
   data: T | null;
-  error: { code: string; message: string; details?: unknown } | null;
+  errorCode: string | null;
 }
 
-export const success = <T>(data: T): ApiResponse<T> => ({
+export const success = <T>(data: T, message = 'OK'): ApiResponse<T> => ({
   success: true,
+  message,
   data,
-  error: null,
+  errorCode: null,
+});
+
+export const failure = (errorCode: string, message: string): ApiResponse<null> => ({
+  success: false,
+  message,
+  data: null,
+  errorCode,
 });
 ```
 
-응답 형식은 항상 `{ success, data, error }`로 고정한다 (design.md와 동일).
+응답 형식은 항상 `{ success, message, data, errorCode }`로 고정한다 (design.md와 동일).
+- 성공 시: `success: true`, `data`에 실제 값, `errorCode: null`
+- 실패 시: `success: false`, `data: null`, `errorCode`에 3.8의 문자열 코드
+- `message`는 클라이언트가 그대로 보여줄 수 있는 짧은 한글 설명 문자열이다.
+- 기능명세서 PDF 원안은 `{ success, message, data }`까지만 제시했지만, 클라이언트가 에러 종류를 분기 처리할 수 있도록 팀 논의를 거쳐 `errorCode` 필드를 추가했다.
+- **TODO**: 검증 실패 시 필드별 상세 정보(어떤 필드가 왜 틀렸는지)를 새 포맷 어디에 실을지는 아직 정해지지 않았다. 우선은 `message` 문자열 하나로 표현하고, 구조화된 필드 단위 에러가 실제로 필요해지면 그때 다시 논의한다.
 
 ### 3.8 Exception / Error Code
 
-도메인 접두사 + 일련번호로 코드를 부여한다.
+**공통 에러 코드**
 
-| 접두사 | 도메인 |
-|---|---|
-| `E` | 공통(Common) |
-| `A` | Auth |
-| `O` | Onboarding |
-| `M` | Mission |
-| `C` | Coaching |
-| `CM` | Community |
-| `T` | Token |
-| `P` | Payment |
-| `R` | Report |
-| `AI` | AI_Engine 연동 |
+기능명세서 PDF가 명시한 공통 코드는 `VALIDATION_ERROR`, `UNAUTHORIZED`, `NOT_FOUND`, `DUPLICATED`, `SERVER_ERROR` 5개다. `FORBIDDEN`은 PDF에 없음 — 403이 필요한 케이스가 생기면 그때 확정한다.
 
-대표 코드 (design.md `## Error Codes`와 동일하게 유지):
+| Code | HTTP Status | Description |
+|---|---|---|
+| `VALIDATION_ERROR` | 400 | 요청 데이터 유효성 검증 실패 |
+| `UNAUTHORIZED` | 401 | Access Token 누락/만료/무효 |
+| `FORBIDDEN` | 403 | 권한 없음 (PDF에는 없음) |
+| `NOT_FOUND` | 404 | 리소스를 찾을 수 없음 |
+| `DUPLICATED` | 409 | 리소스 중복 (일반) |
+| `SERVER_ERROR` | 500 | 서버 내부 오류 |
 
-| Code | Name | HTTP Status | Description |
-|---|---|---|---|
-| E4001 | VALIDATION_ERROR | 400 | 요청 데이터 유효성 검증 실패 |
-| A4011 | UNAUTHORIZED | 401 | Access Token 누락/만료/무효 |
-| A4031 | FORBIDDEN | 403 | 권한 없음 |
-| E4041 | NOT_FOUND | 404 | 리소스를 찾을 수 없음 |
-| T4021 | INSUFFICIENT_TOKENS | 402 | 토큰 잔여량 부족 |
-| CM4091 | COMMUNITY_FULL | 409 | 모임 정원 초과 (대기 등록) |
-| P4022 | PAYMENT_FAILED | 402 | 결제 처리 실패 |
-| AI5031 | AI_SERVICE_UNAVAILABLE | 503 | AI_Engine 응답 실패 |
-| E5001 | INTERNAL_SERVER_ERROR | 500 | 서버 내부 오류 |
-
-같은 도메인에서 에러가 늘어나면 접두사를 유지한 채 번호만 이어 붙인다 (`M4041`, `M4042`...).
+**도메인별 세부 코드**는 위 공통 코드로 표현이 안 될 때만, 의미가 분명한 이름으로 추가한다 (예: 인증 도메인의 `DUPLICATED_EMAIL`, `INVALID_VERIFICATION_CODE`, `TERMS_REQUIRED`). 접두사 규칙은 없으며, 코드 이름 자체가 곧 문서다. 도메인별 세부 코드 전체 목록은 [design.md](design.md) `## Error Codes` 참고.
 
 ```ts
 // shared/errors/app-error.ts
@@ -296,7 +312,7 @@ export class AppError extends Error {
 // modules/mission/errors/mission.error.ts (Entity + Exception 형식)
 export class MissionNotFoundError extends AppError {
   constructor(data?: unknown) {
-    super('M4041', 404, '존재하지 않는 미션입니다.', data);
+    super('NOT_FOUND', 404, '존재하지 않는 미션입니다.', data);
   }
 }
 ```
@@ -305,33 +321,37 @@ export class MissionNotFoundError extends AppError {
 // middlewares/errorHandler.ts (전역 예외 처리)
 export const errorHandler = (err: unknown, req: Request, res: Response, next: NextFunction) => {
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
-      success: false,
-      data: null,
-      error: { code: err.errorCode, message: err.message, details: err.data },
-    });
+    return res.status(err.statusCode).json(failure(err.errorCode, err.message));
   }
   logger.error(err);
-  return res.status(500).json({
-    success: false,
-    data: null,
-    error: { code: 'E5001', message: '서버 내부 오류입니다.' },
-  });
+  return res.status(500).json(failure('SERVER_ERROR', '서버 내부 오류입니다.'));
 };
 ```
 
 ### 3.9 인증 (JWT)
 
-- Kakao/Naver SDK가 발급한 **Provider Access Token**을 그대로 받아 각 Provider의 사용자 정보 조회 API로 검증한다 (Authorization Code 교환 로직은 구현하지 않음).
-- 인증 성공 시 자체 **Access Token(JWT) + Refresh Token**을 발급한다.
+TalkQuest는 카카오/네이버 소셜 로그인과 이메일/비밀번호 로그인을 함께 지원한다.
+
+**소셜 로그인 (카카오/네이버)**
+- Kakao/Naver SDK가 발급한 **Provider Access Token**을 그대로 받아 각 Provider의 사용자 정보 조회 API로 검증한다 (Authorization Code 교환 로직은 구현하지 않음). 기능명세서 반영 이후에도 이 방식을 유지하기로 재확인했다.
+
+**이메일/비밀번호 로그인**
+- 회원가입 시 이메일 인증(인증번호 발송/확인)을 먼저 거친 뒤 비밀번호를 설정한다.
+- 비밀번호 규칙: 8자 이상, 숫자·영문·특수문자 각각 1개 이상 포함. `bcrypt`로 해시하여 `Auth_Identities.password_hash`에 저장한다 (평문 저장 금지).
+- 회원가입 시 이름, 생년월일, 학교/직업을 함께 수집해 `Users`에 저장한다.
+
+**공통**
+- 인증 성공 시 (소셜/이메일 무관) 자체 **Access Token(JWT) + Refresh Token**을 발급한다.
 - `middlewares/auth.ts`에서 JWT를 직접 검증한다 (passport 등 외부 인증 프레임워크 사용하지 않음).
-- 상세 흐름/스키마는 [design.md](design.md)의 Auth APIs, Non-Functional Considerations 참고.
+- 이미 가입된 이메일로 다른 로그인 수단(예: 카카오)을 시도하면, 계정을 새로 만들지 않고 **계정 연동 안내**를 응답에 포함한다.
+- 상세 흐름/스키마는 [design.md](design.md)의 Auth APIs, ERD, Non-Functional Considerations 참고.
 
 ### 3.10 데이터베이스 메모 (적용 시점에 참고)
 
 - ORM: Prisma, Database: MySQL 8.0.
-- PK는 `CHAR(36)`에 UUID 문자열 저장, `JSONB` 대신 MySQL 네이티브 `JSON` 타입 사용 (자세한 내용은 [design.md](design.md) `### Database` 참고).
+- PK는 `CHAR(36)`에 UUID 문자열 저장, `JSONB` 대신 MySQL 네이티브 `JSON` 타입 사용.
 - Prisma 드라이버 어댑터를 쓸 경우 `@prisma/adapter-mysql`을 사용한다 (예전 실습 코드의 `@prisma/adapter-mariadb`를 그대로 가져오지 않도록 주의).
+- **ERD의 source of truth는 `prisma/schema.prisma`다.** design.md의 ERD 섹션은 전체 컬럼을 중복 기재하지 않고 도메인별 요약만 담는다 — 컬럼/제약조건/관계의 정확한 내용은 항상 `prisma/schema.prisma`를 직접 확인한다.
 
 ### 3.11 로깅 — Pino
 

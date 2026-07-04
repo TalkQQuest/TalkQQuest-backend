@@ -12,6 +12,10 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(1),
   JWT_ACCESS_EXPIRES_IN: z.string().default("1h"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("14d"),
+  // 이메일 발송(Resend). 값이 없으면 실제 발송 없이 로그로만 인증번호를 출력한다
+  // (팀원들이 각자 API 키를 세팅하지 않아도 로컬 개발/테스트가 가능하도록).
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z.string().default("onboarding@resend.dev"),
 });
 
 const parsed = envSchema.safeParse(process.env);

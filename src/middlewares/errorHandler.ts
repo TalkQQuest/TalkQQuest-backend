@@ -18,19 +18,15 @@ export const errorHandler = (
   }
 
   if (err instanceof AppError) {
-    return res
-      .status(err.statusCode)
-      .json(failure({ code: err.errorCode, message: err.message, details: err.data }));
+    return res.status(err.statusCode).json(failure(err.errorCode, err.message));
   }
 
   logger.error({ requestId: req.requestId, err }, "처리되지 않은 서버 내부 오류");
-  return res
-    .status(500)
-    .json(failure({ code: ErrorCodes.INTERNAL_SERVER_ERROR, message: "서버 내부 오류가 발생했습니다" }));
+  return res.status(500).json(failure(ErrorCodes.SERVER_ERROR, "서버 내부 오류가 발생했습니다"));
 };
 
 export const notFoundHandler = (req: Request, res: Response) => {
   return res
     .status(404)
-    .json(failure({ code: ErrorCodes.NOT_FOUND, message: `요청한 경로를 찾을 수 없습니다: ${req.originalUrl}` }));
+    .json(failure(ErrorCodes.NOT_FOUND, `요청한 경로를 찾을 수 없습니다: ${req.originalUrl}`));
 };

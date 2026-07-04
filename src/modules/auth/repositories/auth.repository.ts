@@ -37,6 +37,8 @@ export const createUserWithIdentity = (
       },
     });
 
+    await tx.user_Profiles.create({ data: { user_id: user.id } });
+
     return { user, identity };
   });
 
@@ -65,6 +67,8 @@ export const createUserWithEmailIdentity = (params: {
         password_hash: params.passwordHash,
       },
     });
+
+    await tx.user_Profiles.create({ data: { user_id: user.id } });
 
     return { user, identity };
   });

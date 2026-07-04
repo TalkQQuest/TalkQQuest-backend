@@ -185,7 +185,7 @@ model User_Profiles {
   onboarding_completed    Boolean          @default(false)
   onboarding_step         Int              @default(0)
   onboarding_temp_data    Json?
-  created_at              DateTime
+  created_at              DateTime         @default(now())
   updated_at              DateTime         @updatedAt
 
   user Users @relation(fields: [user_id], references: [id])

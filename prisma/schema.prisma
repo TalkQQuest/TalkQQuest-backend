@@ -176,7 +176,7 @@ model User_Profiles {
   difficult_situations    Json?
   preferred_style         String?          @db.VarChar(255)
   interests               Json?
-  purpose                 String?          @db.VarChar(255)
+  purpose                 Json? // 연습하고 싶은 대화 유형 배열 (최대 2개) — 기존 String 단일값에서 변경
   avatar_url              String?          @db.VarChar(500)
   bio                     String?          @db.Text
   daily_conversation_goal Int              @default(1)
@@ -185,7 +185,7 @@ model User_Profiles {
   onboarding_completed    Boolean          @default(false)
   onboarding_step         Int              @default(0)
   onboarding_temp_data    Json?
-  created_at              DateTime
+  created_at              DateTime         @default(now())
   updated_at              DateTime         @updatedAt
 
   user Users @relation(fields: [user_id], references: [id])

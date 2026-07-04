@@ -7,9 +7,17 @@
     "specVersion": 3,
     "name": "TalkQuest API",
     "description": "TalkQuest 백엔드 API 명세 (자동 생성)",
-    "basePath": "/api/v1"
+    "basePath": "/api/v1",
+    "securityDefinitions": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
   },
   "routes": {
-    "routesDir": "src/generated"
+    "routesDir": "src/generated",
+    "authenticationModule": "src/middlewares/tsoaAuthentication.ts"
   }
 }

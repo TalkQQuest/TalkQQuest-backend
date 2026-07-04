@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Middlewares, Patch, Post, Request, Route, Tags } from "tsoa";
+import { Body, Controller, Get, Middlewares, Patch, Post, Request, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
 import { validate } from "../../../middlewares/validator";
@@ -24,6 +24,7 @@ export class UserController extends Controller {
    * @summary 내 프로필 조회
    */
   @Get("me")
+  @Security("bearerAuth")
   @Middlewares(authorizeUser())
   public async getMe(@Request() req: ExpressRequest): Promise<ApiResponse<MyProfileResponseDto>> {
     const result = await getMyProfile(req.user!.id);
@@ -34,6 +35,7 @@ export class UserController extends Controller {
    * @summary 내 프로필 수정
    */
   @Patch("me")
+  @Security("bearerAuth")
   @Middlewares(authorizeUser(), validate(updateProfileRequestSchema))
   public async updateMe(
     @Request() req: ExpressRequest,
@@ -47,6 +49,7 @@ export class UserController extends Controller {
    * @summary 온보딩 단계별 저장
    */
   @Patch("me/onboarding")
+  @Security("bearerAuth")
   @Middlewares(authorizeUser(), validate(onboardingStepRequestSchema))
   public async saveOnboarding(
     @Request() req: ExpressRequest,
@@ -60,6 +63,7 @@ export class UserController extends Controller {
    * @summary 온보딩 완료
    */
   @Post("me/onboarding/complete")
+  @Security("bearerAuth")
   @Middlewares(authorizeUser())
   public async completeMyOnboarding(
     @Request() req: ExpressRequest

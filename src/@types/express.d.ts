@@ -4,7 +4,7 @@ declare namespace Express {
     requestId?: string;
     user?: {
       id: string;
-      email: string;
+      email: string | null;
     };
   }
 }

@@ -5,7 +5,7 @@ import { UnauthorizedError } from "../shared/errors/common.error";
 
 interface AccessTokenPayload {
   sub: string;
-  email: string;
+  email: string | null;
 }
 
 // CONVENTION.md `## 3.9 인증 (JWT)` 참고.

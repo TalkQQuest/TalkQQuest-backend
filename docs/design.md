@@ -655,6 +655,77 @@ Android 앱이 FCM 토큰을 최초 발급/갱신할 때마다 호출한다.
 { "fcmToken": "string" }
 ```
 
+### Goal APIs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /goals | 목표 목록 조회 |
+| POST | /goals | 목표 생성 |
+| PATCH | /goals/:goalId | 목표 수정 |
+| DELETE | /goals/:goalId | 목표 삭제 |
+
+#### GET /goals
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "goals": [
+      {
+        "id": "goal-001",
+        "goalType": "daily_mission",
+        "target": "2",
+        "isActive": true,
+        "createdAt": "2025-07-01T00:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+#### POST /goals
+
+**Request Body:**
+```json
+{
+  "goalType": "daily_mission",
+  "target": "3"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": { "goalId": "goal-002" }
+}
+```
+
+#### PATCH /goals/:goalId
+
+**Request Body:**
+```json
+{
+  "target": "5",
+  "isActive": true
+}
+```
+
+**Response (200):**
+```json
+{ "success": true, "data": null }
+```
+
+#### DELETE /goals/:goalId
+
+**Response (200):**
+```json
+{ "success": true, "data": null }
+```
+
+목표 조회/수정/삭제는 모두 `NOT_FOUND`(존재하지 않거나 본인 소유가 아닌 goalId) 공통 에러 코드를 사용한다.
+
 ## Push Notification 발송 정책 (Android / FCM)
 
 - `Notification_Settings`의 항목별 동의 여부를 확인한 뒤에만 발송한다.

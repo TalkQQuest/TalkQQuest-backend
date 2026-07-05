@@ -1,6 +1,7 @@
 // modules/mission/services/mission.service.ts
 import * as missionRepository from "../repositories/mission.repository";
-import { MissionNotFoundError } from "../errors/mission.error";
+import { DuplicatedError } from "../../../shared/errors/common.error";
+import { MissionNotFoundError, SaveNotFoundError } from "../errors/mission.error";
 import {
   GetMissionsQueryDto,
   MissionListResponseDto,
@@ -8,6 +9,8 @@ import {
   MissionDetailResponseDto,
   MissionPrepResponseDto,
   MissionPrepItemDto,
+  MissionSaveResponseDto, 
+  MissionUnsaveResponseDto
 } from "../dtos/mission.dto";
 import { DIFFICULTY_TO_INT, DIFFICULTY_TO_LABEL } from "../dtos/mission.constants";
 
@@ -96,21 +99,29 @@ export const getMissionDetail = async (
   };
 };
 
-export const saveMission = async (userId: string, missionId: string): Promise<void> => {
+export const saveMission = async (
+  userId: string,
+  missionId: string
+): Promise<MissionSaveResponseDto> => {
   const mission = await missionRepository.findMissionById(missionId);
   if (!mission) throw new MissionNotFoundError();
 
   const existing = await missionRepository.findSavedMission(userId, missionId);
-  if (existing) return; // 멱등 처리
+  if (existing) throw new DuplicatedError("이미 저장된 미션입니다.");
 
-  await missionRepository.createMissionSave(userId, missionId);
+  const saved = await missionRepository.createMissionSave(userId, missionId);
+  return { missionId, isSaved: true, savedAt: saved.created_at.toISOString() };
 };
 
-export const unsaveMission = async (userId: string, missionId: string): Promise<void> => {
+export const unsaveMission = async (
+  userId: string,
+  missionId: string
+): Promise<MissionUnsaveResponseDto> => {
   const existing = await missionRepository.findSavedMission(userId, missionId);
-  if (!existing) return; // 멱등 처리
+  if (!existing) throw new SaveNotFoundError();
 
   await missionRepository.deleteMissionSave(userId, missionId);
+  return { missionId, isSaved: false };
 };
 
 export const getMissionPrep = async (missionId: string): Promise<MissionPrepResponseDto> => {

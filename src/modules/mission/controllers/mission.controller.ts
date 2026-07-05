@@ -10,6 +10,8 @@ import {
   MissionDetailResponseDto,
   MissionPrepResponseDto,
   MissionListItemDto,
+  MissionSaveResponseDto,
+  MissionUnsaveResponseDto
 } from "../dtos/mission.dto";
 import * as missionService from "../services/mission.service";
 
@@ -58,32 +60,32 @@ export class MissionController extends Controller {
   }
 
   /**
-   * @summary 미션 아카이브 저장
-   */
-  @Post("{missionId}/save")
-  @Security("bearerAuth")
-  @Middlewares(authorizeUser())
-  public async saveMission(
-    @Request() req: ExpressRequest,
-    @Path() missionId: string
-  ): Promise<ApiResponse<null>> {
-    await missionService.saveMission(req.user!.id, missionId);
-    return success(null, "미션이 저장되었습니다.");
-  }
+ * @summary 미션 아카이브 저장
+ */
+@Post("{missionId}/save")
+@Security("bearerAuth")
+@Middlewares(authorizeUser())
+public async saveMission(
+  @Request() req: ExpressRequest,
+  @Path() missionId: string
+): Promise<ApiResponse<MissionSaveResponseDto>> {
+  const result = await missionService.saveMission(req.user!.id, missionId);
+  return success(result, "미션이 저장되었습니다.");
+}
 
-  /**
-   * @summary 미션 저장 취소
-   */
-  @Delete("{missionId}/save")
-  @Security("bearerAuth")
-  @Middlewares(authorizeUser())
-  public async unsaveMission(
-    @Request() req: ExpressRequest,
-    @Path() missionId: string
-  ): Promise<ApiResponse<null>> {
-    await missionService.unsaveMission(req.user!.id, missionId);
-    return success(null, "저장이 취소되었습니다.");
-  }
+/**
+ * @summary 미션 저장 취소
+ */
+@Delete("{missionId}/save")
+@Security("bearerAuth")
+@Middlewares(authorizeUser())
+public async unsaveMission(
+  @Request() req: ExpressRequest,
+  @Path() missionId: string
+): Promise<ApiResponse<MissionUnsaveResponseDto>> {
+  const result = await missionService.unsaveMission(req.user!.id, missionId);
+  return success(result, "미션 저장이 취소되었습니다.");
+}
 
   /**
    * @summary 대화 시작 준비 문장 조회

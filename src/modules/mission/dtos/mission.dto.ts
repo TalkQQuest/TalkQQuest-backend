@@ -69,3 +69,16 @@ export interface MissionPrepResponseDto {
   totalCount: number;
   items: MissionPrepItemDto[];
 }
+
+// POST /missions/{missionId}/save
+export interface MissionSaveResponseDto {
+  missionId: string;
+  isSaved: true;
+  savedAt: string;
+}
+
+// DELETE /missions/{missionId}/save
+export interface MissionUnsaveResponseDto {
+  missionId: string;
+  isSaved: false;
+}

@@ -1,4 +1,5 @@
-import { Body, Controller, Middlewares, Post, Route, Tags } from "tsoa";
+import { Body, Controller, Middlewares, Post, Route, Security, Tags } from "tsoa";
+import { authorizeUser } from "../../../middlewares/auth";
 import { validate } from "../../../middlewares/validator";
 import { success, ApiResponse } from "../../../shared/utils/response";
 import { OAuthLoginRequestDto, OAuthLoginResponseDto, oauthLoginRequestSchema } from "../dtos/oauth.dto";
@@ -10,11 +11,12 @@ import {
   refreshRequestSchema,
 } from "../dtos/token.dto";
 import {
-  EmailAuthResponseDto,
   EmailRequestDto,
   EmailVerifyDto,
   LoginRequestDto,
+  LoginResponseDto,
   SignupRequestDto,
+  SignupResponseDto,
   emailRequestSchema,
   emailVerifySchema,
   loginRequestSchema,
@@ -66,10 +68,11 @@ export class AuthController extends Controller {
    * @summary 로그아웃
    */
   @Post("logout")
-  @Middlewares(validate(logoutRequestSchema))
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser(), validate(logoutRequestSchema))
   public async logout(@Body() body: LogoutRequestDto): Promise<ApiResponse<null>> {
     await logout(body.refreshToken);
-    return success(null, "로그아웃되었습니다");
+    return success(null, "로그아웃되었습니다.");
   }
 
   /**
@@ -79,7 +82,7 @@ export class AuthController extends Controller {
   @Middlewares(validate(emailRequestSchema))
   public async emailRequest(@Body() body: EmailRequestDto): Promise<ApiResponse<null>> {
     await requestEmailVerification(body.email);
-    return success(null, "인증번호를 발송했습니다");
+    return success(null, "인증 코드가 발송되었습니다.");
   }
 
   /**
@@ -89,7 +92,7 @@ export class AuthController extends Controller {
   @Middlewares(validate(emailVerifySchema))
   public async emailVerify(@Body() body: EmailVerifyDto): Promise<ApiResponse<null>> {
     await verifyEmailCode(body.email, body.code);
-    return success(null, "이메일 인증이 완료되었습니다");
+    return success(null, "이메일 인증이 완료되었습니다.");
   }
 
   /**
@@ -97,9 +100,19 @@ export class AuthController extends Controller {
    */
   @Post("signup")
   @Middlewares(validate(signupRequestSchema))
-  public async signup(@Body() body: SignupRequestDto): Promise<ApiResponse<EmailAuthResponseDto>> {
+  public async signup(@Body() body: SignupRequestDto): Promise<ApiResponse<SignupResponseDto>> {
     const result = await signupWithEmail(body);
-    return success(result, "회원가입이 완료되었습니다");
+    return success(result);
+  }
+
+  /**
+   * @summary 이메일 회원가입 (signup과 동일)
+   */
+  @Post("register")
+  @Middlewares(validate(signupRequestSchema))
+  public async register(@Body() body: SignupRequestDto): Promise<ApiResponse<SignupResponseDto>> {
+    const result = await signupWithEmail(body);
+    return success(result);
   }
 
   /**
@@ -107,7 +120,7 @@ export class AuthController extends Controller {
    */
   @Post("login")
   @Middlewares(validate(loginRequestSchema))
-  public async login(@Body() body: LoginRequestDto): Promise<ApiResponse<EmailAuthResponseDto>> {
+  public async login(@Body() body: LoginRequestDto): Promise<ApiResponse<LoginResponseDto>> {
     const result = await loginWithEmail(body);
     return success(result);
   }

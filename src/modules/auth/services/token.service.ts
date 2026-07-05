@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { env } from "../../../config/env";
 import { UnauthorizedError } from "../../../shared/errors/common.error";
+import { RefreshTokenExpiredError } from "../errors/auth.error";
 import {
   createRefreshToken,
   findActiveRefreshToken,
@@ -40,27 +41,29 @@ export const issueTokens = async (
   return { accessToken, refreshToken, expiresIn: secondsUntilExpiry(accessToken) };
 };
 
-// design.md `#### POST /auth/refresh` 참고 — 새 Refresh Token은 발급하지 않고 Access Token만 재발급한다.
-export const refreshAccessToken = async (
-  refreshToken: string
-): Promise<{ accessToken: string; expiresIn: number }> => {
+// API 명세서 `엑세스 토큰 재발급` 참고 — 새 Refresh Token은 발급하지 않고 Access Token만 재발급한다.
+// 401 UNAUTHORIZED(위변조/revoked)와 410 EXPIRED(만료)를 구분한다.
+export const refreshAccessToken = async (refreshToken: string): Promise<{ accessToken: string }> => {
   let payload: { sub: string };
   try {
     payload = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET) as { sub: string };
-  } catch {
-    throw new UnauthorizedError("Refresh Token이 유효하지 않거나 만료되었습니다");
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      throw new RefreshTokenExpiredError();
+    }
+    throw new UnauthorizedError("유효하지 않은 토큰입니다");
   }
 
   const stored = await findActiveRefreshToken(refreshToken);
   if (!stored) {
-    throw new UnauthorizedError("Refresh Token이 유효하지 않거나 만료되었습니다");
+    throw new UnauthorizedError("유효하지 않은 토큰입니다");
   }
 
   // Refresh Token 자체엔 email이 없어, 재발급 시점에 DB에서 조회해 access token payload에 반영한다.
   const email = await findAnyIdentityEmailByUserId(payload.sub);
   const accessToken = signAccessToken(payload.sub, email);
 
-  return { accessToken, expiresIn: secondsUntilExpiry(accessToken) };
+  return { accessToken };
 };
 
 export const logout = async (refreshToken: string): Promise<void> => {

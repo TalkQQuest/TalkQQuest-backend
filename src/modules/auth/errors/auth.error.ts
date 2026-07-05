@@ -16,7 +16,7 @@ export class InvalidVerificationCodeError extends AppError {
 
 export class VerificationCodeExpiredError extends AppError {
   constructor(message = "인증 코드가 만료되었습니다") {
-    super("EXPIRED", 410, message);
+    super(ErrorCodes.EXPIRED, 410, message);
   }
 }
 
@@ -40,6 +40,6 @@ export class InvalidPasswordError extends AppError {
 
 export class RefreshTokenExpiredError extends AppError {
   constructor(message = "만료된 토큰입니다") {
-    super("EXPIRED", 410, message);
+    super(ErrorCodes.EXPIRED, 410, message);
   }
 }

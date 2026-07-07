@@ -33,7 +33,7 @@ export interface SignupRequestDto {
   name: string;
   birthDate: string;
   schoolOrJob: string;
-  termsAgreed: boolean;
+  termsAgreedAt: string;
 }
 
 export const signupRequestSchema = z.object({
@@ -42,7 +42,7 @@ export const signupRequestSchema = z.object({
   name: z.string().min(1, "이름이 필요합니다").max(50),
   birthDate: z.string().min(1, "생년월일이 필요합니다"),
   schoolOrJob: z.string().min(1, "학교/직업이 필요합니다").max(100),
-  termsAgreed: z.boolean(),
+  termsAgreedAt: z.string().datetime({ message: "termsAgreedAt은 ISO 8601 형식이어야 합니다" }),
 }) satisfies z.ZodType<SignupRequestDto>;
 
 export interface LoginRequestDto {
@@ -55,15 +55,14 @@ export const loginRequestSchema = z.object({
   password: z.string().min(1, "비밀번호가 필요합니다"),
 }) satisfies z.ZodType<LoginRequestDto>;
 
-export interface EmailAuthUserDto {
-  id: string;
-  email: string;
-  provider: "email";
-}
-
-export interface EmailAuthResponseDto {
+export interface SignupResponseDto {
+  userId: string;
   accessToken: string;
   refreshToken: string;
-  expiresIn: number;
-  user: EmailAuthUserDto;
+}
+
+export interface LoginResponseDto {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: "Bearer";
 }

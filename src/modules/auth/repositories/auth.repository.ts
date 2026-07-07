@@ -48,6 +48,7 @@ export const createUserWithEmailIdentity = (params: {
   name: string;
   birthDate: string;
   schoolOrJob: string;
+  termsAgreedAt: Date;
 }) =>
   prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const user = await tx.users.create({
@@ -55,7 +56,7 @@ export const createUserWithEmailIdentity = (params: {
         name: params.name,
         birth_date: params.birthDate,
         school_or_job: params.schoolOrJob,
-        terms_agreed_at: new Date(),
+        terms_agreed_at: params.termsAgreedAt,
       },
     });
 

@@ -7,7 +7,6 @@ export interface RefreshRequestDto {
 
 export interface RefreshResponseDto {
   accessToken: string;
-  expiresIn: number;
 }
 
 export interface LogoutRequestDto {

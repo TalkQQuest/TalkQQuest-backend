@@ -11,6 +11,9 @@ export const ErrorCodes = {
 
   // 공통 (PDF에 없음 — 403이 필요한 케이스가 생기면 그때 확정)
   FORBIDDEN: "FORBIDDEN",
+
+  // 공통 (API 명세서 기준 — 인증번호/토큰 등 시간 제한이 있는 리소스의 만료)
+  EXPIRED: "EXPIRED",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

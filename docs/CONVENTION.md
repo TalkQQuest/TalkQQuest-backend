@@ -281,7 +281,7 @@ export const failure = (errorCode: string, message: string): ApiResponse<null> =
 
 **공통 에러 코드**
 
-기능명세서 PDF가 명시한 공통 코드는 `VALIDATION_ERROR`, `UNAUTHORIZED`, `NOT_FOUND`, `DUPLICATED`, `SERVER_ERROR` 5개다. `FORBIDDEN`은 PDF에 없음 — 403이 필요한 케이스가 생기면 그때 확정한다.
+기능명세서 PDF가 명시한 공통 코드는 `VALIDATION_ERROR`, `UNAUTHORIZED`, `NOT_FOUND`, `DUPLICATED`, `SERVER_ERROR` 5개다. `FORBIDDEN`은 PDF에 없음 — 403이 필요한 케이스가 생기면 그때 확정한다. `EXPIRED`는 API 명세서에서 인증번호/토큰 만료를 나타내는 공통 코드로 등장해 함께 추가했다.
 
 | Code | HTTP Status | Description |
 |---|---|---|
@@ -290,9 +290,10 @@ export const failure = (errorCode: string, message: string): ApiResponse<null> =
 | `FORBIDDEN` | 403 | 권한 없음 (PDF에는 없음) |
 | `NOT_FOUND` | 404 | 리소스를 찾을 수 없음 |
 | `DUPLICATED` | 409 | 리소스 중복 (일반) |
+| `EXPIRED` | 410 | 인증번호/토큰 등 시간 제한이 있는 리소스의 만료 |
 | `SERVER_ERROR` | 500 | 서버 내부 오류 |
 
-**도메인별 세부 코드**는 위 공통 코드로 표현이 안 될 때만, 의미가 분명한 이름으로 추가한다 (예: 인증 도메인의 `DUPLICATED_EMAIL`, `INVALID_VERIFICATION_CODE`, `TERMS_REQUIRED`). 접두사 규칙은 없으며, 코드 이름 자체가 곧 문서다. 도메인별 세부 코드 전체 목록은 [design.md](design.md) `## Error Codes` 참고.
+**도메인별 세부 코드**는 위 공통 코드로 표현이 안 될 때만, 의미가 분명한 이름으로 추가한다 (예: 인증 도메인의 `UNVERIFIED_EMAIL`, `INVALID_PASSWORD`). 접두사 규칙은 없으며, 코드 이름 자체가 곧 문서다. 도메인별 세부 코드 전체 목록은 [design.md](design.md) `## Error Codes` 참고.
 
 ```ts
 // shared/errors/app-error.ts

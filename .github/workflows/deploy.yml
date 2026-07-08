@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate tsoa routes
+        run: npx tsoa spec-and-routes -c tsoa.config.json
+
       - name: Run tests
         run: npm test
 

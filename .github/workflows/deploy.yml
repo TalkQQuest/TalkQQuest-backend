@@ -29,6 +29,11 @@ jobs:
 
       - name: Run tests
         run: npm test
+        env:
+          DATABASE_URL: "mysql://root:password@localhost:3306/test"
+          REDIS_URL: "redis://localhost:6379"
+          JWT_ACCESS_SECRET: "ci-test-access-secret"
+          JWT_REFRESH_SECRET: "ci-test-refresh-secret"
 
       - name: Build
         run: npm run build

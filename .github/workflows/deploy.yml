@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev
+      - chore/#28/github-actions-deploy
   workflow_dispatch:
 
 jobs:

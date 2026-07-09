@@ -1,5 +1,6 @@
 import { MissionProfileNotFoundError } from "../errors/mission.error";
 import * as repository from "../repositories/mission.repository";
+import * as llmService from "../services/llm.service";
 import {
   assembleUserContext,
   buildRecommendationInput,
@@ -8,8 +9,11 @@ import {
 
 // 1단계는 I/O(레포지토리)에 의존하므로 Prisma 계층을 통째로 mock한다.
 jest.mock("../repositories/mission.repository");
+// recommendMission의 4단계 LLM 호출이 실제 네트워크를 타지 않도록 mock한다.
+jest.mock("../services/llm.service");
 
 const mockedRepo = jest.mocked(repository);
+const mockedLlm = jest.mocked(llmService);
 
 // Prisma 반환 형태를 흉내 낸 최소 팩토리 (테스트에 필요한 필드만).
 const buildProfile = (overrides: Record<string, unknown> = {}) =>
@@ -38,6 +42,8 @@ beforeEach(() => {
   mockedRepo.findActiveGoalsByUserId.mockResolvedValue([] as never);
   mockedRepo.findRecentMissionRecords.mockResolvedValue([] as never);
   mockedRepo.findTemplateMissionsExcluding.mockResolvedValue([] as never);
+  // 기본값: LLM은 실패(null) → 템플릿/폴백 경로. 특정 테스트에서만 성공값으로 덮어쓴다.
+  mockedLlm.generateMissionWithLlm.mockResolvedValue(null);
 });
 
 describe("assembleUserContext", () => {
@@ -155,5 +161,27 @@ describe("recommendMission (1→2→3 통합)", () => {
     const result = await recommendMission("u1");
 
     expect(result.source).toBe("fallback");
+  });
+
+  it("LLM이 미션을 생성하면 템플릿보다 그 결과를 우선한다", async () => {
+    mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
+    mockedLlm.generateMissionWithLlm.mockResolvedValue({
+      missionId: null,
+      title: "LLM 생성 미션",
+      description: "설명",
+      difficulty: 2,
+      estimatedMinutes: 10,
+      category: "짧은 대화",
+      rewardXp: 20,
+      reason: "이유",
+      expectedEffect: "효과",
+      source: "llm",
+    });
+
+    const result = await recommendMission("u1");
+
+    expect(result.source).toBe("llm");
+    expect(result.title).toBe("LLM 생성 미션");
+    expect(mockedRepo.findTemplateMissionsExcluding).not.toHaveBeenCalled();
   });
 });

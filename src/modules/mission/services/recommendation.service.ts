@@ -11,6 +11,7 @@ import {
   findUserProfileByUserId,
 } from "../repositories/mission.repository";
 import { buildRecommendationCriteria, seedDifficultyFromPersonality } from "./difficulty.service";
+import { generateMissionWithLlm } from "./llm.service";
 import { recommendFromTemplate } from "./template.service";
 
 // 1단계 — 추천 컨텍스트 조립.
@@ -87,10 +88,11 @@ export const buildRecommendationInput = async (
   return { context, criteria };
 };
 
-// 현재 동작하는 추천 진입점 (AI 없이 1→2→3단계).
-// 4단계(LLM 생성)가 붙기 전까지 GET /missions/today 등이 이 함수를 쓰면 된다.
-// LLM 추가 시엔 이 안에서 recommendFromTemplate를 폴백으로 두고 LLM을 먼저 시도하게 된다.
+// 추천 진입점 (1→2→3→4단계). GET /missions/today 등이 이 함수를 쓴다.
+// 4단계 LLM 생성을 먼저 시도하고, 실패하거나 키가 없으면 3단계 템플릿으로 폴백한다.
+// LLM은 어떤 실패든 null을 반환하도록 설계돼 있어, 여기서는 null 여부만 보면 된다.
 export const recommendMission = async (userId: string): Promise<RecommendedMission> => {
-  const { criteria } = await buildRecommendationInput(userId);
-  return recommendFromTemplate(criteria);
+  const { context, criteria } = await buildRecommendationInput(userId);
+  const generated = await generateMissionWithLlm(context, criteria);
+  return generated ?? recommendFromTemplate(criteria);
 };

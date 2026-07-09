@@ -56,3 +56,37 @@ export const findPrepItems = (missionId: string) =>
     where: { mission_id: missionId },
     orderBy: { order_index: "asc" },
   });
+
+// ── AI 미션 추천 파이프라인용 조회 (recommendation/difficulty/template.service) ──
+
+export const findUserProfileByUserId = (userId: string) =>
+  prisma.user_Profiles.findUnique({ where: { user_id: userId } });
+
+export const findActiveGoalsByUserId = (userId: string) =>
+  prisma.goals.findMany({
+    where: { user_id: userId, is_active: true },
+    orderBy: { created_at: "desc" },
+  });
+
+// 최근 수행 기록 N건을 미션 메타(제목/카테고리/난이도)와 조인해 최신순으로 조회.
+// 난이도 조정·회피 유형 판단은 최근 몇 건만 보므로 take로 제한합니다.
+export const findRecentMissionRecords = (userId: string, limit: number) =>
+  prisma.mission_Records.findMany({
+    where: { user_id: userId },
+    include: {
+      mission: { select: { id: true, title: true, category: true, difficulty: true } },
+    },
+    orderBy: { created_at: "desc" },
+    take: limit,
+  });
+
+// 3단계 템플릿 폴백용. is_template=true 미션 중 회피 카테고리만 DB에서 걸러 가져오고,
+// 난이도 근접·관심사 매칭 같은 랭킹은 서비스(순수 함수)에서 처리합니다.
+export const findTemplateMissionsExcluding = (excludedCategories: string[]) =>
+  prisma.missions.findMany({
+    where: {
+      is_template: true,
+      ...(excludedCategories.length > 0 ? { category: { notIn: excludedCategories } } : {}),
+    },
+    orderBy: { created_at: "asc" },
+  });

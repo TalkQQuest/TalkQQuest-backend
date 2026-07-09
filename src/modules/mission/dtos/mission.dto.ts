@@ -40,6 +40,21 @@ export interface MissionListResponseDto {
   pageInfo: MissionPageInfoDto;
 }
 
+// GET /missions/today (AI 추천 — recommendation.service.recommendMission 결과를 매핑)
+export interface TodayMissionResponseDto {
+  missionId: string | null; // 템플릿 추천이면 Missions.id, LLM/폴백 생성이면 아직 미저장이라 null
+  title: string;
+  category: string;
+  difficulty: MissionDifficultyLabel;
+  estimatedMinutes: number;
+  rewardXp: number;
+  description: string;
+  reason: string; // 추천 이유 (Requirement 3.2)
+  expectedEffect: string; // 기대 효과 (Requirement 3.2)
+  source: "template" | "fallback" | "llm"; // 어느 단계가 만든 추천인지
+  isSaved: boolean;
+}
+
 // GET /missions/{missionId}
 export interface MissionDetailResponseDto {
   id: string;

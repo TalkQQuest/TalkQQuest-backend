@@ -28,10 +28,6 @@ export const countMissions = (params: { difficulty?: number; category?: string }
 export const findMissionById = (missionId: string) =>
   prisma.missions.findUnique({ where: { id: missionId } });
 
-// TODO: 오늘의 추천 미션 로직 미확정 — 우선 최신 미션 1건으로 대체
-export const findTodayMission = () =>
-  prisma.missions.findFirst({ orderBy: { created_at: "desc" } });
-
 export const findSavedMissionIds = (userId: string, missionIds: string[]) =>
   prisma.mission_Saves.findMany({
     where: { user_id: userId, mission_id: { in: missionIds } },

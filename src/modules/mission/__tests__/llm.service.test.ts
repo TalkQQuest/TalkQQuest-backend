@@ -27,6 +27,7 @@ const context: UserContext = {
   difficultSituations: ["낯선 사람과 대화"],
   interests: ["카페"],
   goals: ["자신감 향상"],
+  practiceTypes: ["가벼운 잡담"],
   level: 1,
   baseDifficulty: 2,
   recentMissions: [],
@@ -65,6 +66,8 @@ describe("buildLlmMessages", () => {
     const userContent = buildLlmMessages(context, criteria)[1].content;
     expect(userContent).toContain("targetDifficulty");
     expect(userContent).toContain("stranger");
+    expect(userContent).toContain("practiceTypes");
+    expect(userContent).toContain("가벼운 잡담");
   });
 });
 

@@ -21,7 +21,8 @@ export interface UserContext {
   statusType: string | null; // 현재 신분/상황 (예: 새내기, 복학생)
   difficultSituations: string[]; // 대화가 어려운 상황
   interests: string[];
-  goals: string[]; // Goals.target 목록 + User_Profiles.purpose
+  goals: string[]; // Goals.target 목록
+  practiceTypes: string[]; // 연습하고 싶은 대화 유형 (User_Profiles.purpose, 최대 2개)
   level: number;
   baseDifficulty: number; // 조정 전 기준 난이도 (최근 미션 or 성향 시드)
   recentMissions: RecentMissionRecord[]; // 최신순

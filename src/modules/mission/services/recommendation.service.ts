@@ -52,12 +52,6 @@ export const assembleUserContext = async (userId: string): Promise<UserContext> 
     createdAt: record.created_at,
   }));
 
-  // 목표 = 활성 Goals의 target + 프로필의 purpose(중복 제거).
-  const goalTexts = goals.map((goal) => goal.target);
-  if (typeof profile.purpose === "string" && profile.purpose) {
-    goalTexts.push(profile.purpose);
-  }
-
   const isColdStart = recentMissions.length === 0;
   // 기준 난이도: 기록이 있으면 가장 최근 미션 난이도, 없으면 성향 기반 시드.
   const baseDifficulty = isColdStart
@@ -70,7 +64,9 @@ export const assembleUserContext = async (userId: string): Promise<UserContext> 
     statusType: profile.status_type,
     difficultSituations: toStringArray(profile.difficult_situations),
     interests: toStringArray(profile.interests),
-    goals: [...new Set(goalTexts)],
+    goals: [...new Set(goals.map((goal) => goal.target))],
+    // purpose는 "연습하고 싶은 대화 유형 배열"(Json)로 바뀌어 문자열만 추출한다.
+    practiceTypes: toStringArray(profile.purpose),
     level: profile.level,
     baseDifficulty,
     recentMissions,

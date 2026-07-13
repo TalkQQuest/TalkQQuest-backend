@@ -40,6 +40,7 @@ const SYSTEM_PROMPT = `당신은 사회적 행동 미션 추천 AI입니다.
 - targetDifficulty(1=쉬움, 2=보통, 3=어려움)에 맞춰 난이도를 정합니다.
 - avoidedCategories에 있는 유형은 피하고 대체 유형을 제안합니다.
 - goals(사용자 목표)와 interests(관심사)를 미션에 자연스럽게 반영합니다.
+- practiceTypes(사용자가 연습하고 싶은 대화 유형)가 있으면 우선 반영합니다.
 - 개인정보를 요구하거나 위험·불쾌한 접근을 유도하는 미션은 절대 만들지 않습니다.
 - 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
 {
@@ -59,6 +60,7 @@ const buildPromptHints = (context: UserContext, criteria: RecommendationCriteria
   personalityType: criteria.personalityType,
   interests: criteria.preferredInterests,
   goals: context.goals,
+  practiceTypes: context.practiceTypes,
   isColdStart: criteria.isColdStart,
   recentMissions: context.recentMissions.map((m) => ({
     title: m.title,

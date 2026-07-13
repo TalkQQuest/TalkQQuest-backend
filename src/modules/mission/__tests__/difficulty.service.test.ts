@@ -144,6 +144,7 @@ describe("buildRecommendationCriteria", () => {
     difficultSituations: ["낯선 사람과 대화"],
     interests: ["카페", "산책"],
     goals: ["자신감 향상"],
+    practiceTypes: ["가벼운 잡담"],
     level: 1,
     baseDifficulty: 2,
     recentMissions: [rec("avoidance", "stranger"), rec("failure", "stranger"), rec("success")],

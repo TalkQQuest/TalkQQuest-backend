@@ -24,7 +24,7 @@ const buildProfile = (overrides: Record<string, unknown> = {}) =>
     status_type: "새내기",
     difficult_situations: ["낯선 사람과 대화"],
     interests: ["카페", "산책"],
-    purpose: "자신감 향상",
+    purpose: ["가벼운 잡담", "질문하기"], // 연습하고 싶은 대화 유형 배열(Json)
     level: 1,
     ...overrides,
   }) as never;
@@ -94,9 +94,10 @@ describe("assembleUserContext", () => {
     expect(context.difficultSituations).toEqual([]); // 배열이 아니면 빈 배열
   });
 
-  it("목표는 활성 Goals.target과 프로필 purpose를 합쳐 중복 제거한다", async () => {
-    mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile({ purpose: "자신감 향상" }));
+  it("목표는 활성 Goals.target에서만 뽑아 중복 제거한다", async () => {
+    mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     mockedRepo.findActiveGoalsByUserId.mockResolvedValue([
+      { target: "친구 만들기" },
       { target: "친구 만들기" },
       { target: "자신감 향상" },
     ] as never);
@@ -106,13 +107,22 @@ describe("assembleUserContext", () => {
     expect(context.goals).toEqual(["친구 만들기", "자신감 향상"]);
   });
 
-  it("purpose가 문자열이 아니면(Json) 목표에 넣지 않는다", async () => {
-    mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile({ purpose: { some: "obj" } }));
-    mockedRepo.findActiveGoalsByUserId.mockResolvedValue([{ target: "친구 만들기" }] as never);
+  it("purpose(Json 배열)에서 연습하고 싶은 대화 유형을 practiceTypes로 추출한다", async () => {
+    mockedRepo.findUserProfileByUserId.mockResolvedValue(
+      buildProfile({ purpose: ["가벼운 잡담", 42, null, "질문하기"] })
+    );
 
     const context = await assembleUserContext("u1");
 
-    expect(context.goals).toEqual(["친구 만들기"]);
+    expect(context.practiceTypes).toEqual(["가벼운 잡담", "질문하기"]); // 문자열만 안전 추출
+  });
+
+  it("purpose가 배열이 아니면 practiceTypes는 빈 배열이다", async () => {
+    mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile({ purpose: null }));
+
+    const context = await assembleUserContext("u1");
+
+    expect(context.practiceTypes).toEqual([]);
   });
 });
 

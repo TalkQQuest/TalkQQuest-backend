@@ -1,4 +1,5 @@
 // modules/mission/repositories/mission.repository.ts
+import { Prisma, RecommendationSource } from "@prisma/client";
 import { prisma } from "../../../config/database";
 
 export const findMissions = (params: {
@@ -85,4 +86,34 @@ export const findTemplateMissionsExcluding = (excludedCategories: string[]) =>
       ...(excludedCategories.length > 0 ? { category: { notIn: excludedCategories } } : {}),
     },
     orderBy: { created_at: "asc" },
+  });
+
+// 추천 호출 1건을 Recommendation_Logs에 기록 (품질 개선·오류 추적용).
+// Json 컬럼 중 null이 될 수 있는 prompt_input만 DbNull로 변환한다.
+export const createRecommendationLog = (data: {
+  userId: string;
+  source: RecommendationSource;
+  llmModel: string | null;
+  targetDifficulty: number | null;
+  avoidedCategories: string[];
+  promptInput: unknown | null;
+  rawResponse: string | null;
+  parseSuccess: boolean;
+  recommendedMission: unknown;
+  fallbackReason: string | null;
+}) =>
+  prisma.recommendation_Logs.create({
+    data: {
+      user_id: data.userId,
+      source: data.source,
+      llm_model: data.llmModel,
+      target_difficulty: data.targetDifficulty,
+      avoided_categories: data.avoidedCategories as unknown as Prisma.InputJsonValue,
+      prompt_input:
+        data.promptInput === null ? Prisma.DbNull : (data.promptInput as Prisma.InputJsonValue),
+      raw_response: data.rawResponse,
+      parse_success: data.parseSuccess,
+      recommended_mission: data.recommendedMission as Prisma.InputJsonValue,
+      fallback_reason: data.fallbackReason,
+    },
   });

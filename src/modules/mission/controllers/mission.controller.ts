@@ -11,9 +11,11 @@ import {
   MissionPrepResponseDto,
   MissionSaveResponseDto,
   MissionUnsaveResponseDto,
-  TodayMissionResponseDto
+  TodayMissionResponseDto,
+  LlmHealthResponseDto
 } from "../dtos/mission.dto";
 import * as missionService from "../services/mission.service";
+import { pingLlm } from "../services/llm.service";
 
 @Route("missions")
 @Tags("Mission")
@@ -42,6 +44,17 @@ export class MissionController extends Controller {
   @Middlewares(authorizeUser())
   public async getTodayMission(@Request() req: ExpressRequest): Promise<ApiResponse<TodayMissionResponseDto>> {
     const result = await missionService.getTodayMission(req.user!.id);
+    return success(result);
+  }
+
+  /**
+   * @summary LLM(Upstage) 연결 상태 점검 (진단용)
+   */
+  @Get("llm-health")
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser())
+  public async getLlmHealth(): Promise<ApiResponse<LlmHealthResponseDto>> {
+    const result = await pingLlm();
     return success(result);
   }
 

@@ -37,13 +37,25 @@ const buildRecord = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   }) as never;
 
+// LLM 실패(mission=null) 결과 — 템플릿/폴백 경로로 유도하는 기본 mock.
+const llmFailure = (fallbackReason = "no_api_key") =>
+  ({
+    mission: null,
+    llmModel: null,
+    promptInput: null,
+    rawResponse: null,
+    parseSuccess: false,
+    fallbackReason,
+  }) as never;
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockedRepo.findActiveGoalsByUserId.mockResolvedValue([] as never);
   mockedRepo.findRecentMissionRecords.mockResolvedValue([] as never);
   mockedRepo.findTemplateMissionsExcluding.mockResolvedValue([] as never);
-  // 기본값: LLM은 실패(null) → 템플릿/폴백 경로. 특정 테스트에서만 성공값으로 덮어쓴다.
-  mockedLlm.generateMissionWithLlm.mockResolvedValue(null);
+  mockedRepo.createRecommendationLog.mockResolvedValue({} as never);
+  // 기본값: LLM 실패 → 템플릿/폴백 경로. 특정 테스트에서만 성공값으로 덮어쓴다.
+  mockedLlm.generateMissionWithLlm.mockResolvedValue(llmFailure());
 });
 
 describe("assembleUserContext", () => {
@@ -143,7 +155,28 @@ describe("buildRecommendationInput", () => {
   });
 });
 
-describe("recommendMission (1→2→3 통합)", () => {
+describe("recommendMission (1→2→3→4 통합)", () => {
+  const llmSuccess = () =>
+    ({
+      mission: {
+        missionId: null,
+        title: "LLM 생성 미션",
+        description: "설명",
+        difficulty: 2,
+        estimatedMinutes: 10,
+        category: "짧은 대화",
+        rewardXp: 20,
+        reason: "이유",
+        expectedEffect: "효과",
+        source: "llm",
+      },
+      llmModel: "solar-pro",
+      promptInput: [{ role: "user", content: "..." }],
+      rawResponse: "{...}",
+      parseSuccess: true,
+      fallbackReason: null,
+    }) as never;
+
   it("매칭 템플릿이 있으면 템플릿 미션을 추천한다", async () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     mockedRepo.findTemplateMissionsExcluding.mockResolvedValue([
@@ -175,23 +208,38 @@ describe("recommendMission (1→2→3 통합)", () => {
 
   it("LLM이 미션을 생성하면 템플릿보다 그 결과를 우선한다", async () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
-    mockedLlm.generateMissionWithLlm.mockResolvedValue({
-      missionId: null,
-      title: "LLM 생성 미션",
-      description: "설명",
-      difficulty: 2,
-      estimatedMinutes: 10,
-      category: "짧은 대화",
-      rewardXp: 20,
-      reason: "이유",
-      expectedEffect: "효과",
-      source: "llm",
-    });
+    mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
 
     const result = await recommendMission("u1");
 
     expect(result.source).toBe("llm");
     expect(result.title).toBe("LLM 생성 미션");
     expect(mockedRepo.findTemplateMissionsExcluding).not.toHaveBeenCalled();
+  });
+
+  it("추천 결과를 Recommendation_Logs에 기록한다", async () => {
+    mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
+    mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
+
+    await recommendMission("u1");
+
+    expect(mockedRepo.createRecommendationLog).toHaveBeenCalledTimes(1);
+    const logged = mockedRepo.createRecommendationLog.mock.calls[0][0];
+    expect(logged).toMatchObject({
+      userId: "u1",
+      source: "llm",
+      parseSuccess: true,
+      fallbackReason: null,
+    });
+  });
+
+  it("로그 저장이 실패해도 추천은 정상 반환한다", async () => {
+    mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
+    mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
+    mockedRepo.createRecommendationLog.mockRejectedValue(new Error("db down"));
+
+    const result = await recommendMission("u1");
+
+    expect(result.source).toBe("llm"); // 로깅 실패가 추천을 막지 않음
   });
 });

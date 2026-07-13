@@ -1,3 +1,4 @@
+import { logger } from "../../../config/logger";
 import {
   RecentMissionRecord,
   RecommendationCriteria,
@@ -6,12 +7,13 @@ import {
 } from "../dtos/recommendation.dto";
 import { MissionProfileNotFoundError } from "../errors/mission.error";
 import {
+  createRecommendationLog,
   findActiveGoalsByUserId,
   findRecentMissionRecords,
   findUserProfileByUserId,
 } from "../repositories/mission.repository";
 import { buildRecommendationCriteria, seedDifficultyFromPersonality } from "./difficulty.service";
-import { generateMissionWithLlm } from "./llm.service";
+import { generateMissionWithLlm, LlmGenerationResult } from "./llm.service";
 import { recommendFromTemplate } from "./template.service";
 
 // 1단계 — 추천 컨텍스트 조립.
@@ -86,9 +88,37 @@ export const buildRecommendationInput = async (
 
 // 추천 진입점 (1→2→3→4단계). GET /missions/today 등이 이 함수를 쓴다.
 // 4단계 LLM 생성을 먼저 시도하고, 실패하거나 키가 없으면 3단계 템플릿으로 폴백한다.
-// LLM은 어떤 실패든 null을 반환하도록 설계돼 있어, 여기서는 null 여부만 보면 된다.
+// 매 호출을 Recommendation_Logs에 기록한다(품질 개선·오류 추적).
 export const recommendMission = async (userId: string): Promise<RecommendedMission> => {
   const { context, criteria } = await buildRecommendationInput(userId);
-  const generated = await generateMissionWithLlm(context, criteria);
-  return generated ?? recommendFromTemplate(criteria);
+  const attempt = await generateMissionWithLlm(context, criteria);
+  const mission = attempt.mission ?? (await recommendFromTemplate(criteria));
+
+  await logRecommendationSafe(userId, criteria, attempt, mission);
+  return mission;
+};
+
+// 추천 결과 로깅. 로깅 실패가 추천 응답을 막지 않도록 예외를 흡수한다.
+const logRecommendationSafe = async (
+  userId: string,
+  criteria: RecommendationCriteria,
+  attempt: LlmGenerationResult,
+  mission: RecommendedMission
+): Promise<void> => {
+  try {
+    await createRecommendationLog({
+      userId,
+      source: mission.source, // llm / template / fallback
+      llmModel: attempt.llmModel,
+      targetDifficulty: criteria.targetDifficulty,
+      avoidedCategories: criteria.avoidedCategories,
+      promptInput: attempt.promptInput,
+      rawResponse: attempt.rawResponse,
+      parseSuccess: attempt.parseSuccess,
+      recommendedMission: mission,
+      fallbackReason: attempt.fallbackReason,
+    });
+  } catch (error) {
+    logger.warn({ err: error }, "추천 로그 저장 실패 (추천 자체는 정상 반환)");
+  }
 };

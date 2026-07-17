@@ -66,6 +66,13 @@ const SYSTEM_PROMPT = `당신은 사회적 행동 미션 추천 AI입니다.
 - goals(사용자 목표)와 interests(관심사)를 미션에 자연스럽게 반영합니다.
 - practiceTypes(사용자가 연습하고 싶은 대화 유형)가 있으면 우선 반영합니다.
 - 개인정보를 요구하거나 위험·불쾌한 접근을 유도하는 미션은 절대 만들지 않습니다.
+
+reason과 expected_effect 작성 규칙 (사용자에게 그대로 보여지는 문구입니다):
+- 사용자에게 말하듯 자연스러운 한국어로 씁니다.
+- 입력 데이터를 절대 언급하지 마세요. 필드명(targetDifficulty, interests, goals 등), 원본 값, JSON, 프롬프트를 그대로 인용하면 안 됩니다.
+- 정보가 부족하다는 사실을 언급하지 마세요. ("관심사 정보가 없어서", "데이터가 부족하지만" 같은 표현 금지)
+- 시스템 내부 사정이 아니라, 이 미션이 사용자에게 왜 좋은지만 설명합니다.
+
 - 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
 {
   "mission_title": "string",
@@ -77,21 +84,52 @@ const SYSTEM_PROMPT = `당신은 사회적 행동 미션 추천 AI입니다.
   "expected_effect": "기대 효과"
 }`;
 
+const nonEmpty = (values: string[]): string[] =>
+  values.map((value) => value.trim()).filter((value) => value.length > 0);
+
 // 2단계 criteria + 1단계 context를 LLM에 넘길 힌트 객체로 압축.
-const buildPromptHints = (context: UserContext, criteria: RecommendationCriteria) => ({
-  targetDifficulty: criteria.targetDifficulty,
-  avoidedCategories: criteria.avoidedCategories,
-  personalityType: criteria.personalityType,
-  interests: criteria.preferredInterests,
-  goals: context.goals,
-  practiceTypes: context.practiceTypes,
-  isColdStart: criteria.isColdStart,
-  recentMissions: context.recentMissions.map((m) => ({
-    title: m.title,
-    category: m.category,
-    result: m.result,
-  })),
-});
+// 빈 값(빈 배열/null/공백)은 키 자체를 넣지 않는다 — 모델이 `goals: []` 같은 값을 그대로 인용하거나
+// "정보가 부족하지만..." 하고 사용자에게 해설하는 것을 막기 위함.
+const buildPromptHints = (context: UserContext, criteria: RecommendationCriteria) => {
+  const hints: Record<string, unknown> = {
+    targetDifficulty: criteria.targetDifficulty,
+    isColdStart: criteria.isColdStart,
+  };
+
+  if (criteria.personalityType) {
+    hints.personalityType = criteria.personalityType;
+  }
+
+  const avoidedCategories = nonEmpty(criteria.avoidedCategories);
+  if (avoidedCategories.length > 0) {
+    hints.avoidedCategories = avoidedCategories;
+  }
+
+  const interests = nonEmpty(criteria.preferredInterests);
+  if (interests.length > 0) {
+    hints.interests = interests;
+  }
+
+  const goals = nonEmpty(context.goals);
+  if (goals.length > 0) {
+    hints.goals = goals;
+  }
+
+  const practiceTypes = nonEmpty(context.practiceTypes);
+  if (practiceTypes.length > 0) {
+    hints.practiceTypes = practiceTypes;
+  }
+
+  if (context.recentMissions.length > 0) {
+    hints.recentMissions = context.recentMissions.map((m) => ({
+      title: m.title,
+      category: m.category,
+      result: m.result,
+    }));
+  }
+
+  return hints;
+};
 
 // 프롬프트(messages)는 순수 함수로 만들어 단독 검증이 가능하게 한다.
 export const buildLlmMessages = (

@@ -70,6 +70,41 @@ describe("buildLlmMessages", () => {
     expect(userContent).toContain("practiceTypes");
     expect(userContent).toContain("가벼운 잡담");
   });
+
+  it("빈 값은 힌트에서 아예 제외한다 (모델이 빈 값을 인용/해설하지 않도록)", () => {
+    const emptyContext: UserContext = {
+      ...context,
+      goals: [],
+      interests: [],
+      practiceTypes: [],
+      recentMissions: [],
+    };
+    const emptyCriteria: RecommendationCriteria = {
+      ...criteria,
+      avoidedCategories: [],
+      preferredInterests: [],
+    };
+
+    const userContent = buildLlmMessages(emptyContext, emptyCriteria)[1].content;
+
+    expect(userContent).not.toContain("goals");
+    expect(userContent).not.toContain("interests");
+    expect(userContent).not.toContain("practiceTypes");
+    expect(userContent).not.toContain("avoidedCategories");
+    expect(userContent).not.toContain("recentMissions");
+    expect(userContent).not.toContain("[]"); // 빈 배열이 프롬프트에 노출되지 않아야 함
+    expect(userContent).toContain("targetDifficulty"); // 필수 힌트는 유지
+  });
+
+  it("공백만 있는 값도 제외한다", () => {
+    const userContent = buildLlmMessages(
+      { ...context, goals: ["  ", ""] },
+      { ...criteria, preferredInterests: [" "] }
+    )[1].content;
+
+    expect(userContent).not.toContain("goals");
+    expect(userContent).not.toContain("interests");
+  });
 });
 
 describe("parseLlmMission", () => {

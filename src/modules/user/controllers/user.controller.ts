@@ -14,7 +14,7 @@ import {
   OnboardingStepResponseDto,
   onboardingStepRequestSchema,
 } from "../dtos/onboarding.dto";
-import { getMyProfile, updateMyProfile } from "../services/user-profile.service";
+import { getMyProfile, updateMyProfile, withdrawUser } from "../services/user-profile.service";
 import { completeOnboarding, saveOnboardingStep } from "../services/onboarding.service";
 
 @Route("users")
@@ -70,5 +70,18 @@ export class UserController extends Controller {
   ): Promise<ApiResponse<OnboardingCompleteResponseDto>> {
     const result = await completeOnboarding(req.user!.id);
     return success(result, "온보딩이 완료되었습니다.");
+  }
+
+  /**
+   * @summary 회원 탈퇴 (soft delete)
+   */
+  @Post("me")
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser())
+  public async withdrawMe(
+    @Request() req: ExpressRequest
+  ): Promise<ApiResponse<null>> {
+    await withdrawUser(req.user!.id);
+    return success(null, "탈퇴가 완료되었습니다.");
   }
 }

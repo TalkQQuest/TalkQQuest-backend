@@ -28,3 +28,12 @@ export const completeOnboarding = (userId: string) =>
     where: { user_id: userId },
     data: { onboarding_completed: true },
   });
+
+export const softDeleteUser = (userId: string) =>
+  prisma.users.update({
+    where: { id: userId },
+    data: {
+      status: "deleted",
+      deleted_at: new Date(),
+    },
+  });

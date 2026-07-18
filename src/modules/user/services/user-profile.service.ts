@@ -39,3 +39,12 @@ export const updateMyProfile = async (userId: string, body: UpdateProfileRequest
     ...(body.interests !== undefined && { interests: body.interests }),
   });
 };
+
+export const withdrawUser = async (userId: string): Promise<void> => {
+  const user = await userRepository.findUserWithProfile(userId);
+  if (!user) {
+    throw new NotFoundError("사용자를 찾을 수 없습니다.");
+  }
+
+  await userRepository.softDeleteUser(userId);
+};

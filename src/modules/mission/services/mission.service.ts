@@ -9,10 +9,12 @@ import {
   MissionDetailResponseDto,
   MissionPrepResponseDto,
   MissionPrepItemDto,
-  MissionSaveResponseDto, 
-  MissionUnsaveResponseDto
+  MissionSaveResponseDto,
+  MissionUnsaveResponseDto,
+  TodayMissionResponseDto
 } from "../dtos/mission.dto";
 import { DIFFICULTY_TO_INT, DIFFICULTY_TO_LABEL } from "../dtos/mission.constants";
+import { recommendMission } from "./recommendation.service";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_SIZE = 10;
@@ -68,12 +70,30 @@ export const getMissions = async (
   };
 };
 
-export const getTodayMission = async (userId: string): Promise<MissionListItemDto> => {
-  const mission = await missionRepository.findTodayMission();
-  if (!mission) throw new MissionNotFoundError("추천 가능한 미션이 없습니다.");
+// AI 미션 추천(1→2→3→4단계)의 결과를 오늘의 미션 응답으로 매핑한다.
+// recommendMission은 온보딩 미완료 시 MissionProfileNotFoundError를 던지고,
+// 그 외에는 항상 추천 1건(LLM/템플릿/폴백)을 반환하므로 여기서 not-found 처리는 불필요하다.
+export const getTodayMission = async (userId: string): Promise<TodayMissionResponseDto> => {
+  const recommended = await recommendMission(userId);
 
-  const saved = await missionRepository.findSavedMission(userId, mission.id);
-  return toListItemDto(mission, !!saved);
+  // 템플릿 추천(missionId 존재)만 저장 여부를 조회할 수 있다. LLM/폴백 생성은 미저장이라 false.
+  const isSaved = recommended.missionId
+    ? !!(await missionRepository.findSavedMission(userId, recommended.missionId))
+    : false;
+
+  return {
+    missionId: recommended.missionId,
+    title: recommended.title,
+    category: recommended.category,
+    difficulty: DIFFICULTY_TO_LABEL[recommended.difficulty],
+    estimatedMinutes: recommended.estimatedMinutes,
+    rewardXp: recommended.rewardXp,
+    description: recommended.description,
+    reason: recommended.reason,
+    expectedEffect: recommended.expectedEffect,
+    source: recommended.source,
+    isSaved,
+  };
 };
 
 export const getMissionDetail = async (

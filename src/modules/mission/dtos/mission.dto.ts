@@ -40,6 +40,29 @@ export interface MissionListResponseDto {
   pageInfo: MissionPageInfoDto;
 }
 
+// GET /missions/llm-health (진단용 — Upstage LLM 연결 상태 점검)
+export interface LlmHealthResponseDto {
+  connected: boolean; // LLM 호출 성공 여부
+  model: string; // 점검에 사용한 모델명
+  sample?: string; // 연결 성공 시 응답 일부
+  reason?: string; // 실패 사유 (no_api_key / http_xxx / timeout / network_error)
+}
+
+// GET /missions/today (AI 추천 — recommendation.service.recommendMission 결과를 매핑)
+export interface TodayMissionResponseDto {
+  missionId: string | null; // 템플릿 추천이면 Missions.id, LLM/폴백 생성이면 아직 미저장이라 null
+  title: string;
+  category: string;
+  difficulty: MissionDifficultyLabel;
+  estimatedMinutes: number;
+  rewardXp: number;
+  description: string;
+  reason: string; // 추천 이유 (Requirement 3.2)
+  expectedEffect: string; // 기대 효과 (Requirement 3.2)
+  source: "template" | "fallback" | "llm"; // 어느 단계가 만든 추천인지
+  isSaved: boolean;
+}
+
 // GET /missions/{missionId}
 export interface MissionDetailResponseDto {
   id: string;

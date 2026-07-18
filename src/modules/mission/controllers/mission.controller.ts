@@ -1,5 +1,5 @@
 // modules/mission/controllers/mission.controller.ts
-import { Controller, Delete, Get, Middlewares, Path, Post, Request, Route, Security, Tags } from "tsoa";
+import { Controller, Delete, Get, Middlewares, Path, Post, Request, Response, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
 import { ValidationError } from "../../../shared/errors/common.error";
@@ -26,6 +26,8 @@ export class MissionController extends Controller {
   @Get()
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
+  @Response(400, "VALIDATION_ERROR")
+  @Response(401, "UNAUTHORIZED")
   public async getMissions(@Request() req: ExpressRequest): Promise<ApiResponse<MissionListResponseDto>> {
     const parsed = getMissionsQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -42,6 +44,8 @@ export class MissionController extends Controller {
   @Get("today")
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "MISSION_PROFILE_NOT_FOUND")
   public async getTodayMission(@Request() req: ExpressRequest): Promise<ApiResponse<TodayMissionResponseDto>> {
     const result = await missionService.getTodayMission(req.user!.id);
     return success(result);
@@ -53,6 +57,7 @@ export class MissionController extends Controller {
   @Get("llm-health")
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
   public async getLlmHealth(): Promise<ApiResponse<LlmHealthResponseDto>> {
     const result = await pingLlm();
     return success(result);
@@ -64,6 +69,8 @@ export class MissionController extends Controller {
   @Get("{missionId}")
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "MISSION_NOT_FOUND")
   public async getMissionDetail(
     @Request() req: ExpressRequest,
     @Path() missionId: string
@@ -78,6 +85,9 @@ export class MissionController extends Controller {
 @Post("{missionId}/save")
 @Security("bearerAuth")
 @Middlewares(authorizeUser())
+@Response(401, "UNAUTHORIZED")
+@Response(404, "MISSION_NOT_FOUND")
+@Response(409, "DUPLICATED")
 public async saveMission(
   @Request() req: ExpressRequest,
   @Path() missionId: string
@@ -92,6 +102,8 @@ public async saveMission(
 @Delete("{missionId}/save")
 @Security("bearerAuth")
 @Middlewares(authorizeUser())
+@Response(401, "UNAUTHORIZED")
+@Response(404, "SAVE_NOT_FOUND")
 public async unsaveMission(
   @Request() req: ExpressRequest,
   @Path() missionId: string
@@ -106,6 +118,8 @@ public async unsaveMission(
   @Get("{missionId}/prep")
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "MISSION_NOT_FOUND")
   public async getMissionPrep(@Path() missionId: string): Promise<ApiResponse<MissionPrepResponseDto>> {
     const result = await missionService.getMissionPrep(missionId);
     return success(result);

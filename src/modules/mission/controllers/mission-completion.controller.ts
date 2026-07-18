@@ -1,4 +1,4 @@
-import { Body, Controller, Middlewares, Path, Post, Request, Route, Security, Tags } from "tsoa";
+import { Body, Controller, Middlewares, Path, Post, Request, Response, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
 import { validate } from "../../../middlewares/validator";
@@ -19,6 +19,9 @@ export class MissionCompletionController extends Controller {
   @Post("{conversationId}/complete")
   @Security("bearerAuth")
   @Middlewares(authorizeUser(), validate(completeConversationRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "MISSION_NOT_FOUND")
   public async completeConversation(
     @Request() req: ExpressRequest,
     @Path() conversationId: string,

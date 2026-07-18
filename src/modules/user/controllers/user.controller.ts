@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Middlewares, Patch, Post, Request, Route, Security, Tags } from "tsoa";
+import { Body, Controller, Get, Middlewares, Patch, Post, Request, Response, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
 import { validate } from "../../../middlewares/validator";
@@ -26,6 +26,8 @@ export class UserController extends Controller {
   @Get("me")
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "NOT_FOUND")
   public async getMe(@Request() req: ExpressRequest): Promise<ApiResponse<MyProfileResponseDto>> {
     const result = await getMyProfile(req.user!.id);
     return success(result);
@@ -37,6 +39,9 @@ export class UserController extends Controller {
   @Patch("me")
   @Security("bearerAuth")
   @Middlewares(authorizeUser(), validate(updateProfileRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "NOT_FOUND")
   public async updateMe(
     @Request() req: ExpressRequest,
     @Body() body: UpdateProfileRequestDto
@@ -51,6 +56,10 @@ export class UserController extends Controller {
   @Patch("me/onboarding")
   @Security("bearerAuth")
   @Middlewares(authorizeUser(), validate(onboardingStepRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(400, "INVALID_STEP")
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "NOT_FOUND")
   public async saveOnboarding(
     @Request() req: ExpressRequest,
     @Body() body: OnboardingStepRequestDto
@@ -65,6 +74,10 @@ export class UserController extends Controller {
   @Post("me/onboarding/complete")
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
+  @Response(400, "INCOMPLETE_ONBOARDING")
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "NOT_FOUND")
+  @Response(409, "DUPLICATED")
   public async completeMyOnboarding(
     @Request() req: ExpressRequest
   ): Promise<ApiResponse<OnboardingCompleteResponseDto>> {
@@ -78,6 +91,8 @@ export class UserController extends Controller {
   @Post("me")
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "NOT_FOUND")
   public async withdrawMe(
     @Request() req: ExpressRequest
   ): Promise<ApiResponse<null>> {

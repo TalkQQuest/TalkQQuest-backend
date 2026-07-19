@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Middlewares, Patch, Path, Post, Request, Route, Security, Tags } from "tsoa";
+import { Body, Controller, Delete, Get, Middlewares, Patch, Path, Post, Request, Response, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
 import { validate } from "../../../middlewares/validator";
@@ -22,6 +22,7 @@ export class GoalController extends Controller {
   @Get()
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
   public async getGoals(@Request() req: ExpressRequest): Promise<ApiResponse<GoalListResponseDto>> {
     const result = await goalService.getGoals(req.user!.id);
     return success(result);
@@ -33,6 +34,8 @@ export class GoalController extends Controller {
   @Post()
   @Security("bearerAuth")
   @Middlewares(authorizeUser(), validate(createGoalRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(401, "UNAUTHORIZED")
   public async createGoal(
     @Request() req: ExpressRequest,
     @Body() body: CreateGoalRequestDto
@@ -47,6 +50,9 @@ export class GoalController extends Controller {
   @Patch("{goalId}")
   @Security("bearerAuth")
   @Middlewares(authorizeUser(), validate(updateGoalRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "NOT_FOUND")
   public async updateGoal(
     @Request() req: ExpressRequest,
     @Path() goalId: string,
@@ -62,6 +68,8 @@ export class GoalController extends Controller {
   @Delete("{goalId}")
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "NOT_FOUND")
   public async deleteGoal(
     @Request() req: ExpressRequest,
     @Path() goalId: string

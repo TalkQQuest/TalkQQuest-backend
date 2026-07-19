@@ -1,4 +1,4 @@
-import { Body, Controller, Middlewares, Post, Route, Security, Tags } from "tsoa";
+import { Body, Controller, Middlewares, Post, Response, Route, Security, Tags } from "tsoa";
 import { authorizeUser } from "../../../middlewares/auth";
 import { validate } from "../../../middlewares/validator";
 import { success, ApiResponse } from "../../../shared/utils/response";
@@ -35,6 +35,8 @@ export class AuthController extends Controller {
    */
   @Post("oauth/kakao")
   @Middlewares(validate(oauthLoginRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(401, "UNAUTHORIZED")
   public async oauthKakao(
     @Body() body: OAuthLoginRequestDto
   ): Promise<ApiResponse<OAuthLoginResponseDto>> {
@@ -47,6 +49,8 @@ export class AuthController extends Controller {
    */
   @Post("oauth/naver")
   @Middlewares(validate(oauthLoginRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(401, "UNAUTHORIZED")
   public async oauthNaver(
     @Body() body: OAuthLoginRequestDto
   ): Promise<ApiResponse<OAuthLoginResponseDto>> {
@@ -59,6 +63,9 @@ export class AuthController extends Controller {
    */
   @Post("refresh")
   @Middlewares(validate(refreshRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(401, "UNAUTHORIZED")
+  @Response(410, "EXPIRED")
   public async refresh(@Body() body: RefreshRequestDto): Promise<ApiResponse<RefreshResponseDto>> {
     const result = await refreshAccessToken(body.refreshToken);
     return success(result);
@@ -70,6 +77,8 @@ export class AuthController extends Controller {
   @Post("logout")
   @Security("bearerAuth")
   @Middlewares(authorizeUser(), validate(logoutRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(401, "UNAUTHORIZED")
   public async logout(@Body() body: LogoutRequestDto): Promise<ApiResponse<null>> {
     await logout(body.refreshToken);
     return success(null, "로그아웃되었습니다.");
@@ -80,6 +89,8 @@ export class AuthController extends Controller {
    */
   @Post("email/request")
   @Middlewares(validate(emailRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(409, "DUPLICATED")
   public async emailRequest(@Body() body: EmailRequestDto): Promise<ApiResponse<null>> {
     await requestEmailVerification(body.email);
     return success(null, "인증 코드가 발송되었습니다.");
@@ -90,6 +101,8 @@ export class AuthController extends Controller {
    */
   @Post("email/verify")
   @Middlewares(validate(emailVerifySchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(410, "EXPIRED")
   public async emailVerify(@Body() body: EmailVerifyDto): Promise<ApiResponse<null>> {
     await verifyEmailCode(body.email, body.code);
     return success(null, "이메일 인증이 완료되었습니다.");
@@ -100,6 +113,9 @@ export class AuthController extends Controller {
    */
   @Post("signup")
   @Middlewares(validate(signupRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(409, "DUPLICATED")
+  @Response(422, "UNVERIFIED_EMAIL")
   public async signup(@Body() body: SignupRequestDto): Promise<ApiResponse<SignupResponseDto>> {
     const result = await signupWithEmail(body);
     return success(result);
@@ -110,6 +126,9 @@ export class AuthController extends Controller {
    */
   @Post("register")
   @Middlewares(validate(signupRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(409, "DUPLICATED")
+  @Response(422, "UNVERIFIED_EMAIL")
   public async register(@Body() body: SignupRequestDto): Promise<ApiResponse<SignupResponseDto>> {
     const result = await signupWithEmail(body);
     return success(result);
@@ -120,6 +139,9 @@ export class AuthController extends Controller {
    */
   @Post("login")
   @Middlewares(validate(loginRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(400, "INVALID_PASSWORD")
+  @Response(404, "NOT_FOUND")
   public async login(@Body() body: LoginRequestDto): Promise<ApiResponse<LoginResponseDto>> {
     const result = await loginWithEmail(body);
     return success(result);

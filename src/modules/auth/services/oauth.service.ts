@@ -8,6 +8,7 @@ import {
 import { OAuthLoginRequestDto, OAuthLoginResponseDto } from "../dtos/oauth.dto";
 import { verifyKakaoToken, verifyNaverToken } from "./provider.service";
 import { issueTokens } from "./token.service";
+import { WithdrawnAccountError } from "../errors/auth.error";
 
 const isUniqueConstraintError = (error: unknown): boolean =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
@@ -17,6 +18,10 @@ const loginExistingIdentity = async (
   identity: NonNullable<Awaited<ReturnType<typeof findIdentityByProvider>>>,
   deviceInfo?: OAuthLoginRequestDto["deviceInfo"]
 ): Promise<OAuthLoginResponseDto> => {
+  if (identity.user.status === "deleted") {
+    throw new WithdrawnAccountError();
+  }
+
   await touchLastLogin(identity.user_id);
   const tokens = await issueTokens(identity.user_id, identity.email, deviceInfo);
   return {

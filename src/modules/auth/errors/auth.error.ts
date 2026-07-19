@@ -43,3 +43,10 @@ export class RefreshTokenExpiredError extends AppError {
     super(ErrorCodes.EXPIRED, 410, message);
   }
 }
+
+// API 명세서 `이메일 로그인` 참고 — status = deleted(탈퇴)인 계정의 로그인 시도.
+export class WithdrawnAccountError extends AppError {
+  constructor(message = "탈퇴한 계정입니다") {
+    super(ErrorCodes.FORBIDDEN, 403, message);
+  }
+}

@@ -37,6 +37,7 @@ export class AuthController extends Controller {
   @Middlewares(validate(oauthLoginRequestSchema))
   @Response(400, "VALIDATION_ERROR")
   @Response(401, "UNAUTHORIZED")
+  @Response(403, "FORBIDDEN")
   public async oauthKakao(
     @Body() body: OAuthLoginRequestDto
   ): Promise<ApiResponse<OAuthLoginResponseDto>> {
@@ -51,6 +52,7 @@ export class AuthController extends Controller {
   @Middlewares(validate(oauthLoginRequestSchema))
   @Response(400, "VALIDATION_ERROR")
   @Response(401, "UNAUTHORIZED")
+  @Response(403, "FORBIDDEN")
   public async oauthNaver(
     @Body() body: OAuthLoginRequestDto
   ): Promise<ApiResponse<OAuthLoginResponseDto>> {
@@ -141,6 +143,7 @@ export class AuthController extends Controller {
   @Middlewares(validate(loginRequestSchema))
   @Response(400, "VALIDATION_ERROR")
   @Response(400, "INVALID_PASSWORD")
+  @Response(403, "FORBIDDEN")
   @Response(404, "NOT_FOUND")
   public async login(@Body() body: LoginRequestDto): Promise<ApiResponse<LoginResponseDto>> {
     const result = await loginWithEmail(body);

@@ -6,7 +6,7 @@ import {
   touchLastLogin,
 } from "../repositories/auth.repository";
 import { DuplicatedError } from "../../../shared/errors/common.error";
-import { EmailNotFoundError, InvalidPasswordError } from "../errors/auth.error";
+import { EmailNotFoundError, InvalidPasswordError, WithdrawnAccountError } from "../errors/auth.error";
 import {
   LoginRequestDto,
   LoginResponseDto,
@@ -54,6 +54,10 @@ export const loginWithEmail = async (request: LoginRequestDto): Promise<LoginRes
   const passwordMatches = await bcrypt.compare(request.password, identity.password_hash);
   if (!passwordMatches) {
     throw new InvalidPasswordError();
+  }
+
+  if (identity.user.status === "deleted") {
+    throw new WithdrawnAccountError();
   }
 
   await touchLastLogin(identity.user_id);

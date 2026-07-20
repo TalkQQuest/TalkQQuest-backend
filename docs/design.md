@@ -89,7 +89,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 | 도메인 | 테이블 | 역할 |
 |---|---|---|
-| 인증 | `Users` | 서비스 사용자 본체 (name, school_or_job, birth_date 등). 로그인 수단 정보는 갖지 않음 |
+| 인증 | `Users` | 서비스 사용자 본체 (name 등). 로그인 수단 정보는 갖지 않음 |
 | 인증 | `Auth_Identities` | `Users` 1 : N 관계. 카카오/네이버/이메일 로그인 수단을 각각 한 행으로 저장 (email 방식만 `password_hash` 사용) |
 | 인증 | `Refresh_Tokens` | JWT Refresh Token, 기기정보, 폐기(revoked) 여부 |
 | 인증 | `Terms` | 이용약관/개인정보처리방침 버전 관리 |
@@ -162,7 +162,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 >
 > **소셜 로그인(Android 클라이언트) 인증 방식**: Kakao SDK / Naver SDK가 디바이스에서 로그인을 처리하고 **Provider Access Token**을 앱에 직접 발급한다. 백엔드는 Authorization Code → Token 교환을 수행하지 않고, **클라이언트가 전달한 Provider Access Token을 그대로 카카오/네이버의 사용자 정보 조회 API에 전달해 검증**한다. API 명세서 원안은 Authorization Code 방식(`code`/`state`)으로 작성되어 있으나, 팀 논의로 Provider Access Token 방식을 유지하기로 확정했다 — 명세서보다 실제 구현이 우선한다.
 >
-> **이메일 로그인**: `/auth/signup`(`/auth/register`)은 이메일 인증(`/auth/email/request` → `/auth/email/verify`) 완료 후 비밀번호와 이름/생년월일/학교·직업, `termsAgreedAt`(ISO 8601 동의 시각)을 받아 계정을 생성한다. 비밀번호는 8자 이상 + 숫자 + 영문 + 특수문자 포함 규칙을 적용하고 bcrypt로 해시하여 저장한다. 이메일 중복 여부는 `/auth/email/request` 시점에 이미 체크한다.
+> **이메일 로그인**: `/auth/signup`(`/auth/register`)은 이메일 인증(`/auth/email/request` → `/auth/email/verify`) 완료 후 비밀번호와 이름, `termsAgreedAt`(ISO 8601 동의 시각)을 받아 계정을 생성한다. 비밀번호는 8자 이상 + 숫자 + 영문 + 특수문자 포함 규칙을 적용하고 bcrypt로 해시하여 저장한다. 이메일 중복 여부는 `/auth/email/request` 시점에 이미 체크한다. (생년월일/학교·직업은 어떤 가입 경로로도 수집·사용하지 않아 `Users` 스키마에서 제거했다.)
 >
 > **계정 연동**: 카카오/네이버 로그인 시, 같은 이메일로 다른 수단이 이미 가입되어 있으면 새 계정을 만들지 않고 응답에 `needsLinking: true`와 기존 계정 정보를 포함한다(토큰은 발급하지 않음). 실제로 두 계정을 병합하는 API는 아직 없다.
 
@@ -219,8 +219,6 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
   "email": "test@example.com",
   "password": "Test1234!",
   "name": "홍길동",
-  "birthDate": "2000-01-01",
-  "schoolOrJob": "한성대학교",
   "termsAgreedAt": "2025-07-03T12:00:00Z"
 }
 ```
@@ -287,6 +285,18 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 **Request Body:** `{ "refreshToken": "string" }`
 
 전달된 Refresh Token을 DB에서 폐기(revoked) 처리한다.
+
+#### POST /auth/password/reset-request
+
+**Request Body:** `{ "email": "test@example.com" }`
+
+가입된 이메일(email 수단)인지 확인 후 재설정 인증번호를 발급한다. `/auth/email/request`와 동일하게 Redis에 5분 TTL로 저장하고 메일을 발송하되, 회원가입 인증 코드와 섞이지 않도록 별도 키 네임스페이스(`password-reset:code:`)를 쓴다.
+
+#### POST /auth/password/reset
+
+**Request Body:** `{ "email": "test@example.com", "code": "483921", "newPassword": "NewPass1234!" }`
+
+코드가 유효하면 비밀번호를 변경하고, 해당 계정으로 발급된 모든 Refresh Token을 폐기한다(재로그인 필요). 코드 불일치/만료는 `/auth/email/verify`와 동일하게 구분해서 에러를 반환한다.
 
 #### GET /legal/terms, GET /legal/privacy
 
@@ -359,6 +369,22 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
   "interests": ["string"]
 }
 ```
+
+#### POST /users/me/password/verify
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Request Body:** `{ "currentPassword": "string" }`
+
+비밀번호 변경 화면이 "현재 비밀번호 확인 → 새 비밀번호 입력" 2단계로 구성되어 있어, 확인을 별도 API로 분리했다. 확인에 성공하면 Redis에 `password-change:verified:{userId}`를 10분 TTL로 저장하고, `PATCH /users/me/password`는 이 플래그가 있어야만 동작한다(없으면 403 `FORBIDDEN`) — 확인 단계를 건너뛰고 변경 API를 바로 호출하는 것을 막기 위함.
+
+#### PATCH /users/me/password
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Request Body:** `{ "newPassword": "string" }`
+
+직전에 `POST /users/me/password/verify`를 거쳐야 한다. 변경 성공 시 해당 계정의 모든 Refresh Token을 폐기한다(다른 기기 재로그인 필요).
 
 #### PATCH /users/me/onboarding
 

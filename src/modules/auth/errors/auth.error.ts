@@ -50,3 +50,11 @@ export class WithdrawnAccountError extends AppError {
     super(ErrorCodes.FORBIDDEN, 403, message);
   }
 }
+
+// 비밀번호 변경(PATCH /users/me/password) 직전에 POST /users/me/password/verify로
+// 현재 비밀번호를 확인해야 한다 — 그 확인을 거치지 않고 바로 호출된 경우.
+export class PasswordNotVerifiedError extends AppError {
+  constructor(message = "현재 비밀번호 확인이 필요합니다") {
+    super(ErrorCodes.FORBIDDEN, 403, message);
+  }
+}

@@ -35,8 +35,6 @@ export const signupWithEmail = async (request: SignupRequestDto): Promise<Signup
     email: request.email,
     passwordHash,
     name: request.name,
-    birthDate: request.birthDate,
-    schoolOrJob: request.schoolOrJob,
     termsAgreedAt: new Date(request.termsAgreedAt),
   });
   await clearEmailVerified(request.email);

@@ -7,9 +7,9 @@ import {
   CompleteMissionRequestDto,
   CompleteMissionResponseDto,
 } from "../dtos/mission-completion.dto";
-
-// TODO: 레벨업 필요 XP 미확정 — level * 100으로 가정
-const calculateNextLevelXp = (level: number): number => level * 100;
+// 레벨 공식은 xp 모듈이 소유한다 — GET /xp/summary의 nextLevelXp와 반드시 같은 값을 써야 하므로
+// 여기서 따로 정의하지 않고 import한다 (xp/services/level.service.ts).
+import { calculateNextLevelXp } from "../../xp/services/level.service";
 
 export const completeMission = async (
   userId: string,

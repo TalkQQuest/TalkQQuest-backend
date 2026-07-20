@@ -424,7 +424,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 모두 `Authorization: Bearer {accessToken}` 필수.
 
-> API 명세서의 `GET /home/summary`(홈 대시보드/요약), `GET /xp/summary`, `GET /xp/history`(XP 현황/히스토리)는 아직 구현되지 않았다.
+> API 명세서의 `GET /home/summary`(홈 대시보드/요약)는 아직 구현되지 않았다. XP 현황/히스토리(`GET /xp/summary`, `GET /xp/history`)는 아래 [XP APIs](#xp-apis) 참고.
 
 #### GET /missions
 
@@ -601,6 +601,87 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
   "errorCode": null
 }
 ```
+
+### XP APIs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /xp/summary | XP/레벨 요약 조회 |
+| GET | /xp/history | XP 획득/차감 내역 조회 (페이지네이션) |
+
+모두 `Authorization: Bearer {accessToken}` 필수.
+
+> **XP 데이터 모델 주의** — XP는 두 곳에 나뉘어 저장된다.
+> - `User_Profiles.xp`는 **현재 레벨 내 진행도**다. 레벨업 시 `xp -= 필요XP`로 차감되므로 **누적 총합이 아니다.**
+> - `XP_History`가 지급/차감 원장이며, **누적 경험치는 이 테이블의 `amount` 합계**로 구한다(차감은 음수로 기록되어 순증분이 된다).
+>
+> 그래서 `/xp/summary`는 `currentXp`(레벨 내 진행도)와 `totalXp`(누적)를 **분리해서** 내려준다. 둘을 같은 값으로 취급하면 안 된다.
+>
+> `nextLevelXp`는 미션 완료 시 레벨업 판정과 **반드시 같은 공식**이어야 한다(어긋나면 진행바가 꽉 찼는데 레벨업이 안 되는 현상이 생긴다). 공식은 `src/modules/xp/services/level.service.ts`의 `calculateNextLevelXp` 하나로 관리하며, 미션 완료 로직(`mission-completion.service.ts`)도 이 함수를 import해서 쓴다. 현재 값은 `level * 100`이나 **기획 미확정 상태**이며, 변경 시 이 함수만 수정하면 양쪽에 함께 반영된다.
+
+#### GET /xp/summary
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "OK",
+  "data": {
+    "level": 3,
+    "currentXp": 120,
+    "nextLevelXp": 300,
+    "totalXp": 1520
+  },
+  "errorCode": null
+}
+```
+
+| 필드 | 설명 |
+|---|---|
+| `level` | 현재 레벨 |
+| `currentXp` | 현재 레벨 내 진행도 (누적 아님) |
+| `nextLevelXp` | 다음 레벨까지 필요한 XP |
+| `totalXp` | 누적 경험치 (`XP_History` 합계, 지급 이력이 없으면 `0`) |
+
+**Errors:** 프로필이 없으면 `NOT_FOUND`(404).
+
+#### GET /xp/history
+
+**Query String:** `page`(기본 1), `size`(기본 10, 최대 100)
+
+최신순(`created_at` 내림차순)으로 반환한다.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "OK",
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "amount": 20,
+        "reason": "미션 완료",
+        "referenceId": "uuid",
+        "referenceType": "mission_record",
+        "createdAt": "ISODate"
+      }
+    ],
+    "pageInfo": { "currentPage": 1, "totalPages": 3, "totalCount": 25 }
+  },
+  "errorCode": null
+}
+```
+
+| 필드 | 설명 |
+|---|---|
+| `amount` | 양수=획득, **음수=차감** |
+| `referenceId` | 관련 리소스 ID (직접 지급 등은 `null`) |
+| `referenceType` | `mission_record` / `badge` / `event` 등 (없으면 `null`) |
+
+**Errors:** 잘못된 `page`/`size`는 `VALIDATION_ERROR`(400).
+
+> 배지 관련 API(`GET /badges`, `POST /badges/grant`)는 기능명세서 J101에 함께 묶여 있으나 아직 구현되지 않았다.
 
 ### Community APIs (미구현)
 

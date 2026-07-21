@@ -104,10 +104,13 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 | 성장 | `XP_History` | XP 지급/차감 내역 (레벨 시스템의 원장) |
 | 피드백/아카이브 | `Feedbacks` | AI 피드백 점수(친절함/주도성/공감/질문 연결성) |
 | 피드백/아카이브 | `Saved_Phrases` | 저장한 문장 |
+| 결제/구독 | `Plans` | 등급 정의 (free/premium). `POST /plans`는 없어 `prisma/seed.ts`로만 관리 |
+| 결제/구독 | `Subscriptions` | 유저의 구독 상태. `status`(pending/active/expired/cancelled — `pending`은 ERD 원안에 없던 값으로, 결제 대기 상태를 표현하기 위해 추가)와 `expires_at`으로 유효 여부를 그때그때 계산(lazy) — 별도 배치로 만료 처리하지 않음 |
+| 결제/구독 | `Payments` | 결제 내역. 실제 PG 연동 없이 mock으로 즉시 `completed` 처리됨 |
 
 ### 아직 스키마에 없는 범위 (API 명세서에는 있으나 미구현)
 
-커뮤니티/모임, 결제/구독, 리포트, 알림(FCM), 아카이브 폴더, 안전(차단/신고), 캘린더, 배지 관련 테이블은 API 명세서 기준으로는 확정됐지만 아직 `prisma/schema.prisma`에 반영되지 않았다. 해당 도메인 구현이 시작되면 스키마에 먼저 추가하고, 이 표도 같이 갱신한다.
+커뮤니티/모임, 리포트, 알림(FCM), 아카이브 폴더, 안전(차단/신고), 캘린더, 배지 관련 테이블은 API 명세서 기준으로는 확정됐지만 아직 `prisma/schema.prisma`에 반영되지 않았다. 해당 도메인 구현이 시작되면 스키마에 먼저 추가하고, 이 표도 같이 갱신한다.
 
 ## API Specification
 
@@ -739,7 +742,7 @@ API 명세서에는 정의되어 있으나 아직 스키마/코드 모두 구현
 
 채팅 메시지는 REST 저장과 동시에 Socket.IO 채널(`community:{id}`)로 실시간 브로드캐스트할 예정이다 (미구현).
 
-### Payment & Subscription APIs (미구현)
+### Payment & Subscription APIs
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -750,8 +753,50 @@ API 명세서에는 정의되어 있으나 아직 스키마/코드 모두 구현
 | POST | /payments | 결제 요청 |
 | GET | /payments/me | 결제 내역 조회 |
 
+> 사업자등록증이 없어 실제 PG(결제대행사) 연동이 불가능하다. `POST /payments`는 클라이언트가 보낸 결제 정보를 검증 없이 그대로 신뢰하고 즉시 `completed`로 기록하는 **mock 구현**이다. `POST /subscriptions`와 `POST /payments`는 명세서상 별도 리소스로 분리되어 있어 그대로 두 개의 엔드포인트로 구현했고, **결제가 성공해야 구독이 활성화**된다 — `POST /subscriptions`는 `pending`(결제 대기) 상태로만 구독을 만들고, 그 구독을 참조하는 `POST /payments`가 성공해야 비로소 `active`로 전환된다. `Subscriptions.status`에 `pending`을 추가했다(원래 ERD엔 active/expired/cancelled만 있었음).
+>
 > 이전 초안에 있던 `POST /payments/webhook`(PG사 Webhook 수신)은 현재 API 명세서에는 없다. 실제 PG사 연동 시 필요 여부를 다시 확인한다.
-> **결제**: Android 인앱결제(Google Play Billing) 정책상 디지털 재화(구독)는 Play Billing 연동이 필요할 수 있으므로, PG사 직결제 도입 전 Google Play 정책 검토가 필요하다.
+> **결제**: Android 인앱결제(Google Play Billing) 정책상 디지털 재화(구독)는 Play Billing 연동이 필요할 수 있으므로, PG사 직결제 도입 전 Google Play 정책 검토가 필요하다 (미구현).
+
+#### GET /plans
+
+**Header:** `Authorization` 불필요
+
+**Response (200):** `data.plans[]` — `id`, `name`(free/premium), `price`, `currency`, `aiLimit`/`feedbackLimit`(`null`=무제한), `features[]`. `prisma/seed.ts`로 시딩된 데이터를 그대로 반환한다.
+
+#### POST /subscriptions
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Request Body:** `{ "planId": "string" }`
+
+`pending` 또는 유효한(만료되지 않은) `active` 구독이 이미 있으면 409 `DUPLICATED`. 존재하지 않거나 비활성 플랜이면 400 `VALIDATION_ERROR`. 응답의 `status`는 `pending`이고 `expiresAt`은 `null`이다 — 아직 프리미엄이 아니며, `POST /payments`로 결제를 완료해야 `active`로 전환되고 그 시점부터 1개월짜리 `expiresAt`이 계산된다.
+
+#### GET /subscriptions/me
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+가장 최근 구독을 조회해, `status`가 `pending`/`expired`이거나 `expires_at`이 지났으면(lazy 판정) 404 `NOT_FOUND`("활성화된 구독이 없습니다.")를 반환한다. 결제 전(`pending`) 구독은 아직 프리미엄이 아니므로 여기서 보이지 않는다. `status: cancelled`인데 아직 만료 전이면 정상 응답한다 — 취소해도 이미 결제한 기간까지는 조회/이용이 가능하다는 의미다.
+
+#### DELETE /subscriptions/me
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+현재 `active`이고 만료 전인 구독만 취소 가능(그 외엔 404). `expires_at`은 변경하지 않고 `status`만 `cancelled`로 바꾼다 — 다음 갱신 시점(만료일)에 자연스럽게 무료로 내려간다(배치 없이 `GET /subscriptions/me` 등 조회 시점마다 lazy 판정).
+
+#### POST /payments
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Request Body:** `{ "subscriptionId": "string", "amount": 9900, "currency": "KRW", "method": "card", "externalId": "string" }`
+
+`subscriptionId`가 본인 소유 구독이 아니거나 이미 `pending`이 아닌(이미 결제 완료/취소/만료된) 구독이면 400 `VALIDATION_ERROR`. 성공 시 결제 기록을 남기고, 해당 구독을 `active`로 전환한다(`started_at`을 결제 성공 시각으로, `expires_at`을 그로부터 1개월 후로 설정). PG 연동이 없어 402 `PAYMENT_FAILED`는 명세서 형태만 정의해두었고 현재 코드에서 실제로 도달하는 경로는 없다.
+
+#### GET /payments/me
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+본인의 결제 내역을 최신순으로 반환한다.
 
 ### Report & Feedback APIs (미구현)
 

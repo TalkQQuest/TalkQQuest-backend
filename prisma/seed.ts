@@ -84,12 +84,48 @@ const TEMPLATE_MISSIONS = [
   },
 ];
 
+// 무료/프리미엄 등급. 실제 PG 연동 전이라 POST /plans API 없이 여기서만 관리한다.
+// Plans.name에 unique 제약이 없어 delete+recreate 대신 name으로 찾아 upsert한다 —
+// Subscriptions가 이미 특정 plan_id를 참조 중이면 delete가 FK(Restrict)에 걸리기 때문.
+const PLANS = [
+  {
+    name: "free",
+    price: 0,
+    currency: "KRW",
+    ai_limit: 5,
+    feedback_limit: 3,
+    features: ["기본 미션", "AI 피드백 5회"],
+  },
+  {
+    name: "premium",
+    price: 9900,
+    currency: "KRW",
+    ai_limit: null,
+    feedback_limit: null,
+    features: ["무제한 미션", "AI 피드백 무제한", "월간 리포트"],
+  },
+];
+
+async function seedPlans() {
+  for (const plan of PLANS) {
+    const existing = await prisma.plans.findFirst({ where: { name: plan.name } });
+    if (existing) {
+      await prisma.plans.update({ where: { id: existing.id }, data: plan });
+    } else {
+      await prisma.plans.create({ data: plan });
+    }
+  }
+  console.log(`플랜 시드 완료: ${PLANS.length}건 (free/premium)`);
+}
+
 async function main() {
   const deleted = await prisma.missions.deleteMany({ where: { is_template: true } });
   const created = await prisma.missions.createMany({
     data: TEMPLATE_MISSIONS.map((m) => ({ ...m, is_template: true })),
   });
   console.log(`템플릿 미션 시드 완료: ${deleted.count}건 삭제, ${created.count}건 생성`);
+
+  await seedPlans();
 }
 
 main()

@@ -14,6 +14,9 @@ export const ErrorCodes = {
 
   // 공통 (API 명세서 기준 — 인증번호/토큰 등 시간 제한이 있는 리소스의 만료)
   EXPIRED: "EXPIRED",
+
+  // Payment 도메인 (API 명세서 `결제 요청` 기준)
+  PAYMENT_FAILED: "PAYMENT_FAILED",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

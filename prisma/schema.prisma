@@ -84,6 +84,7 @@ enum PaymentStatus {
 }
 
 enum SubscriptionStatus {
+  pending
   active
   expired
   cancelled
@@ -489,7 +490,7 @@ model Subscriptions {
   id         String             @id @default(uuid()) @db.Char(36)
   user_id    String             @db.Char(36)
   plan_id    String             @db.Char(36)
-  status     SubscriptionStatus @default(active)
+  status     SubscriptionStatus @default(pending)
   started_at DateTime
   expires_at DateTime?
   created_at DateTime           @default(now())

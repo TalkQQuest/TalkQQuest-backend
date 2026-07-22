@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { env } from "../../../config/env";
 import { logger } from "../../../config/logger";
+import { callUpstageChat, upstageModel } from "../../../shared/llm/upstage";
 import { LlmHealthResponseDto } from "../dtos/mission.dto";
 import {
   RecommendationCriteria,
@@ -37,7 +37,6 @@ export type ParseResult =
   | { ok: true; mission: RecommendedMission }
   | { ok: false; reason: "invalid_json" | "schema_invalid" };
 
-const REQUEST_TIMEOUT_MS = 10000;
 const MAX_TOKENS = 500;
 const TEMPERATURE = 0.7;
 
@@ -188,16 +187,6 @@ export const parseLlmMission = (rawContent: string): ParseResult => {
   };
 };
 
-const fetchWithTimeout = async (url: string, init: RequestInit): Promise<Response> => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timeoutId);
-  }
-};
-
 // 실패 결과 헬퍼 — mission=null과 폴백 사유를 담는다.
 const failedResult = (
   fallbackReason: LlmFallbackReason,
@@ -217,102 +206,65 @@ export const generateMissionWithLlm = async (
   context: UserContext,
   criteria: RecommendationCriteria
 ): Promise<LlmGenerationResult> => {
-  if (!env.UPSTAGE_API_KEY) {
-    logger.info("UPSTAGE_API_KEY 미설정 — LLM 생성을 건너뛰고 템플릿 폴백");
-    return failedResult("no_api_key");
-  }
-
-  const model = env.UPSTAGE_MODEL;
+  const model = upstageModel();
   const messages = buildLlmMessages(context, criteria);
 
-  try {
-    const res = await fetchWithTimeout(`${env.UPSTAGE_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.UPSTAGE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: TEMPERATURE,
-        max_tokens: MAX_TOKENS,
-        response_format: { type: "json_object" },
-      }),
-    });
+  const result = await callUpstageChat(messages, {
+    temperature: TEMPERATURE,
+    maxTokens: MAX_TOKENS,
+    jsonMode: true,
+  });
 
-    if (!res.ok) {
-      logger.warn({ status: res.status }, "Upstage 응답 오류 — 템플릿으로 폴백");
-      return failedResult("http_error", { llmModel: model, promptInput: messages });
+  if (!result.ok) {
+    if (result.reason === "no_api_key") {
+      logger.info("UPSTAGE_API_KEY 미설정 — LLM 생성을 건너뛰고 템플릿 폴백");
+      return failedResult("no_api_key");
     }
+    // 저수준 사유를 로깅용 fallback_reason으로 매핑한다.
+    // empty_response(200이나 빈 content)는 파싱 불가이므로 invalid_json으로, 네트워크 오류는 http_error로 묶는다.
+    const reason: LlmFallbackReason =
+      result.reason === "timeout"
+        ? "timeout"
+        : result.reason === "empty_response"
+          ? "invalid_json"
+          : "http_error";
+    logger.warn({ reason: result.reason }, "Upstage 실패 — 템플릿으로 폴백");
+    return failedResult(reason, { llmModel: model, promptInput: messages });
+  }
 
-    const body = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const content = body.choices?.[0]?.message?.content;
-    if (!content) {
-      logger.warn("Upstage 응답에 content가 없음 — 템플릿으로 폴백");
-      return failedResult("invalid_json", { llmModel: model, promptInput: messages });
-    }
-
-    const parsed = parseLlmMission(content);
-    if (!parsed.ok) {
-      return failedResult(parsed.reason, {
-        llmModel: model,
-        promptInput: messages,
-        rawResponse: content,
-      });
-    }
-
-    return {
-      mission: parsed.mission,
+  const parsed = parseLlmMission(result.content);
+  if (!parsed.ok) {
+    return failedResult(parsed.reason, {
       llmModel: model,
       promptInput: messages,
-      rawResponse: content,
-      parseSuccess: true,
-      fallbackReason: null,
-    };
-  } catch (error) {
-    // 타임아웃(AbortError)과 그 외 네트워크 오류를 구분해 폴백으로 흡수한다.
-    const isTimeout = error instanceof Error && error.name === "AbortError";
-    logger.warn({ err: error }, "Upstage 호출 실패 — 템플릿으로 폴백");
-    return failedResult(isTimeout ? "timeout" : "http_error", {
-      llmModel: model,
-      promptInput: messages,
+      rawResponse: result.content,
     });
   }
+
+  return {
+    mission: parsed.mission,
+    llmModel: model,
+    promptInput: messages,
+    rawResponse: result.content,
+    parseSuccess: true,
+    fallbackReason: null,
+  };
 };
 
 // 진단용 — 사용자 데이터 없이 Upstage에 최소 요청을 보내 연결 상태만 확인한다.
 export const pingLlm = async (): Promise<LlmHealthResponseDto> => {
-  const model = env.UPSTAGE_MODEL;
-  if (!env.UPSTAGE_API_KEY) {
-    return { connected: false, model, reason: "no_api_key" };
+  const model = upstageModel();
+  const result = await callUpstageChat([{ role: "user", content: "Say OK" }], { maxTokens: 10 });
+
+  if (result.ok) {
+    return { connected: true, model, sample: result.content.slice(0, 100) };
   }
-
-  try {
-    const res = await fetchWithTimeout(`${env.UPSTAGE_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.UPSTAGE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: "Say OK" }],
-        max_tokens: 10,
-      }),
-    });
-
-    if (!res.ok) {
-      return { connected: false, model, reason: `http_${res.status}` };
-    }
-
-    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const content = body.choices?.[0]?.message?.content ?? "";
-    return { connected: true, model, sample: content.slice(0, 100) };
-  } catch (error) {
-    const isTimeout = error instanceof Error && error.name === "AbortError";
-    return { connected: false, model, reason: isTimeout ? "timeout" : "network_error" };
+  // 200이지만 빈 응답이면 서버 연결 자체는 정상으로 본다.
+  if (result.reason === "empty_response") {
+    return { connected: true, model, sample: "" };
   }
+  if (result.reason === "http_error") {
+    return { connected: false, model, reason: `http_${result.status}` };
+  }
+  return { connected: false, model, reason: result.reason }; // no_api_key / timeout / network_error
 };

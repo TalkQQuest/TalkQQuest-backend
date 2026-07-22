@@ -20,9 +20,11 @@ import {
   changePasswordRequestSchema,
   verifyPasswordRequestSchema,
 } from "../dtos/password.dto";
+import { UsageResponseDto } from "../dtos/usage.dto";
 import { getMyProfile, updateMyProfile, withdrawUser } from "../services/user-profile.service";
 import { completeOnboarding, saveOnboardingStep } from "../services/onboarding.service";
 import { changePassword, verifyCurrentPassword } from "../../auth/services/password.service";
+import { getMyUsage as fetchMyUsage } from "../services/usage.service";
 
 @Route("users")
 @Tags("User")
@@ -125,6 +127,19 @@ export class UserController extends Controller {
   ): Promise<ApiResponse<null>> {
     await changePassword(req.user!.id, body.newPassword);
     return success(null, "비밀번호가 변경되었습니다.");
+  }
+
+  /**
+   * @summary 사용량 조회
+   */
+  @Get("me/usage")
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "NOT_FOUND")
+  public async getMyUsage(@Request() req: ExpressRequest): Promise<ApiResponse<UsageResponseDto>> {
+    const result = await fetchMyUsage(req.user!.id);
+    return success(result);
   }
 
   /**

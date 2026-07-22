@@ -7,3 +7,5 @@ export const findActivePlans = () =>
   });
 
 export const findPlanById = (id: string) => prisma.plans.findUnique({ where: { id } });
+
+export const findPlanByName = (name: string) => prisma.plans.findFirst({ where: { name } });

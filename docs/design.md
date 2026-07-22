@@ -335,7 +335,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 모두 `Authorization: Bearer {accessToken}` 필수.
 
-> API 명세서에는 이 외에도 `DELETE /users/me`(회원 탈퇴), `GET /users/me/settings`/`PATCH /users/me/settings`(설정), `GET /users/me/usage`(사용량), `GET /users/me/dashboard`(마이페이지 요약), `GET /badges/me`(배지)가 정의되어 있으나 아직 구현되지 않았다.
+> API 명세서에는 이 외에도 `DELETE /users/me`(회원 탈퇴), `GET /users/me/settings`/`PATCH /users/me/settings`(설정), `GET /users/me/dashboard`(마이페이지 요약)가 정의되어 있으나 아직 구현되지 않았다. `GET /users/me/usage`(사용량)와 `GET /badges/me`(배지)는 구현되어 아래 별도 섹션에 정리했다.
 
 #### GET /users/me
 
@@ -439,6 +439,28 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 #### DELETE /goals/{goalId}
 
 목표 조회/수정/삭제는 모두 `NOT_FOUND`(존재하지 않거나 본인 소유가 아닌 goalId) 공통 에러 코드를 사용한다.
+
+#### GET /users/me/usage
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Query String:** 없음 — 항상 "현재 주기"의 사용량만 반환한다. 과거 주기 조회는 이번 범위에 없다.
+
+**Response (200):** `data` — `cycleStart`, `cycleEnd`, `aiCount`, `feedbackCount`, `aiLimit`(`null`=무제한), `feedbackLimit`(`null`=무제한).
+
+사용량은 달력 월(`YYYY-MM`)이 아니라 **롤링 1개월 주기**로 집계한다. 주기의 기준일(anchor)은:
+- 유효한(active + 만료 전) 구독이 있으면 그 **구독의 `started_at`**
+- 없으면(무료 등급) **회원가입일**(`Users.created_at`)
+
+주기는 anchor로부터 매달 반복되며(`getCurrentCycleStart`, `shared/utils/date.ts`), `aiLimit`/`feedbackLimit`은 유저의 현재 유효 플랜(`payment` 모듈의 `getUsageContext` — 유효한 active 구독이 없으면 free 플랜)에서 가져온다. 해당 주기의 사용량 데이터(`Usage` 테이블, `cycle_start` 컬럼으로 식별)가 없으면 `aiCount`/`feedbackCount`는 0으로 응답한다.
+
+> 구독을 시작/결제 완료하거나 만료되면 anchor가 바뀌어 사용량 주기 경계도 함께 바뀐다 (예: 가입일 기준으로 쓰다가 구독 결제를 완료하면 그 시점부터 구독 시작일 기준으로 재계산됨). **취소는 anchor를 바꾸지 않는다** — 취소해도 만료일 전까지는 여전히 프리미엄으로 취급되어(`isSubscriptionEffective`) 구독 시작일 기준 anchor와 한도가 그대로 유지되고, 실제 만료 시점이 지나야 비로소 가입일 기준(무료)으로 되돌아간다. 별도 배치 없이 조회 시점마다 anchor와 현재 시각으로 주기를 그때그때 계산한다(lazy).
+
+#### GET /badges/me
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Response (200):** `data.badges[]` — `id`, `name`, `description`, `iconUrl`, `earnedAt`. `User_Badges`에 있는 데이터를 조회만 한다 — 배지를 실제로 부여하는 자동 획득 로직(조건 판정)은 이번 범위에 없고, 당분간 배지 데이터는 수동으로 넣어둔다.
 
 ### Mission APIs
 
@@ -710,7 +732,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 **Errors:** 잘못된 `page`/`size`는 `VALIDATION_ERROR`(400).
 
-> 배지 관련 API(`GET /badges`, `POST /badges/grant`)는 기능명세서 J101에 함께 묶여 있으나 아직 구현되지 않았다.
+> 배지 목록 조회(`GET /badges/me`)는 `### User APIs` 섹션에 구현되어 있다. 배지를 실제로 부여하는 자동 획득 로직(`POST /badges/grant` 등, 기능명세서 J101에 함께 묶여 있던 부분)은 아직 구현되지 않았다 — 현재는 `User_Badges` 데이터를 수동으로 넣어야 한다.
 
 ### Community APIs (미구현)
 
@@ -853,8 +875,6 @@ API 명세서에는 정의되어 있으나 아직 스키마/코드 모두 구현
 | PATCH | /users/me/settings | 설정 수정 |
 | DELETE | /users/me | 회원 탈퇴 |
 | POST | /uploads/profile-image | 프로필 이미지 업로드 |
-| GET | /badges/me | 보유 배지 목록 조회 |
-| GET | /users/me/usage | 사용량 조회 |
 | GET | /users/me/dashboard | 마이페이지 요약 |
 | GET | /home/summary | 홈 대시보드/요약 |
 

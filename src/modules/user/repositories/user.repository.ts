@@ -37,3 +37,11 @@ export const softDeleteUser = (userId: string) =>
       deleted_at: new Date(),
     },
   });
+
+export const findUserCreatedAt = async (userId: string): Promise<Date | null> => {
+  const user = await prisma.users.findUnique({ where: { id: userId }, select: { created_at: true } });
+  return user?.created_at ?? null;
+};
+
+export const findUsageByUserAndCycleStart = (userId: string, cycleStart: Date) =>
+  prisma.usage.findUnique({ where: { user_id_cycle_start: { user_id: userId, cycle_start: cycleStart } } });

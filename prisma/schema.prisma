@@ -453,14 +453,15 @@ model Recommendation_Logs {
 model Usage {
   id             String   @id @default(uuid()) @db.Char(36)
   user_id        String   @db.Char(36)
-  period         String   @db.VarChar(7) 
-  ai_count       Int      @default(0) 
+  // 달력 월(YYYY-MM)이 아니라, 가입일/구독 시작일을 기준으로 한 롤링 1개월 주기의 시작일.
+  cycle_start    DateTime @db.Date
+  ai_count       Int      @default(0)
   feedback_count Int      @default(0)
   updated_at     DateTime @default(dbgenerated("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")) @db.Timestamp(0)
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  @@unique([user_id, period])
+  @@unique([user_id, cycle_start])
   @@map("Usage")
 }
 

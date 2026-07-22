@@ -1,11 +1,12 @@
-import { Subscriptions } from "@prisma/client";
+import { Plans, Subscriptions } from "@prisma/client";
+import { addMonths } from "../../../shared/utils/date";
 import {
   activateSubscription,
   createSubscription,
   findLatestSubscriptionByUserId,
   updateSubscriptionStatus,
 } from "../repositories/subscription.repository";
-import { findPlanById } from "../repositories/plan.repository";
+import { findPlanById, findPlanByName } from "../repositories/plan.repository";
 import {
   ActiveSubscriptionExistsError,
   InvalidPlanError,
@@ -21,12 +22,6 @@ export const isSubscriptionEffective = (subscription: Pick<Subscriptions, "statu
   if (subscription.status === "pending" || subscription.status === "expired") return false;
   if (!subscription.expires_at) return true;
   return subscription.expires_at.getTime() > Date.now();
-};
-
-const addOneMonth = (date: Date): Date => {
-  const result = new Date(date);
-  result.setMonth(result.getMonth() + 1);
-  return result;
 };
 
 // 구독은 결제가 성공해야 활성화된다 — POST /subscriptions는 'pending' 상태로만 만들고,
@@ -55,7 +50,7 @@ export const startSubscription = async (
 };
 
 export const activateSubscriptionAfterPayment = async (subscriptionId: string): Promise<void> => {
-  const expiresAt = addOneMonth(new Date());
+  const expiresAt = addMonths(new Date(), 1);
   await activateSubscription(subscriptionId, expiresAt);
 };
 
@@ -72,6 +67,34 @@ export const getMySubscription = async (userId: string): Promise<MySubscriptionR
     startedAt: subscription.started_at.toISOString(),
     expiresAt: subscription.expires_at?.toISOString() ?? null,
   };
+};
+
+export interface UsageContext {
+  plan: Plans;
+  // 사용량 롤링 주기의 기준일. 프리미엄(유효한 active 구독)이면 그 구독의 시작일,
+  // 무료면 회원가입일 — 무료 유저는 결제일이 없어 가입일을 대신 기준으로 삼는다.
+  cycleAnchor: Date;
+}
+
+// 지금 이 유저에게 적용되는 플랜과, 사용량 주기를 계산할 기준일을 함께 반환한다.
+// 무료 등급의 실체는 "유효한 active 구독이 없음"이다. 사용량 조회(#59)에서 사용한다.
+export const getUsageContext = async (
+  userId: string,
+  accountCreatedAt: Date
+): Promise<UsageContext> => {
+  // status==='active'만 인정하면, 취소했지만 아직 만료 전인(cancelled + 유효) 구독을
+  // 즉시 무료로 취급해버려 "취소해도 만료일까지 프리미엄 유지"라는 규칙과 모순된다.
+  // isSubscriptionEffective 하나로만 판단해 getMySubscription과 기준을 통일한다.
+  const subscription = await findLatestSubscriptionByUserId(userId);
+  if (subscription && isSubscriptionEffective(subscription)) {
+    return { plan: subscription.plan, cycleAnchor: subscription.started_at };
+  }
+
+  const freePlan = await findPlanByName("free");
+  if (!freePlan) {
+    throw new Error("free 플랜이 시드되지 않았습니다. prisma/seed.ts를 확인하세요.");
+  }
+  return { plan: freePlan, cycleAnchor: accountCreatedAt };
 };
 
 export const cancelMySubscription = async (userId: string): Promise<void> => {

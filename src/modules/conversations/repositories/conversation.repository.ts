@@ -40,6 +40,7 @@ export class ConversationRepository {
             select: {
                 id: true,
                 title: true,
+                description: true,
                 preparation_tip: true,
                 prep_items: {
                 select: { type: true, content: true, order_index: true },
@@ -48,6 +49,25 @@ export class ConversationRepository {
             },
             },
         },
+        });
+    }
+
+    // 대화 LLM 응답 생성 시 프롬프트에 넣을 이전 맥락. 최근 limit개를 오래된→최신 순으로 반환한다.
+    async findRecentMessages(conversationId: string, limit: number) {
+        const rows = await this.prisma.conversation_Messages.findMany({
+        where: { conversation_id: conversationId },
+        orderBy: { created_at: "desc" },
+        take: limit,
+        select: { role: true, content: true },
+        });
+        return rows.reverse();
+    }
+
+    // 톤 조정(Requirement 5.4)용 성향/말투 설정.
+    async findUserProfileForTone(userId: string) {
+        return this.prisma.user_Profiles.findUnique({
+        where: { user_id: userId },
+        select: { personality_type: true, preferred_style: true },
         });
     }
 

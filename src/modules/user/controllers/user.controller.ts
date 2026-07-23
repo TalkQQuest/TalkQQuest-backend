@@ -21,10 +21,12 @@ import {
   verifyPasswordRequestSchema,
 } from "../dtos/password.dto";
 import { UsageResponseDto } from "../dtos/usage.dto";
+import { DashboardResponseDto } from "../dtos/dashboard.dto";
 import { getMyProfile, updateMyProfile, withdrawUser } from "../services/user-profile.service";
 import { completeOnboarding, saveOnboardingStep } from "../services/onboarding.service";
 import { changePassword, verifyCurrentPassword } from "../../auth/services/password.service";
 import { getMyUsage as fetchMyUsage } from "../services/usage.service";
+import { getDashboard } from "../services/dashboard.service";
 
 @Route("users")
 @Tags("User")
@@ -139,6 +141,21 @@ export class UserController extends Controller {
   @Response(404, "NOT_FOUND")
   public async getMyUsage(@Request() req: ExpressRequest): Promise<ApiResponse<UsageResponseDto>> {
     const result = await fetchMyUsage(req.user!.id);
+    return success(result);
+  }
+
+  /**
+   * @summary 마이페이지 요약 조회
+   */
+  @Get("me/dashboard")
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "NOT_FOUND")
+  public async getMyDashboard(
+    @Request() req: ExpressRequest
+  ): Promise<ApiResponse<DashboardResponseDto>> {
+    const result = await getDashboard(req.user!.id);
     return success(result);
   }
 

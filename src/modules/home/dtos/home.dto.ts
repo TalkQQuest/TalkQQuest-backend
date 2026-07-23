@@ -5,6 +5,8 @@ export interface TodayMissionDto {
     difficulty: number;
     estimatedMinutes: number;
     rewardXp: number;
+    isCompleted: boolean;
+    isSaved: boolean;
 }
 
 export interface HomeSummaryResponseDto {

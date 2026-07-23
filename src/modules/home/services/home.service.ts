@@ -7,12 +7,12 @@ const XP_PER_LEVEL = 100;
 
 export const getHomeSummary = async (userId: string): Promise<HomeSummaryResponseDto> => {
     const { profile, archiveCount, todayMission } = await findHomeSummaryData(userId);
-        
+
     if (!profile) {
         throw new NotFoundError("사용자를 찾을 수 없습니다.");
     }
 
-    const nextLevelXp = XP_PER_LEVEL - (profile.xp % XP_PER_LEVEL);
+    const nextLevelXp = profile.level * XP_PER_LEVEL;
 
     return {
         nickname: profile.nickname,
@@ -27,6 +27,8 @@ export const getHomeSummary = async (userId: string): Promise<HomeSummaryRespons
             difficulty: todayMission.difficulty,
             estimatedMinutes: todayMission.estimated_minutes,
             rewardXp: todayMission.reward_xp,
+            isCompleted: todayMission.mission_records.length > 0,
+            isSaved: todayMission.saves.length > 0,
             }
         : null,
         archiveCount,

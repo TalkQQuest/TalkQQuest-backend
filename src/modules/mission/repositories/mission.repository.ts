@@ -40,6 +40,46 @@ export const findSavedMission = (userId: string, missionId: string) =>
     where: { user_id_mission_id: { user_id: userId, mission_id: missionId } },
   });
 
+// 아카이브 저장 목록 조회용
+export const findSavedMissions = (params: {
+  userId: string;
+  startDate?: Date;
+  endDate?: Date;
+  sort: "asc" | "desc";
+}) =>
+  prisma.mission_Saves.findMany({
+    where: {
+      user_id: params.userId,
+      ...(params.startDate || params.endDate
+        ? {
+            created_at: {
+              ...(params.startDate && { gte: params.startDate }),
+              ...(params.endDate && { lte: params.endDate }),
+            },
+          }
+        : {}),
+    },
+    include: {
+      mission: {
+        select: {
+          id: true,
+          title: true,
+        },
+      },
+    },
+    orderBy: {
+      created_at: params.sort,
+    },
+  });
+
+// 유저의 최신 mission_Record 조회 (완료 여부 판단용)
+export const findLatestMissionRecordsByMissionIds = (userId: string, missionIds: string[]) =>
+  prisma.mission_Records.findMany({
+    where: { user_id: userId, mission_id: { in: missionIds } },
+    orderBy: { created_at: "desc" },
+    select: { mission_id: true, status: true },
+  });
+
 export const createMissionSave = (userId: string, missionId: string) =>
   prisma.mission_Saves.create({ data: { user_id: userId, mission_id: missionId } });
 

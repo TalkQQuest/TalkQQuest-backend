@@ -1,12 +1,14 @@
 import { z } from "zod";
 
-export type ArchiveItemType = "conversation" | "phrase" | "report";
+export type ArchiveItemType = "conversation" | "phrase" | "report" | "mission";
 
 // GET /archives/summary
 export interface RecentArchiveItemDto {
     id: string;
     type: ArchiveItemType;
     title: string;
+    isBookmarked: boolean;
+    missionStatus?: "in_progress" | "completed";
     createdAt: string;
 }
 
@@ -25,14 +27,14 @@ export interface SearchArchivesQueryDto {
     type?: ArchiveItemType;
     startDate?: string;
     endDate?: string;
-    sort?: "latest" | "oldest";
+    sort?: "latest" | "oldest" | "saved";
     folderId?: string;
     tag?: string;
 }
 
 export const searchArchivesQuerySchema = z.object({
     keyword: z.string().optional(),
-    type: z.enum(["conversation", "phrase", "report"]).optional(),
+    type: z.enum(["conversation", "phrase", "report", "mission"]).optional(),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     sort: z.enum(["latest", "oldest"]).optional(),
@@ -46,6 +48,7 @@ export interface ArchiveSearchItemDto {
     title: string;
     tags: string[];
     folderId: string | null;
+    isBookmarked: boolean;
     createdAt: string;
 }
 

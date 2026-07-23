@@ -94,6 +94,7 @@ enum ArchiveItemType {
   conversation
   phrase
   report
+  mission
 }
 
 enum DeviceTokenPlatform {

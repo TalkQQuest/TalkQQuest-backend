@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Middlewares, Patch, Path, Post, Request, Route, Security, Tags } from "tsoa";
+import { Body, Controller, Delete, Get, Query, Middlewares, Patch, Path, Post, Request, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
 import { validate } from "../../../middlewares/validator";
@@ -42,19 +42,36 @@ export class ArchiveController extends Controller {
     }
 
     /**
-     * @summary 아카이브 검색 및 필터
-     */
-    @Get()
-    @Security("bearerAuth")
-    @Middlewares(authorizeUser())
-    public async search(@Request() req: ExpressRequest): Promise<ApiResponse<SearchArchivesResponseDto>> {
-        const parsed = searchArchivesQuerySchema.safeParse(req.query);
-        if (!parsed.success) {
-            throw new ValidationError("잘못된 검색 조건입니다.", parsed.error.issues);
-        }
-        const result = await archiveService.searchArchives(req.user!.id, parsed.data);
-        return success(result);
+ * @summary 아카이브 검색 및 필터
+ */
+@Get()
+@Security("bearerAuth")
+@Middlewares(authorizeUser())
+public async search(
+    @Request() req: ExpressRequest,
+    @Query() keyword?: string,
+    @Query() type?: "conversation" | "phrase" | "report" | "mission",
+    @Query() startDate?: string,
+    @Query() endDate?: string,
+    @Query() sort?: "latest" | "oldest" | "saved",
+    @Query() folderId?: string,
+    @Query() tag?: string
+): Promise<ApiResponse<SearchArchivesResponseDto>> {
+    const parsed = searchArchivesQuerySchema.safeParse({
+        keyword,
+        type,
+        startDate,
+        endDate,
+        sort,
+        folderId,
+        tag,
+    });
+    if (!parsed.success) {
+        throw new ValidationError("잘못된 검색 조건입니다.", parsed.error.issues);
     }
+    const result = await archiveService.searchArchives(req.user!.id, parsed.data);
+    return success(result);
+}
 
     /**
      * @summary 대화 기록 상세 조회

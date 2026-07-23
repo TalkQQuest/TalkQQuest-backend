@@ -37,7 +37,7 @@ export const searchArchivesQuerySchema = z.object({
     type: z.enum(["conversation", "phrase", "report", "mission"]).optional(),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    sort: z.enum(["latest", "oldest"]).optional(),
+    sort: z.enum(["latest", "oldest", "saved"]).optional(),
     folderId: z.string().optional(),
     tag: z.string().optional(),
 }) satisfies z.ZodType<SearchArchivesQueryDto>;
@@ -49,6 +49,7 @@ export interface ArchiveSearchItemDto {
     tags: string[];
     folderId: string | null;
     isBookmarked: boolean;
+    missionStatus?: "in_progress" | "completed" | null;
     createdAt: string;
 }
 

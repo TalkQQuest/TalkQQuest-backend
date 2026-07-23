@@ -11,7 +11,9 @@ import {
     FinishConversationResponse,
 } from "../dtos/conversation.dto";
 import { ConversationError } from "../errors/conversation.error";
+import { generateGuideReply, MAX_HISTORY_MESSAGES } from "./conversation-llm.service";
 
+// LLM이 실패(키 없음/오류/재시도까지 실패)했을 때 대화가 끊기지 않도록 쓰는 템플릿 폴백 (Requirement 5.5).
 const MOCK_GUIDE_RESPONSES = [
     "맞아요! 이런 날엔 산책하기 좋을 것 같아요.",
     "그렇군요! 저도 비슷한 생각이에요.",
@@ -112,12 +114,33 @@ const MOCK_GUIDE_RESPONSES = [
         if (!conversation) throw ConversationError.conversationNotFound();
         if (dto.content.trim().length < 2) throw ConversationError.feedbackInputTooShort();
 
+        // LLM 프롬프트용 이전 맥락(5.3)과 톤 설정(5.4)을 새 메시지 저장 전에 확보한다.
+        const [history, profile] = await Promise.all([
+        this.conversationRepository.findRecentMessages(conversationId, MAX_HISTORY_MESSAGES),
+        this.conversationRepository.findUserProfileForTone(userId),
+        ]);
+
         const userMsg = await this.conversationRepository.createMessage(
         conversationId, "user", dto.content
         );
-        const mockContent = MOCK_GUIDE_RESPONSES[Math.floor(Math.random() * MOCK_GUIDE_RESPONSES.length)];
+
+        // 실제 LLM 응답을 우선 생성하고, 실패하면 템플릿으로 폴백한다(5.5).
+        const llmReply = await generateGuideReply({
+        missionTitle: conversation.mission.title,
+        missionDescription: conversation.mission.description,
+        personality: profile?.personality_type ?? null,
+        preferredStyle: profile?.preferred_style ?? null,
+        history: history.filter(
+            (m): m is { role: "user" | "guide"; content: string } => m.role !== "system"
+        ),
+        latestUserMessage: dto.content,
+        });
+        const guideContent =
+        llmReply ??
+        MOCK_GUIDE_RESPONSES[Math.floor(Math.random() * MOCK_GUIDE_RESPONSES.length)];
+
         const guideMsg = await this.conversationRepository.createMessage(
-        conversationId, "guide", mockContent
+        conversationId, "guide", guideContent
         );
 
         return {

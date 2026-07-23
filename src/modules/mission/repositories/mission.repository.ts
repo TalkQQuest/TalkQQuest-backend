@@ -64,6 +64,10 @@ export const findSavedMissions = (params: {
         select: {
           id: true,
           title: true,
+          category: true,
+          difficulty: true,
+          estimated_minutes: true,
+          reward_xp: true,
         },
       },
     },

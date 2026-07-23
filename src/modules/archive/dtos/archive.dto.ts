@@ -1,14 +1,29 @@
 import { z } from "zod";
+import { MissionDifficultyLabel } from "../../mission/dtos/mission.constants";
 
 export type ArchiveItemType = "conversation" | "phrase" | "report" | "mission";
 
 // GET /archives/summary
 export interface RecentArchiveItemDto {
+    /**
+     * 미션 항목은 missionId, 그 외 항목은 archive item ID
+     * @example "550e8400-e29b-41d4-a716-446655440000"
+     */
     id: string;
     type: ArchiveItemType;
     title: string;
     isBookmarked: boolean;
+    /** type이 mission일 때 미션 상세 조회에 사용하는 ID */
+    missionId: string | null;
+    /** 진행 중인 미션의 대화를 이어갈 때 사용하는 ID */
+    conversationId: string | null;
+    /** 완료된 미션 수행 기록 ID */
+    missionRecordId: string | null;
     missionStatus?: "in_progress" | "completed";
+    category?: string;
+    difficulty?: MissionDifficultyLabel;
+    estimatedMinutes?: number;
+    rewardXp?: number;
     createdAt: string;
 }
 
@@ -50,6 +65,10 @@ export interface ArchiveSearchItemDto {
     folderId: string | null;
     isBookmarked: boolean;
     missionStatus?: "in_progress" | "completed" | null;
+    category?: string;
+    difficulty?: MissionDifficultyLabel;
+    estimatedMinutes?: number;
+    rewardXp?: number;
     createdAt: string;
 }
 

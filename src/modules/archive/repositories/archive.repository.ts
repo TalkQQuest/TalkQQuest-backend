@@ -24,9 +24,52 @@ export const findRecentArchiveItems = (userId: string, take: number) =>
 // 최근 활동용: 미션은 상태 무관(완료+진행중) 최신 N건
 export const findRecentMissionRecords = (userId: string, take: number) =>
     prisma.mission_Records.findMany({
-        where: { user_id: userId },
-        include: { mission: { select: { id: true, title: true } } },
-        orderBy: { created_at: "desc" }, // completed_at은 진행중 건에 null이라 created_at 기준
+        where: {
+            user_id: userId,
+            status: "completed",
+        },
+        include: {
+            mission: {
+                select: {
+                    id: true,
+                    title: true,
+                    category: true,
+                    difficulty: true,
+                    estimated_minutes: true,
+                    reward_xp: true,
+                },
+            },
+        },
+        orderBy: [
+            { completed_at: "desc" },
+            { created_at: "desc" },
+        ],
+        distinct: ["mission_id"],
+        take,
+    });
+
+// 미션 시작 활동은 Mission_Records가 아니라 Conversations에 먼저 기록된다.
+// 진행 중인 대화 중 미션별 최신 한 건만 조회해 summary 최근 활동에 합친다.
+export const findRecentStartedMissions = (userId: string, take: number) =>
+    prisma.conversations.findMany({
+        where: {
+            user_id: userId,
+            status: "in_progress",
+        },
+        include: {
+            mission: {
+                select: {
+                    id: true,
+                    title: true,
+                    category: true,
+                    difficulty: true,
+                    estimated_minutes: true,
+                    reward_xp: true,
+                },
+            },
+        },
+        orderBy: { started_at: "desc" },
+        distinct: ["mission_id"],
         take,
     });
 
@@ -110,7 +153,18 @@ export const searchMissionRecords = (params: {
                 }
                 : {}),
         },
-        include: { mission: { select: { id: true, title: true } } },
+        include: {
+            mission: {
+                select: {
+                    id: true,
+                    title: true,
+                    category: true,
+                    difficulty: true,
+                    estimated_minutes: true,
+                    reward_xp: true,
+                },
+            },
+        },
         orderBy: { created_at: params.sort },
     });
 

@@ -2,21 +2,30 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
 
 // 최근 활동용: 미션은 상태 무관(완료+진행중) 전체 카운트
-export const countMissionRecords = (userId: string) =>
-    prisma.mission_Records.count({ where: { user_id: userId } });
+export const countMissionRecords = async (userId: string) => {
+    const rows = await prisma.mission_Records.findMany({
+        where: { user_id: userId },
+        distinct: ["mission_id"],
+        select: { mission_id: true },
+    });
+    return rows.length;
+};
 
 export const countConversations = (userId: string) =>
-    prisma.conversations.count({ where: { user_id: userId } });
+    prisma.archive_Items.count({ where: { user_id: userId, item_type: "conversation" } });
 
 export const countSavedPhrases = (userId: string) =>
-    prisma.saved_Phrases.count({ where: { user_id: userId } });
+    prisma.archive_Items.count({ where: { user_id: userId, item_type: "phrase" } });
 
 export const countReports = (userId: string) =>
-    prisma.reports.count({ where: { user_id: userId } });
+    prisma.archive_Items.count({ where: { user_id: userId, item_type: "report" } });
 
 export const findRecentArchiveItems = (userId: string, take: number) =>
     prisma.archive_Items.findMany({
-        where: { user_id: userId },
+        where: {
+            user_id: userId,
+            item_type: { in: ["conversation", "phrase", "report"] },
+        },
         orderBy: { created_at: "desc" },
         take,
     });
@@ -48,7 +57,7 @@ export const findRecentMissionRecords = (userId: string, take: number) =>
         take,
     });
 
-// 미션 시작 활동은 Mission_Records가 아니라 Conversations에 먼저 기록된다.
+// 미션 시작 활동은 Mission_Records가 아니라 Conversations에 먼저 기록됨
 // 진행 중인 대화 중 미션별 최신 한 건만 조회해 summary 최근 활동에 합친다.
 export const findRecentStartedMissions = (userId: string, take: number) =>
     prisma.conversations.findMany({
@@ -86,7 +95,9 @@ export const searchArchiveItems = (params: {
     prisma.archive_Items.findMany({
         where: {
             user_id: params.userId,
-            ...(params.type && { item_type: params.type }),
+            item_type: params.type
+                ? params.type
+                : { in: ["conversation", "phrase", "report"] },
             ...(params.folderId && { folder_id: params.folderId }),
             ...(params.startDate || params.endDate
                 ? {
@@ -121,7 +132,9 @@ export const countArchiveItems = (params: {
     prisma.archive_Items.count({
         where: {
             user_id: params.userId,
-            ...(params.type && { item_type: params.type }),
+            item_type: params.type
+                ? params.type
+                : { in: ["conversation", "phrase", "report"] },
             ...(params.folderId && { folder_id: params.folderId }),
             ...(params.startDate || params.endDate
                 ? {

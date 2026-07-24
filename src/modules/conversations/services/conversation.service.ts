@@ -189,11 +189,13 @@ const MOCK_GUIDE_RESPONSES = [
         }
 
         const finishedAt = new Date();
-        const updated = await this.conversationRepository.finishConversation(
+        const finished = await this.conversationRepository.finishConversation(
+        userId,
         conversationId,
         dto.status,
         finishedAt
         );
+        if (!finished) throw ConversationError.alreadyFinished();
 
         // 소요 시간 계산 (분 단위, 소수점 버림)
         const durationMinutes = Math.floor(

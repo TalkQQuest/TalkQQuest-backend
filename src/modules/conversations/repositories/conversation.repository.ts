@@ -99,16 +99,41 @@ export class ConversationRepository {
     }
 
     async finishConversation(
+        userId: string,
         conversationId: string,
         status: "completed" | "abandoned",
         finishedAt: Date
     ) {
-        return this.prisma.conversations.update({
-        where: { id: conversationId },
-        data: { status, finished_at: finishedAt },
-        include: {
-            messages: { select: { id: true } },
-        },
+        return this.prisma.$transaction(async (tx) => {
+            // The status predicate makes concurrent/repeated finish requests idempotent:
+            // only one transaction can move this conversation out of in_progress.
+            const updated = await tx.conversations.updateMany({
+                where: { id: conversationId, user_id: userId, status: "in_progress" },
+                data: { status, finished_at: finishedAt },
+            });
+
+            if (updated.count === 0) return false;
+
+            const existingArchiveItem = await tx.archive_Items.findFirst({
+                where: {
+                    user_id: userId,
+                    item_type: "conversation",
+                    reference_id: conversationId,
+                },
+                select: { id: true },
+            });
+
+            if (!existingArchiveItem) {
+                await tx.archive_Items.create({
+                    data: {
+                        user_id: userId,
+                        item_type: "conversation",
+                        reference_id: conversationId,
+                    },
+                });
+            }
+
+            return true;
         });
     }
 }

@@ -27,6 +27,7 @@ import {
     ArchiveItemType,
 } from "../dtos/archive.dto";
 import { DuplicatedError } from "../../../shared/errors/common.error";
+import { DIFFICULTY_TO_LABEL } from "../../mission/dtos/mission.constants";
 
 const RECENT_ITEMS_LIMIT = 10;
 
@@ -54,7 +55,15 @@ const resolveItemTitle = async (
 };
 
 export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryResponseDto> => {
-    const [missionRecordCount, conversationCount, phraseCount, reportCount, recentArchiveRows, recentMissionRows] =
+    const [
+        missionRecordCount,
+        conversationCount,
+        phraseCount,
+        reportCount,
+        recentArchiveRows,
+        recentMissionRows,
+        recentStartedMissionRows,
+    ] =
         await Promise.all([
             archiveRepository.countMissionRecords(userId),
             archiveRepository.countConversations(userId),
@@ -62,14 +71,15 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
             archiveRepository.countReports(userId),
             archiveRepository.findRecentArchiveItems(userId, RECENT_ITEMS_LIMIT),
             archiveRepository.findRecentMissionRecords(userId, RECENT_ITEMS_LIMIT),
+            archiveRepository.findRecentStartedMissions(userId, RECENT_ITEMS_LIMIT),
         ]);
 
-    // 최근 미션 기록 중 저장된 것 판별 
-    const missionIds = recentMissionRows
-        .map((r) => r.mission?.id)
+    // 최근 완료/시작 활동에 포함된 미션의 저장 여부를 별도로 조회한다.
+    const missionIds = [...recentMissionRows, ...recentStartedMissionRows]
+        .map((row) => row.mission?.id)
         .filter((id): id is string => !!id);
     const savedRows = missionIds.length
-        ? await missionRepository.findSavedMissionIds(userId, missionIds)
+        ? await missionRepository.findSavedMissionIds(userId, [...new Set(missionIds)])
         : [];
     const savedMissionIds = new Set(savedRows.map((s) => s.mission_id));
 
@@ -79,21 +89,56 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
             type: row.item_type as ArchiveItemType,
             title: await resolveItemTitle(row.item_type as "conversation" | "phrase" | "report", row.reference_id),
             isBookmarked: true,
+            missionId: null,
+            conversationId: null,
+            missionRecordId: null,
             createdAt: row.created_at.toISOString(),
         }))
     );
 
-    const missionItemsResolved = recentMissionRows.map((row) => ({
-        id: row.id,
+    const completedMissionItems = recentMissionRows.map((row) => ({
+        id: row.mission_id,
+        missionId: row.mission_id,
+        conversationId: null,
+        missionRecordId: row.id,
         type: "mission" as ArchiveItemType,
         title: row.mission?.title ?? "제목 없음",
         isBookmarked: row.mission ? savedMissionIds.has(row.mission.id) : false,
-        missionStatus: row.status as "in_progress" | "completed",
-        // 완료면 완료 시각, 진행중이면 생성 시각을 활동 시각으로 표시
+        missionStatus: "completed" as const,
+        category: row.mission?.category,
+        difficulty: row.mission ? DIFFICULTY_TO_LABEL[row.mission.difficulty] : undefined,
+        estimatedMinutes: row.mission?.estimated_minutes,
+        rewardXp: row.mission?.reward_xp,
         createdAt: (row.completed_at ?? row.created_at).toISOString(),
     }));
 
-    const recentItems = [...archiveItemsResolved, ...missionItemsResolved]
+    const startedMissionItems = recentStartedMissionRows.map((row) => ({
+        id: row.mission_id,
+        missionId: row.mission_id,
+        conversationId: row.id,
+        missionRecordId: null,
+        type: "mission" as ArchiveItemType,
+        title: row.mission.title,
+        isBookmarked: savedMissionIds.has(row.mission.id),
+        missionStatus: "in_progress" as const,
+        category: row.mission.category,
+        difficulty: DIFFICULTY_TO_LABEL[row.mission.difficulty],
+        estimatedMinutes: row.mission.estimated_minutes,
+        rewardXp: row.mission.reward_xp,
+        createdAt: row.started_at.toISOString(),
+    }));
+
+    // 동일 미션의 시작/완료 활동 중 가장 최근 한 건만 유지한다.
+    const seenMissionIds = new Set<string>();
+    const latestMissionItems = [...completedMissionItems, ...startedMissionItems]
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .filter((item) => {
+            if (seenMissionIds.has(item.missionId)) return false;
+            seenMissionIds.add(item.missionId);
+            return true;
+        });
+
+    const recentItems = [...archiveItemsResolved, ...latestMissionItems]
         .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))
         .slice(0, RECENT_ITEMS_LIMIT);
 
@@ -162,7 +207,26 @@ export const searchArchives = async (
             folderId: query.folderId,
         });
 
-    return { totalCount, items };
+    if (query.type) {
+        return { totalCount, items };
+    }
+
+    const missionResult = await searchMissionArchives(userId, {
+        ...query,
+        startDate,
+        endDate,
+        keyword,
+    });
+    const combinedItems = [...items, ...missionResult.items].sort((a, b) =>
+        sort === "asc"
+            ? a.createdAt.localeCompare(b.createdAt)
+            : b.createdAt.localeCompare(a.createdAt)
+    );
+
+    return {
+        totalCount: totalCount + missionResult.totalCount,
+        items: combinedItems,
+    };
 };
 
 // type=mission 전용 검색 경로
@@ -216,6 +280,10 @@ const searchMissionArchives = async (
             folderId: null,
             isBookmarked: true,
             missionStatus: latestStatusByMissionId.get(row.mission.id) ?? null,
+            category: row.mission.category,
+            difficulty: DIFFICULTY_TO_LABEL[row.mission.difficulty],
+            estimatedMinutes: row.mission.estimated_minutes,
+            rewardXp: row.mission.reward_xp,
             createdAt: row.created_at.toISOString(),
         }));
 
@@ -250,6 +318,10 @@ const searchMissionArchives = async (
         folderId: null,
         isBookmarked: row.mission ? savedMissionIdSet.has(row.mission.id) : false,
         missionStatus: row.status,
+        category: row.mission?.category,
+        difficulty: row.mission ? DIFFICULTY_TO_LABEL[row.mission.difficulty] : undefined,
+        estimatedMinutes: row.mission?.estimated_minutes,
+        rewardXp: row.mission?.reward_xp,
         createdAt: (row.completed_at ?? row.created_at).toISOString(),
     }));
 

@@ -55,7 +55,9 @@ public async search(
     @Query() endDate?: string,
     @Query() sort?: "latest" | "oldest" | "saved",
     @Query() folderId?: string,
-    @Query() tag?: string
+    @Query() tag?: string,
+    @Query() page?: number,
+    @Query() size?: number
 ): Promise<ApiResponse<SearchArchivesResponseDto>> {
     const parsed = searchArchivesQuerySchema.safeParse({
         keyword,
@@ -65,6 +67,8 @@ public async search(
         sort,
         folderId,
         tag,
+        page,
+        size,
     });
     if (!parsed.success) {
         throw new ValidationError("잘못된 검색 조건입니다.", parsed.error.issues);
@@ -113,6 +117,18 @@ public async search(
     ): Promise<ApiResponse<CreatePhraseResponseDto>> {
         const result = await archiveService.createPhrase(req.user!.id, body);
         return success(result, "문장이 저장되었습니다.");
+    }
+
+    /** @summary 저장 문장 해제 */
+    @Delete("phrases/{phraseId}")
+    @Security("bearerAuth")
+    @Middlewares(authorizeUser())
+    public async deletePhrase(
+        @Request() req: ExpressRequest,
+        @Path() phraseId: string
+    ): Promise<ApiResponse<DeleteArchiveItemResponseDto>> {
+        const result = await archiveService.deletePhrase(req.user!.id, phraseId);
+        return success(result, "저장 문장이 해제되었습니다.");
     }
 
     /**

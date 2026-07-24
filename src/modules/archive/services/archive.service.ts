@@ -30,6 +30,25 @@ import { DuplicatedError } from "../../../shared/errors/common.error";
 import { DIFFICULTY_TO_LABEL } from "../../mission/dtos/mission.constants";
 
 const RECENT_ITEMS_LIMIT = 10;
+const DEFAULT_PAGE = 1;
+const DEFAULT_SIZE = 20;
+
+const paginate = (
+    items: ArchiveSearchItemDto[],
+    page: number,
+    size: number
+): SearchArchivesResponseDto => {
+    const totalCount = items.length;
+    return {
+        totalCount,
+        items: items.slice((page - 1) * size, page * size),
+        pageInfo: {
+            currentPage: page,
+            totalPages: Math.max(1, Math.ceil(totalCount / size)),
+            totalCount,
+        },
+    };
+};
 
 const resolveItemTitle = async (
     itemType: "conversation" | "phrase" | "report",
@@ -157,12 +176,15 @@ export const searchArchives = async (
     query: SearchArchivesQueryDto
 ): Promise<SearchArchivesResponseDto> => {
     const startDate = query.startDate ? new Date(query.startDate) : undefined;
-    const endDate = query.endDate ? new Date(query.endDate) : undefined;
+    const endDate = query.endDate ? new Date(`${query.endDate}T23:59:59.999Z`) : undefined;
     const keyword = query.keyword?.trim().toLowerCase();
+    const page = query.page ?? DEFAULT_PAGE;
+    const size = query.size ?? DEFAULT_SIZE;
 
     // 미션 처리
     if (query.type === "mission") {
-        return searchMissionArchives(userId, { ...query, startDate, endDate, keyword });
+        const result = await searchMissionArchives(userId, { ...query, startDate, endDate, keyword });
+        return paginate(result.items, page, size);
     }
 
     const sort = query.sort === "oldest" ? "asc" : "desc";
@@ -179,11 +201,15 @@ export const searchArchives = async (
     const itemsWithTitle: ArchiveSearchItemDto[] = await Promise.all(
         rows.map(async (row) => ({
             id: row.id,
+            archiveItemId: row.id,
+            referenceId: row.reference_id,
             type: row.item_type as ArchiveItemType,
             title: await resolveItemTitle(row.item_type as "conversation" | "phrase" | "report", row.reference_id),
             tags: (row.tags as string[] | null) ?? [],
             folderId: row.folder_id,
             isBookmarked: true,
+            missionId: null,
+            missionRecordId: null,
             createdAt: row.created_at.toISOString(),
         }))
     );
@@ -197,18 +223,8 @@ export const searchArchives = async (
         ? itemsWithTitle.filter((item) => item.title.toLowerCase().includes(keyword))
         : itemsWithTitle;
 
-    const totalCount = keyword
-        ? items.length
-        : await archiveRepository.countArchiveItems({
-            userId,
-            type: query.type as "conversation" | "phrase" | "report" | undefined,
-            startDate,
-            endDate,
-            folderId: query.folderId,
-        });
-
     if (query.type) {
-        return { totalCount, items };
+        return paginate(items, page, size);
     }
 
     const missionResult = await searchMissionArchives(userId, {
@@ -223,10 +239,7 @@ export const searchArchives = async (
             : b.createdAt.localeCompare(a.createdAt)
     );
 
-    return {
-        totalCount: totalCount + missionResult.totalCount,
-        items: combinedItems,
-    };
+    return paginate(combinedItems, page, size);
 };
 
 // type=mission 전용 검색 경로
@@ -247,7 +260,7 @@ const searchMissionArchives = async (
 ): Promise<SearchArchivesResponseDto> => {
     // 미션은 폴더/태그 미지원
     if (params.folderId || params.tag) {
-        return { totalCount: 0, items: [] };
+        return { totalCount: 0, items: [], pageInfo: { currentPage: 1, totalPages: 1, totalCount: 0 } };
     }
 
     const prismaSort = params.sort === "oldest" ? "asc" : "desc";
@@ -274,6 +287,8 @@ const searchMissionArchives = async (
 
         const savedItemsWithTitle: ArchiveSearchItemDto[] = savedRows.map((row) => ({
             id: row.mission.id,
+            archiveItemId: null,
+            referenceId: row.mission.id,
             type: "mission" as ArchiveItemType,
             title: row.mission.title,
             tags: [],
@@ -284,6 +299,8 @@ const searchMissionArchives = async (
             difficulty: DIFFICULTY_TO_LABEL[row.mission.difficulty],
             estimatedMinutes: row.mission.estimated_minutes,
             rewardXp: row.mission.reward_xp,
+            missionId: row.mission.id,
+            missionRecordId: null,
             createdAt: row.created_at.toISOString(),
         }));
 
@@ -291,7 +308,11 @@ const searchMissionArchives = async (
             ? savedItemsWithTitle.filter((item) => item.title.toLowerCase().includes(params.keyword!))
             : savedItemsWithTitle;
 
-        return { totalCount: savedItems.length, items: savedItems };
+        return {
+            totalCount: savedItems.length,
+            items: savedItems,
+            pageInfo: { currentPage: 1, totalPages: 1, totalCount: savedItems.length },
+        };
     }
 
     // 기본(latest/oldest): 진행중 + 완료 미션 기록 전체
@@ -310,8 +331,20 @@ const searchMissionArchives = async (
         : [];
     const savedMissionIdSet = new Set(savedMissionIdRows.map((s) => s.mission_id));
 
-    const recordItemsWithTitle: ArchiveSearchItemDto[] = missionRecordRows.map((row) => ({
-        id: row.id,
+    // Mission_Records is execution history: repeated attempts are valid. The archive
+    // presents one card per mission, choosing the first row from the requested order.
+    const uniqueMissionRowsById = new Map<string, (typeof missionRecordRows)[number]>();
+    for (const row of missionRecordRows) {
+        if (!uniqueMissionRowsById.has(row.mission_id)) {
+            uniqueMissionRowsById.set(row.mission_id, row);
+        }
+    }
+    const uniqueMissionRows = [...uniqueMissionRowsById.values()];
+
+    const recordItemsWithTitle: ArchiveSearchItemDto[] = uniqueMissionRows.map((row) => ({
+        id: row.mission_id,
+        archiveItemId: null,
+        referenceId: row.mission_id,
         type: "mission" as ArchiveItemType,
         title: row.mission?.title ?? "제목 없음",
         tags: [],
@@ -322,6 +355,8 @@ const searchMissionArchives = async (
         difficulty: row.mission ? DIFFICULTY_TO_LABEL[row.mission.difficulty] : undefined,
         estimatedMinutes: row.mission?.estimated_minutes,
         rewardXp: row.mission?.reward_xp,
+        missionId: row.mission_id,
+        missionRecordId: row.id,
         createdAt: (row.completed_at ?? row.created_at).toISOString(),
     }));
 
@@ -329,15 +364,11 @@ const searchMissionArchives = async (
         ? recordItemsWithTitle.filter((item) => item.title.toLowerCase().includes(params.keyword!))
         : recordItemsWithTitle;
 
-    const totalCount = params.keyword
-        ? recordItems.length
-        : await archiveRepository.countMissionRecordsFiltered({
-            userId,
-            startDate: params.startDate,
-            endDate: params.endDate,
-        });
-
-    return { totalCount, items: recordItems };
+    return {
+        totalCount: recordItems.length,
+        items: recordItems,
+        pageInfo: { currentPage: 1, totalPages: 1, totalCount: recordItems.length },
+    };
 };
 
 export const getConversationDetail = async (
@@ -437,6 +468,23 @@ export const deleteArchiveItem = async (
     }
 
     return { itemId, deleted: true };
+};
+
+export const deletePhrase = async (
+    userId: string,
+    phraseId: string
+): Promise<DeleteArchiveItemResponseDto> => {
+    const phrase = await archiveRepository.findPhraseById(phraseId, userId);
+    if (!phrase) throw new PhraseNotFoundError();
+
+    const item = await archiveRepository.findArchiveItemByReference(userId, "phrase", phraseId);
+    if (item) {
+        await archiveRepository.deleteSavedPhraseWithArchiveItem(item.id, phraseId);
+        return { itemId: item.id, deleted: true };
+    }
+
+    await archiveRepository.deleteSavedPhrase(phraseId);
+    return { itemId: phraseId, deleted: true };
 };
 
 export const listFolders = async (userId: string): Promise<ListFoldersResponseDto> => {

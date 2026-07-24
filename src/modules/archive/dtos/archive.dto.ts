@@ -45,6 +45,8 @@ export interface SearchArchivesQueryDto {
     sort?: "latest" | "oldest" | "saved";
     folderId?: string;
     tag?: string;
+    page?: number;
+    size?: number;
 }
 
 export const searchArchivesQuerySchema = z.object({
@@ -55,9 +57,15 @@ export const searchArchivesQuerySchema = z.object({
     sort: z.enum(["latest", "oldest", "saved"]).optional(),
     folderId: z.string().optional(),
     tag: z.string().optional(),
+    page: z.coerce.number().int().positive().optional(),
+    size: z.coerce.number().int().positive().max(100).optional(),
 }) satisfies z.ZodType<SearchArchivesQueryDto>;
 
 export interface ArchiveSearchItemDto {
+    /** Archive_Items.id. Missions are not stored in Archive_Items, so this is null for missions. */
+    archiveItemId: string | null;
+    /** ID of the resource used by its detail API (conversation/phrase/report/mission). */
+    referenceId: string;
     id: string;
     type: ArchiveItemType;
     title: string;
@@ -69,12 +77,21 @@ export interface ArchiveSearchItemDto {
     difficulty?: MissionDifficultyLabel;
     estimatedMinutes?: number;
     rewardXp?: number;
+    /** Missions.id; populated only for mission cards. */
+    missionId: string | null;
+    /** Mission_Records.id; execution-history metadata, never a mission detail ID. */
+    missionRecordId: string | null;
     createdAt: string;
 }
 
 export interface SearchArchivesResponseDto {
     totalCount: number;
     items: ArchiveSearchItemDto[];
+    pageInfo: {
+        currentPage: number;
+        totalPages: number;
+        totalCount: number;
+    };
 }
 
 // GET /archives/conversations/{conversationId}

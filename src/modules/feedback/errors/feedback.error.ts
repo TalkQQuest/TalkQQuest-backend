@@ -15,8 +15,7 @@ export class FeedbackInputTooShortError extends AppError {
 }
 
 // POST /feedback: 이미 생성 중인(pending) 피드백이 있어 중복 생성을 막을 때.
-// POST /feedback/{id}/retry: 이전 재생성 요청이 아직 진행 중일 때.
-// 두 호출부 모두 errorCode는 같고 message만 다르다(명세서 에러 표 참고).
+// POST /feedback/{id}/retry: 이전 재생성 요청이 아직 진행 중일 때. (errorCode 동일, message만 다름)
 export class FeedbackNotReadyError extends AppError {
   constructor(message = "피드백이 아직 준비되지 않았습니다.") {
     super("FEEDBACK_NOT_READY", 409, message);

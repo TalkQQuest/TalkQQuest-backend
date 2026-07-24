@@ -1,5 +1,5 @@
 // modules/feedback/controllers/feedback.controller.ts
-import { Body, Controller, Middlewares, Path, Post, Request, Response, Route, Security, Tags } from "tsoa";
+import { Body, Controller, Get, Middlewares, Path, Post, Request, Response, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
 import { validate } from "../../../middlewares/validator";
@@ -7,6 +7,7 @@ import { success, ApiResponse } from "../../../shared/utils/response";
 import {
   CreateFeedbackRequestDto,
   createFeedbackRequestSchema,
+  FeedbackDetailResponseDto,
   FeedbackResponseDto,
   RetryFeedbackResponseDto,
 } from "../dtos/feedback.dto";
@@ -48,5 +49,21 @@ export class FeedbackController extends Controller {
   ): Promise<ApiResponse<RetryFeedbackResponseDto>> {
     const result = await feedbackService.retryFeedback(req.user!.id, feedbackId);
     return success(result, "피드백을 다시 생성하고 있습니다.");
+  }
+
+  /**
+   * @summary 피드백 상세 조회
+   */
+  @Get("{feedbackId}")
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "FEEDBACK_NOT_FOUND")
+  public async getFeedbackDetail(
+    @Request() req: ExpressRequest,
+    @Path() feedbackId: string
+  ): Promise<ApiResponse<FeedbackDetailResponseDto>> {
+    const result = await feedbackService.getFeedbackDetail(req.user!.id, feedbackId);
+    return success(result);
   }
 }

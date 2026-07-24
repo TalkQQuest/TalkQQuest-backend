@@ -44,25 +44,36 @@ const buildConversation = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   }) as never;
 
+const metricRow = (key: string, label: string, score: number) => ({
+  key,
+  label,
+  score,
+  strengths: ["a"],
+  improvements: ["b"],
+  bestSentence: "c",
+});
+
 const buildFeedbackRow = (overrides: Record<string, unknown> = {}) =>
   ({
     id: "f1",
     user_id: "u1",
     conversation_id: "c1",
-    topic: "처음 보는 사람에게 인사하기",
     kindness_score: 92,
     initiative_score: 88,
     empathy_score: 85,
     question_link_score: 78,
-    metrics_detail: {
-      kindness: { strengths: ["a"], improvements: ["b"], bestSentence: "c" },
-      initiative: { strengths: ["a"], improvements: ["b"], bestSentence: "c" },
-      empathy: { strengths: ["a"], improvements: ["b"], bestSentence: "c" },
-      questionLink: { strengths: ["a"], improvements: ["b"], bestSentence: "c" },
-    },
+    // dev 형식: metrics 배열([{key,label,score,strengths,improvements,bestSentence}])로 저장
+    metrics: [
+      metricRow("kindness", "친절한 태도", 92),
+      metricRow("initiative", "대화 주도", 88),
+      metricRow("empathy", "공감 능력", 85),
+      metricRow("questionLink", "질문 연결성", 78),
+    ],
     mission_summary: ["장소 경험을 공유했어요"],
     saved_phrase: "오늘 날씨가 좋네요.",
     status: "ready",
+    // topic은 컬럼이 아니라 conversation.selected_topic에서 온다 (findFeedbackByIdAndUserId include).
+    conversation: { selected_topic: "처음 보는 사람에게 인사하기" },
     ...overrides,
   }) as never;
 
@@ -135,17 +146,13 @@ describe("createFeedback", () => {
   it("기존 피드백이 없으면 새로 만들고 동기로 생성해 ready로 반환한다", async () => {
     mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
     mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
-    mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1", topic: "주제" } as never);
+    mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
     mockedGenerate.mockResolvedValue(llmSuccess());
-    mockedRepo.findFeedbackByIdAndUser.mockResolvedValue(buildFeedbackRow());
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
 
     const result = await createFeedback("u1", { conversationId: "c1" });
 
-    expect(mockedRepo.createPendingFeedback).toHaveBeenCalledWith(
-      "u1",
-      "c1",
-      "처음 보는 사람에게 인사하기"
-    );
+    expect(mockedRepo.createPendingFeedback).toHaveBeenCalledWith("u1", "c1");
     expect(mockedRepo.markFeedbackReady).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("ready");
     expect(result.metrics).toHaveLength(4);
@@ -160,9 +167,9 @@ describe("createFeedback", () => {
   it("LLM이 재시도까지 실패하면 가짜 분석 없이 status=failed로 반환한다", async () => {
     mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
     mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
-    mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1", topic: "주제" } as never);
+    mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
     mockedGenerate.mockResolvedValue(null);
-    mockedRepo.findFeedbackByIdAndUser.mockResolvedValue(buildFeedbackRow({ status: "failed" }));
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow({ status: "failed" }));
 
     const result = await createFeedback("u1", { conversationId: "c1" });
 
@@ -178,7 +185,7 @@ describe("createFeedback", () => {
       buildFeedbackRow({ status: "failed" })
     );
     mockedGenerate.mockResolvedValue(llmSuccess());
-    mockedRepo.findFeedbackByIdAndUser.mockResolvedValue(buildFeedbackRow());
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
 
     await createFeedback("u1", { conversationId: "c1" });
 
@@ -189,19 +196,19 @@ describe("createFeedback", () => {
 
 describe("retryFeedback", () => {
   it("피드백이 없으면 FEEDBACK_NOT_FOUND", async () => {
-    mockedRepo.findFeedbackByIdAndUser.mockResolvedValue(null as never);
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(null as never);
 
     await expect(retryFeedback("u1", "f1")).rejects.toBeInstanceOf(FeedbackNotFoundError);
   });
 
   it("이미 pending이면 FEEDBACK_NOT_READY(409)", async () => {
-    mockedRepo.findFeedbackByIdAndUser.mockResolvedValue(buildFeedbackRow({ status: "pending" }));
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow({ status: "pending" }));
 
     await expect(retryFeedback("u1", "f1")).rejects.toBeInstanceOf(FeedbackNotReadyError);
   });
 
   it("정상 요청이면 즉시 status=pending을 반환한다 (생성은 응답 이후 진행)", async () => {
-    mockedRepo.findFeedbackByIdAndUser.mockResolvedValue(buildFeedbackRow({ status: "failed" }));
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow({ status: "failed" }));
     mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
     mockedGenerate.mockResolvedValue(llmSuccess()); // 백그라운드에서 사용될 값
 

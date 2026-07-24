@@ -84,6 +84,7 @@ enum PaymentStatus {
 }
 
 enum SubscriptionStatus {
+  pending
   active
   expired
   cancelled
@@ -93,6 +94,7 @@ enum ArchiveItemType {
   conversation
   phrase
   report
+  mission
 }
 
 enum DeviceTokenPlatform {
@@ -100,8 +102,8 @@ enum DeviceTokenPlatform {
 }
 
 enum ReportType {
-  monthly
-  weekly
+  growth
+  weekly_compare
 }
 
 // ============================================================
@@ -115,8 +117,6 @@ enum ReportType {
 model Users {
   id              String     @id @default(uuid()) @db.Char(36)
   name            String     @db.VarChar(50)
-  school_or_job   String     @db.VarChar(100)
-  birth_date      String     @db.VarChar(10)
   terms_agreed_at DateTime?
   created_at      DateTime   @default(now())
   last_login_at   DateTime?
@@ -393,15 +393,15 @@ model Feedbacks {
   id                  String         @id @default(uuid()) @db.Char(36)
   user_id             String         @db.Char(36)
   conversation_id     String         @db.Char(36)
-  topic               String?        @db.VarChar(255) // 생성 시점 Conversations.selected_topic 스냅샷 (POST /feedback 참고)
   kindness_score      Int?
   initiative_score    Int?
   empathy_score       Int?
   question_link_score Int?
-  // 지표(kindness/initiative/empathy/questionLink)별 strengths[]/improvements[]/bestSentence.
-  // { kindness: { strengths: string[], improvements: string[], bestSentence: string }, initiative: {...}, ... }
-  metrics_detail      Json?
-  mission_summary     Json? // 미션 완료 화면용 짧은 요약 태그 배열 (string[])
+  // 지표(kindness/initiative/empathy/questionLink) 4개 각각의 상세 결과를
+  // [{ key, label, score, strengths, improvements, bestSentence }] 배열로 저장한다.
+  // 이슈 #70 진행 중 최유경 님과 구두 미확정 상태에서 이 구조로 가정하고 진행 — 추후 다르게 확정되면 매핑만 수정.
+  metrics             Json?
+  mission_summary     Json?
   saved_phrase        String?        @db.Text
   status              FeedbackStatus @default(pending)
   created_at          DateTime       @default(now())
@@ -409,7 +409,6 @@ model Feedbacks {
   user         Users         @relation(fields: [user_id], references: [id], onDelete: Cascade)
   conversation Conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
 
-  @@unique([conversation_id]) // 대화당 피드백 1건만 (재생성은 이 행을 갱신하는 retry로 처리)
   @@map("Feedbacks")
 }
 
@@ -458,14 +457,15 @@ model Recommendation_Logs {
 model Usage {
   id             String   @id @default(uuid()) @db.Char(36)
   user_id        String   @db.Char(36)
-  period         String   @db.VarChar(7) 
-  ai_count       Int      @default(0) 
+  // 달력 월(YYYY-MM)이 아니라, 가입일/구독 시작일을 기준으로 한 롤링 1개월 주기의 시작일.
+  cycle_start    DateTime @db.Date
+  ai_count       Int      @default(0)
   feedback_count Int      @default(0)
   updated_at     DateTime @default(dbgenerated("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")) @db.Timestamp(0)
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  @@unique([user_id, period])
+  @@unique([user_id, cycle_start])
   @@map("Usage")
 }
 
@@ -495,7 +495,7 @@ model Subscriptions {
   id         String             @id @default(uuid()) @db.Char(36)
   user_id    String             @db.Char(36)
   plan_id    String             @db.Char(36)
-  status     SubscriptionStatus @default(active)
+  status     SubscriptionStatus @default(pending)
   started_at DateTime
   expires_at DateTime?
   created_at DateTime           @default(now())
@@ -674,7 +674,7 @@ model Reports {
   id         String     @id @default(uuid()) @db.Char(36)
   user_id    String     @db.Char(36)
   type       ReportType
-  period     String     @db.VarChar(10) 
+  period     String     @db.VarChar(30)
   data       Json?      
   created_at DateTime   @default(now())
 

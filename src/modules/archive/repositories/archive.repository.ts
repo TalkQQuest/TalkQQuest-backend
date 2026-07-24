@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
 
+// 최근 활동용: 미션은 상태 무관(완료+진행중) 전체 카운트
 export const countMissionRecords = (userId: string) =>
     prisma.mission_Records.count({ where: { user_id: userId } });
 
@@ -20,7 +21,59 @@ export const findRecentArchiveItems = (userId: string, take: number) =>
         take,
     });
 
-// 검색/필터
+// 최근 활동용: 미션은 상태 무관(완료+진행중) 최신 N건
+export const findRecentMissionRecords = (userId: string, take: number) =>
+    prisma.mission_Records.findMany({
+        where: {
+            user_id: userId,
+            status: "completed",
+        },
+        include: {
+            mission: {
+                select: {
+                    id: true,
+                    title: true,
+                    category: true,
+                    difficulty: true,
+                    estimated_minutes: true,
+                    reward_xp: true,
+                },
+            },
+        },
+        orderBy: [
+            { completed_at: "desc" },
+            { created_at: "desc" },
+        ],
+        distinct: ["mission_id"],
+        take,
+    });
+
+// 미션 시작 활동은 Mission_Records가 아니라 Conversations에 먼저 기록된다.
+// 진행 중인 대화 중 미션별 최신 한 건만 조회해 summary 최근 활동에 합친다.
+export const findRecentStartedMissions = (userId: string, take: number) =>
+    prisma.conversations.findMany({
+        where: {
+            user_id: userId,
+            status: "in_progress",
+        },
+        include: {
+            mission: {
+                select: {
+                    id: true,
+                    title: true,
+                    category: true,
+                    difficulty: true,
+                    estimated_minutes: true,
+                    reward_xp: true,
+                },
+            },
+        },
+        orderBy: { started_at: "desc" },
+        distinct: ["mission_id"],
+        take,
+    });
+
+// 검색/필터 (conversation/phrase/report 전용 - mission은 searchMissionRecords로 분리)
 export const searchArchiveItems = (params: {
     userId: string;
     type?: "conversation" | "phrase" | "report";
@@ -81,9 +134,61 @@ export const countArchiveItems = (params: {
         },
     });
 
+// 미션 검색/필터: 상태 무관(진행중+완료) 전체, date 필터는 created_at 기준
+export const searchMissionRecords = (params: {
+    userId: string;
+    startDate?: Date;
+    endDate?: Date;
+    sort: "asc" | "desc";
+}) =>
+    prisma.mission_Records.findMany({
+        where: {
+            user_id: params.userId,
+            ...(params.startDate || params.endDate
+                ? {
+                    created_at: {
+                        ...(params.startDate && { gte: params.startDate }),
+                        ...(params.endDate && { lte: params.endDate }),
+                    },
+                }
+                : {}),
+        },
+        include: {
+            mission: {
+                select: {
+                    id: true,
+                    title: true,
+                    category: true,
+                    difficulty: true,
+                    estimated_minutes: true,
+                    reward_xp: true,
+                },
+            },
+        },
+        orderBy: { created_at: params.sort },
+    });
+
+export const countMissionRecordsFiltered = (params: {
+    userId: string;
+    startDate?: Date;
+    endDate?: Date;
+}) =>
+    prisma.mission_Records.count({
+        where: {
+            user_id: params.userId,
+            ...(params.startDate || params.endDate
+                ? {
+                    created_at: {
+                        ...(params.startDate && { gte: params.startDate }),
+                        ...(params.endDate && { lte: params.endDate }),
+                    },
+                }
+                : {}),
+        },
+    });
+
 // Archive_Items 참조 대상 title 조회
 // reference_id는 FK가 아니라 item_type에 따라 다른 테이블을 가리키는 참조
-// 타입별로 개별 조회 함수 필요
 export const findConversationTitle = (conversationId: string) =>
     prisma.conversations.findUnique({
         where: { id: conversationId },
@@ -117,6 +222,12 @@ export const createSavedPhrase = (data: Prisma.Saved_PhrasesCreateInput) =>
 export const deleteSavedPhrase = (phraseId: string) =>
     prisma.saved_Phrases.delete({ where: { id: phraseId } });
 
+export const deleteSavedPhraseWithArchiveItem = (itemId: string, phraseId: string) =>
+    prisma.$transaction([
+        prisma.archive_Items.delete({ where: { id: itemId } }),
+        prisma.saved_Phrases.delete({ where: { id: phraseId } }),
+    ]);
+
 // Conversations
 export const findConversationDetail = (conversationId: string, userId: string) =>
     prisma.conversations.findFirst({
@@ -134,7 +245,7 @@ export const findConversationDetail = (conversationId: string, userId: string) =
 export const findConversationById = (conversationId: string, userId: string) =>
     prisma.conversations.findFirst({ where: { id: conversationId, user_id: userId } });
 
-// Archive Items
+// Archive Items (conversation/phrase/report 전용)
 export const createArchiveItem = (
     data: Prisma.Archive_ItemsCreateInput,
     tx?: Prisma.TransactionClient
@@ -145,6 +256,7 @@ export const findArchiveItemById = (itemId: string, userId: string) =>
 
 // 특정 원본 리소스(conversation/phrase/report)를 가리키는 Archive_Items row 조회
 // 예: phrase 상세에서 folderId를 알아내려면 이 함수로 매핑 row를 찾아야 함
+// mission은 Archive_Items를 쓰지 않으므로 itemType에서 제외
 export const findArchiveItemByReference = (
     userId: string,
     itemType: "conversation" | "phrase" | "report",

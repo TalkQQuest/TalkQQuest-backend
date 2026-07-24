@@ -1,5 +1,4 @@
 // modules/feedback/services/feedback.service.ts
-import { z } from "zod";
 import { logger } from "../../../config/logger";
 import * as feedbackRepository from "../repositories/feedback.repository";
 import {
@@ -8,13 +7,10 @@ import {
   FeedbackNotFoundError,
   FeedbackNotReadyError,
 } from "../errors/feedback.error";
-import {
-  FEEDBACK_METRIC_KEYS,
-  FEEDBACK_METRIC_LABELS,
-  FeedbackMetricKey,
-} from "../dtos/feedback.constants";
+import { FEEDBACK_METRIC_KEYS, FEEDBACK_METRIC_LABELS } from "../dtos/feedback.constants";
 import {
   CreateFeedbackRequestDto,
+  FeedbackDetailResponseDto,
   FeedbackMetricDto,
   FeedbackResponseDto,
   FeedbackStatusDto,
@@ -38,107 +34,74 @@ const assertSufficientInput = (messages: { role: string; content: string }[]): v
   }
 };
 
-// metrics_detail(Json)은 서버가 직접 만든 값만 저장하지만, JSON 컬럼이라 타입이 보장되지 않으므로
-// 방어적으로 파싱한다 — 형식이 깨져 있으면 해당 지표를 빈 값으로 처리한다(응답 자체는 계속 내려줌).
-const metricDetailSchema = z.object({
-  strengths: z.array(z.string()),
-  improvements: z.array(z.string()),
-  bestSentence: z.string(),
-});
-const metricsDetailSchema = z.object({
-  kindness: metricDetailSchema,
-  initiative: metricDetailSchema,
-  empathy: metricDetailSchema,
-  questionLink: metricDetailSchema,
-});
+// overallScore는 4개 지표 점수 컬럼의 평균이다 (집계/정렬용 개별 점수 컬럼을 단일 출처로 삼는다).
+const calculateOverallScore = (feedback: {
+  kindness_score: number | null;
+  initiative_score: number | null;
+  empathy_score: number | null;
+  question_link_score: number | null;
+}): number => {
+  const scores = [
+    feedback.kindness_score,
+    feedback.initiative_score,
+    feedback.empathy_score,
+    feedback.question_link_score,
+  ].filter((score): score is number => score !== null);
 
-type FeedbackRow = NonNullable<
-  Awaited<ReturnType<typeof feedbackRepository.findFeedbackByIdAndUser>>
->;
+  if (scores.length === 0) return 0;
+  return Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+};
 
-const toResponseDto = (row: FeedbackRow): FeedbackResponseDto => {
+interface FeedbackRowForResponse {
+  id: string;
+  conversation_id: string;
+  kindness_score: number | null;
+  initiative_score: number | null;
+  empathy_score: number | null;
+  question_link_score: number | null;
+  metrics: unknown; // 저장된 FeedbackMetricDto[]
+  mission_summary: unknown;
+  saved_phrase: string | null;
+  status: string;
+}
+
+const emptyMetrics = (): FeedbackMetricDto[] =>
+  FEEDBACK_METRIC_KEYS.map((key) => ({
+    key,
+    label: FEEDBACK_METRIC_LABELS[key],
+    score: 0,
+    strengths: [],
+    improvements: [],
+    bestSentence: null,
+  }));
+
+// POST /feedback 응답 매핑. topic은 Feedbacks에 저장하지 않고 conversation.selected_topic에서 가져온다.
+const toResponseDto = (row: FeedbackRowForResponse, topic: string | null): FeedbackResponseDto => {
   const status = row.status as FeedbackStatusDto;
-
-  if (status !== "ready") {
-    return {
-      feedbackId: row.id,
-      conversationId: row.conversation_id,
-      topic: row.topic,
-      overallScore: 0,
-      metrics: FEEDBACK_METRIC_KEYS.map(
-        (key): FeedbackMetricDto => ({
-          key,
-          label: FEEDBACK_METRIC_LABELS[key],
-          score: 0,
-          strengths: [],
-          improvements: [],
-          bestSentence: null,
-        })
-      ),
-      missionSummary: [],
-      savedPhrase: row.saved_phrase,
-      status,
-    };
-  }
-
-  const scores: Record<FeedbackMetricKey, number> = {
-    kindness: row.kindness_score ?? 0,
-    initiative: row.initiative_score ?? 0,
-    empathy: row.empathy_score ?? 0,
-    questionLink: row.question_link_score ?? 0,
-  };
-  const detailParsed = metricsDetailSchema.safeParse(row.metrics_detail);
-  const detail = detailParsed.success ? detailParsed.data : null;
-
-  const overallScore = Math.round(
-    (scores.kindness + scores.initiative + scores.empathy + scores.questionLink) / 4
-  );
+  const ready = status === "ready";
 
   return {
     feedbackId: row.id,
     conversationId: row.conversation_id,
-    topic: row.topic,
-    overallScore,
-    metrics: FEEDBACK_METRIC_KEYS.map(
-      (key): FeedbackMetricDto => ({
-        key,
-        label: FEEDBACK_METRIC_LABELS[key],
-        score: scores[key],
-        strengths: detail?.[key]?.strengths ?? [],
-        improvements: detail?.[key]?.improvements ?? [],
-        bestSentence: detail?.[key]?.bestSentence ?? null,
-      })
-    ),
-    missionSummary: Array.isArray(row.mission_summary) ? (row.mission_summary as string[]) : [],
+    topic,
+    overallScore: ready ? calculateOverallScore(row) : 0,
+    metrics: ready && Array.isArray(row.metrics) ? (row.metrics as FeedbackMetricDto[]) : emptyMetrics(),
+    missionSummary: ready && Array.isArray(row.mission_summary) ? (row.mission_summary as string[]) : [],
     savedPhrase: row.saved_phrase,
     status,
   };
 };
 
-// LLM 결과에서 score를 뺀 나머지(strengths/improvements/bestSentence)만 metrics_detail로 저장한다.
-// score는 이미 전용 컬럼(kindness_score 등)에 저장하므로 중복 보관하지 않는다.
-const toMetricsDetail = (metrics: FeedbackLlmResult["metrics"]) => ({
-  kindness: {
-    strengths: metrics.kindness.strengths,
-    improvements: metrics.kindness.improvements,
-    bestSentence: metrics.kindness.bestSentence,
-  },
-  initiative: {
-    strengths: metrics.initiative.strengths,
-    improvements: metrics.initiative.improvements,
-    bestSentence: metrics.initiative.bestSentence,
-  },
-  empathy: {
-    strengths: metrics.empathy.strengths,
-    improvements: metrics.empathy.improvements,
-    bestSentence: metrics.empathy.bestSentence,
-  },
-  questionLink: {
-    strengths: metrics.questionLink.strengths,
-    improvements: metrics.questionLink.improvements,
-    bestSentence: metrics.questionLink.bestSentence,
-  },
-});
+// 점수 컬럼과 함께 저장할 metrics 배열([{key,label,score,strengths,improvements,bestSentence}]).
+const buildMetricsArray = (metrics: FeedbackLlmResult["metrics"]): FeedbackMetricDto[] =>
+  FEEDBACK_METRIC_KEYS.map((key) => ({
+    key,
+    label: FEEDBACK_METRIC_LABELS[key],
+    score: metrics[key].score,
+    strengths: metrics[key].strengths,
+    improvements: metrics[key].improvements,
+    bestSentence: metrics[key].bestSentence,
+  }));
 
 // LLM 호출 + 결과 저장. 실패해도 예외를 던지지 않고 status=failed로 남긴다(호출부가 응답 형태 결정).
 // 가짜 점수/분석으로 대체하지 않는다 — 실패는 재시도(POST /feedback/{id}/retry)로 유도한다.
@@ -160,13 +123,13 @@ const runGeneration = async (
     initiativeScore: result.metrics.initiative.score,
     empathyScore: result.metrics.empathy.score,
     questionLinkScore: result.metrics.questionLink.score,
-    metricsDetail: toMetricsDetail(result.metrics),
+    metrics: buildMetricsArray(result.metrics),
     missionSummary: result.missionSummary,
     savedPhrase: result.savedPhrase,
   });
 };
 
-// POST /feedback — 대화당 최대 1건(find-or-create). 이미 ready면 그대로 반환(멱등),
+// POST /feedback — 대화당 1건(find-or-create). 이미 ready면 그대로 반환(멱등),
 // pending이면 409, failed였다면 같은 행으로 재생성을 시도한다.
 // 생성은 이 요청 안에서 동기로 끝난다(미션 추천과 동일하게 폴링/큐 없이 즉시 응답).
 export const createFeedback = async (
@@ -189,16 +152,12 @@ export const createFeedback = async (
       throw new FeedbackNotReadyError("피드백이 아직 준비되지 않았습니다.");
     }
     if (existing.status === "ready") {
-      return toResponseDto(existing);
+      return toResponseDto(existing, conversation.selected_topic);
     }
     await feedbackRepository.markFeedbackPending(existing.id);
     feedbackId = existing.id;
   } else {
-    const created = await feedbackRepository.createPendingFeedback(
-      userId,
-      body.conversationId,
-      conversation.selected_topic
-    );
+    const created = await feedbackRepository.createPendingFeedback(userId, body.conversationId);
     feedbackId = created.id;
   }
 
@@ -209,18 +168,18 @@ export const createFeedback = async (
     conversation.mission.description
   );
 
-  const saved = await feedbackRepository.findFeedbackByIdAndUser(feedbackId, userId);
-  return toResponseDto(saved!);
+  const saved = await feedbackRepository.findFeedbackByIdAndUserId(feedbackId, userId);
+  return toResponseDto(saved!, saved!.conversation.selected_topic);
 };
 
 // POST /feedback/{feedbackId}/retry — 상태를 pending으로 바꾸고 즉시 응답한다.
 // 실제 재생성은 응답 이후 백그라운드에서 진행된다(전용 워커/큐가 없어 fire-and-forget으로 처리).
-// 결과 확인은 GET /feedback/{feedbackId}(이번 범위 밖, 후속 이슈)를 전제로 한다.
+// 결과 확인은 GET /feedback/{feedbackId}로 폴링한다.
 export const retryFeedback = async (
   userId: string,
   feedbackId: string
 ): Promise<RetryFeedbackResponseDto> => {
-  const feedback = await feedbackRepository.findFeedbackByIdAndUser(feedbackId, userId);
+  const feedback = await feedbackRepository.findFeedbackByIdAndUserId(feedbackId, userId);
   if (!feedback) throw new FeedbackNotFoundError();
 
   if (feedback.status === "pending") {
@@ -246,4 +205,25 @@ export const retryFeedback = async (
   });
 
   return { feedbackId, status: "pending" };
+};
+
+// GET /feedback/{feedbackId} — 상세 조회 (분업 담당분 구현 유지).
+export const getFeedbackDetail = async (
+  userId: string,
+  feedbackId: string
+): Promise<FeedbackDetailResponseDto> => {
+  const feedback = await feedbackRepository.findFeedbackByIdAndUserId(feedbackId, userId);
+  if (!feedback) throw new FeedbackNotFoundError();
+
+  return {
+    id: feedback.id,
+    conversationId: feedback.conversation_id,
+    topic: feedback.conversation.selected_topic,
+    overallScore: calculateOverallScore(feedback),
+    metrics: (feedback.metrics as unknown as FeedbackMetricDto[] | null) ?? [],
+    missionSummary: (feedback.mission_summary as unknown as string[] | null) ?? [],
+    savedPhrase: feedback.saved_phrase,
+    status: feedback.status,
+    createdAt: feedback.created_at.toISOString(),
+  };
 };

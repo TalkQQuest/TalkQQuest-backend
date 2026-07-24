@@ -21,10 +21,8 @@ export const createUserWithIdentity = (
   prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const user = await tx.users.create({
       data: {
-        // 소셜 로그인만으로는 이름/생년월일/학교·직업을 받을 수 없어 온보딩에서 채운다.
+        // 소셜 로그인만으로는 이름을 받을 수 없어 온보딩에서 채운다.
         name: "",
-        school_or_job: "",
-        birth_date: "",
       },
     });
 
@@ -46,16 +44,12 @@ export const createUserWithEmailIdentity = (params: {
   email: string;
   passwordHash: string;
   name: string;
-  birthDate: string;
-  schoolOrJob: string;
   termsAgreedAt: Date;
 }) =>
   prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const user = await tx.users.create({
       data: {
         name: params.name,
-        birth_date: params.birthDate,
-        school_or_job: params.schoolOrJob,
         terms_agreed_at: params.termsAgreedAt,
       },
     });
@@ -112,3 +106,17 @@ export const findActiveRefreshToken = (token: string) =>
 
 export const revokeRefreshToken = (token: string) =>
   prisma.refresh_Tokens.updateMany({ where: { token }, data: { revoked: true } });
+
+export const updatePasswordHashByUserId = (userId: string, passwordHash: string) =>
+  prisma.auth_Identities.updateMany({
+    where: { user_id: userId, provider: "email" },
+    data: { password_hash: passwordHash },
+  });
+
+export const findEmailIdentityByUserId = (userId: string) =>
+  prisma.auth_Identities.findFirst({
+    where: { user_id: userId, provider: "email" },
+  });
+
+export const revokeRefreshTokensByUserId = (userId: string) =>
+  prisma.refresh_Tokens.updateMany({ where: { user_id: userId }, data: { revoked: true } });

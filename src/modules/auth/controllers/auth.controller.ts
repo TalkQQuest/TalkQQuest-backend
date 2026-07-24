@@ -22,10 +22,17 @@ import {
   loginRequestSchema,
   signupRequestSchema,
 } from "../dtos/email-auth.dto";
+import {
+  PasswordResetDto,
+  PasswordResetRequestDto,
+  passwordResetRequestSchema,
+  passwordResetSchema,
+} from "../dtos/password.dto";
 import { loginWithKakao, loginWithNaver } from "../services/oauth.service";
 import { logout, refreshAccessToken } from "../services/token.service";
 import { requestEmailVerification, verifyEmailCode } from "../services/email-verification.service";
 import { loginWithEmail, signupWithEmail } from "../services/email-auth.service";
+import { requestPasswordReset, resetPassword } from "../services/password.service";
 
 @Route("auth")
 @Tags("Auth")
@@ -148,5 +155,30 @@ export class AuthController extends Controller {
   public async login(@Body() body: LoginRequestDto): Promise<ApiResponse<LoginResponseDto>> {
     const result = await loginWithEmail(body);
     return success(result);
+  }
+
+  /**
+   * @summary 비밀번호 재설정 인증번호 발송
+   */
+  @Post("password/reset-request")
+  @Middlewares(validate(passwordResetRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(404, "NOT_FOUND")
+  public async passwordResetRequest(@Body() body: PasswordResetRequestDto): Promise<ApiResponse<null>> {
+    await requestPasswordReset(body.email);
+    return success(null, "인증 코드가 발송되었습니다.");
+  }
+
+  /**
+   * @summary 비밀번호 재설정
+   */
+  @Post("password/reset")
+  @Middlewares(validate(passwordResetSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(404, "NOT_FOUND")
+  @Response(410, "EXPIRED")
+  public async passwordReset(@Body() body: PasswordResetDto): Promise<ApiResponse<null>> {
+    await resetPassword(body.email, body.code, body.newPassword);
+    return success(null, "비밀번호가 재설정되었습니다.");
   }
 }

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
 
 // POST /feedback 생성 전 대화 소유권/맥락 확인 + 분석에 쓸 메시지 전체를 함께 가져온다.
+// scalar 필드(selected_topic 등)는 include 사용 시 기본 반환되므로 topic도 여기서 얻는다.
 export const findConversationForFeedback = (conversationId: string, userId: string) =>
   prisma.conversations.findFirst({
     where: { id: conversationId, user_id: userId },
@@ -15,19 +16,22 @@ export const findConversationForFeedback = (conversationId: string, userId: stri
     },
   });
 
-// 대화당 최대 1건(스키마 @@unique([conversation_id])) — POST /feedback의 find-or-create에 사용.
+// 대화당 피드백 1건 원칙(스키마엔 unique 없으나 find-or-create로 중복 생성 방지).
 export const findFeedbackByConversationId = (conversationId: string) =>
-  prisma.feedbacks.findUnique({ where: { conversation_id: conversationId } });
+  prisma.feedbacks.findFirst({ where: { conversation_id: conversationId } });
 
-export const findFeedbackByIdAndUser = (feedbackId: string, userId: string) =>
-  prisma.feedbacks.findFirst({ where: { id: feedbackId, user_id: userId } });
+// GET /feedback/{feedbackId} + 생성/재시도 후 재조회. topic 표시를 위해 conversation.selected_topic 포함.
+export const findFeedbackByIdAndUserId = (feedbackId: string, userId: string) =>
+  prisma.feedbacks.findFirst({
+    where: { id: feedbackId, user_id: userId },
+    include: { conversation: { select: { selected_topic: true } } },
+  });
 
-export const createPendingFeedback = (userId: string, conversationId: string, topic: string | null) =>
+export const createPendingFeedback = (userId: string, conversationId: string) =>
   prisma.feedbacks.create({
     data: {
       user_id: userId,
       conversation_id: conversationId,
-      topic,
       status: "pending",
     },
   });
@@ -39,6 +43,7 @@ export const markFeedbackFailed = (feedbackId: string) =>
   prisma.feedbacks.update({ where: { id: feedbackId }, data: { status: "failed" } });
 
 // 생성 성공 시 결과를 채워 status=ready로 전환한다.
+// 개별 점수 컬럼(집계/정렬용 단일 출처)과 metrics 배열(지표별 상세)을 함께 저장한다.
 export const markFeedbackReady = (
   feedbackId: string,
   data: {
@@ -46,7 +51,7 @@ export const markFeedbackReady = (
     initiativeScore: number;
     empathyScore: number;
     questionLinkScore: number;
-    metricsDetail: unknown;
+    metrics: unknown; // [{ key, label, score, strengths, improvements, bestSentence }]
     missionSummary: string[];
     savedPhrase: string;
   }
@@ -58,21 +63,9 @@ export const markFeedbackReady = (
       initiative_score: data.initiativeScore,
       empathy_score: data.empathyScore,
       question_link_score: data.questionLinkScore,
-      metrics_detail: data.metricsDetail as Prisma.InputJsonValue,
+      metrics: data.metrics as Prisma.InputJsonValue,
       mission_summary: data.missionSummary as unknown as Prisma.InputJsonValue,
       saved_phrase: data.savedPhrase,
       status: "ready",
-    },
-  });
-
-// GET /reports/weekly-compare용 — 특정 기간에 생성된(status=ready) 피드백의 지표 평균.
-export const aggregateMetricAveragesInRange = (userId: string, from: Date, to: Date) =>
-  prisma.feedbacks.aggregate({
-    where: { user_id: userId, status: "ready", created_at: { gte: from, lt: to } },
-    _avg: {
-      kindness_score: true,
-      initiative_score: true,
-      empathy_score: true,
-      question_link_score: true,
     },
   });

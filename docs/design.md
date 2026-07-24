@@ -89,7 +89,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 | 도메인 | 테이블 | 역할 |
 |---|---|---|
-| 인증 | `Users` | 서비스 사용자 본체 (name, school_or_job, birth_date 등). 로그인 수단 정보는 갖지 않음 |
+| 인증 | `Users` | 서비스 사용자 본체 (name 등). 로그인 수단 정보는 갖지 않음 |
 | 인증 | `Auth_Identities` | `Users` 1 : N 관계. 카카오/네이버/이메일 로그인 수단을 각각 한 행으로 저장 (email 방식만 `password_hash` 사용) |
 | 인증 | `Refresh_Tokens` | JWT Refresh Token, 기기정보, 폐기(revoked) 여부 |
 | 인증 | `Terms` | 이용약관/개인정보처리방침 버전 관리 |
@@ -104,10 +104,13 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 | 성장 | `XP_History` | XP 지급/차감 내역 (레벨 시스템의 원장) |
 | 피드백/아카이브 | `Feedbacks` | AI 피드백 점수(친절함/주도성/공감/질문 연결성) |
 | 피드백/아카이브 | `Saved_Phrases` | 저장한 문장 |
+| 결제/구독 | `Plans` | 등급 정의 (free/premium). `POST /plans`는 없어 `prisma/seed.ts`로만 관리 |
+| 결제/구독 | `Subscriptions` | 유저의 구독 상태. `status`(pending/active/expired/cancelled — `pending`은 ERD 원안에 없던 값으로, 결제 대기 상태를 표현하기 위해 추가)와 `expires_at`으로 유효 여부를 그때그때 계산(lazy) — 별도 배치로 만료 처리하지 않음 |
+| 결제/구독 | `Payments` | 결제 내역. 실제 PG 연동 없이 mock으로 즉시 `completed` 처리됨 |
 
 ### 아직 스키마에 없는 범위 (API 명세서에는 있으나 미구현)
 
-커뮤니티/모임, 결제/구독, 리포트, 알림(FCM), 아카이브 폴더, 안전(차단/신고), 캘린더, 배지 관련 테이블은 API 명세서 기준으로는 확정됐지만 아직 `prisma/schema.prisma`에 반영되지 않았다. 해당 도메인 구현이 시작되면 스키마에 먼저 추가하고, 이 표도 같이 갱신한다.
+커뮤니티/모임, 리포트, 알림(FCM), 아카이브 폴더, 안전(차단/신고), 캘린더, 배지 관련 테이블은 API 명세서 기준으로는 확정됐지만 아직 `prisma/schema.prisma`에 반영되지 않았다. 해당 도메인 구현이 시작되면 스키마에 먼저 추가하고, 이 표도 같이 갱신한다.
 
 ## API Specification
 
@@ -162,7 +165,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 >
 > **소셜 로그인(Android 클라이언트) 인증 방식**: Kakao SDK / Naver SDK가 디바이스에서 로그인을 처리하고 **Provider Access Token**을 앱에 직접 발급한다. 백엔드는 Authorization Code → Token 교환을 수행하지 않고, **클라이언트가 전달한 Provider Access Token을 그대로 카카오/네이버의 사용자 정보 조회 API에 전달해 검증**한다. API 명세서 원안은 Authorization Code 방식(`code`/`state`)으로 작성되어 있으나, 팀 논의로 Provider Access Token 방식을 유지하기로 확정했다 — 명세서보다 실제 구현이 우선한다.
 >
-> **이메일 로그인**: `/auth/signup`(`/auth/register`)은 이메일 인증(`/auth/email/request` → `/auth/email/verify`) 완료 후 비밀번호와 이름/생년월일/학교·직업, `termsAgreedAt`(ISO 8601 동의 시각)을 받아 계정을 생성한다. 비밀번호는 8자 이상 + 숫자 + 영문 + 특수문자 포함 규칙을 적용하고 bcrypt로 해시하여 저장한다. 이메일 중복 여부는 `/auth/email/request` 시점에 이미 체크한다.
+> **이메일 로그인**: `/auth/signup`(`/auth/register`)은 이메일 인증(`/auth/email/request` → `/auth/email/verify`) 완료 후 비밀번호와 이름, `termsAgreedAt`(ISO 8601 동의 시각)을 받아 계정을 생성한다. 비밀번호는 8자 이상 + 숫자 + 영문 + 특수문자 포함 규칙을 적용하고 bcrypt로 해시하여 저장한다. 이메일 중복 여부는 `/auth/email/request` 시점에 이미 체크한다. (생년월일/학교·직업은 어떤 가입 경로로도 수집·사용하지 않아 `Users` 스키마에서 제거했다.)
 >
 > **계정 연동**: 카카오/네이버 로그인 시, 같은 이메일로 다른 수단이 이미 가입되어 있으면 새 계정을 만들지 않고 응답에 `needsLinking: true`와 기존 계정 정보를 포함한다(토큰은 발급하지 않음). 실제로 두 계정을 병합하는 API는 아직 없다.
 
@@ -219,8 +222,6 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
   "email": "test@example.com",
   "password": "Test1234!",
   "name": "홍길동",
-  "birthDate": "2000-01-01",
-  "schoolOrJob": "한성대학교",
   "termsAgreedAt": "2025-07-03T12:00:00Z"
 }
 ```
@@ -288,6 +289,18 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 전달된 Refresh Token을 DB에서 폐기(revoked) 처리한다.
 
+#### POST /auth/password/reset-request
+
+**Request Body:** `{ "email": "test@example.com" }`
+
+가입된 이메일(email 수단)인지 확인 후 재설정 인증번호를 발급한다. `/auth/email/request`와 동일하게 Redis에 5분 TTL로 저장하고 메일을 발송하되, 회원가입 인증 코드와 섞이지 않도록 별도 키 네임스페이스(`password-reset:code:`)를 쓴다.
+
+#### POST /auth/password/reset
+
+**Request Body:** `{ "email": "test@example.com", "code": "483921", "newPassword": "NewPass1234!" }`
+
+코드가 유효하면 비밀번호를 변경하고, 해당 계정으로 발급된 모든 Refresh Token을 폐기한다(재로그인 필요). 코드 불일치/만료는 `/auth/email/verify`와 동일하게 구분해서 에러를 반환한다.
+
 #### GET /legal/terms, GET /legal/privacy
 
 **Response (200):**
@@ -322,7 +335,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 모두 `Authorization: Bearer {accessToken}` 필수.
 
-> API 명세서에는 이 외에도 `DELETE /users/me`(회원 탈퇴), `GET /users/me/settings`/`PATCH /users/me/settings`(설정), `GET /users/me/usage`(사용량), `GET /users/me/dashboard`(마이페이지 요약), `GET /badges/me`(배지)가 정의되어 있으나 아직 구현되지 않았다.
+> API 명세서에는 이 외에도 `DELETE /users/me`(회원 탈퇴), `GET /users/me/settings`/`PATCH /users/me/settings`(설정), `GET /users/me/dashboard`(마이페이지 요약)가 정의되어 있으나 아직 구현되지 않았다. `GET /users/me/usage`(사용량)와 `GET /badges/me`(배지)는 구현되어 아래 별도 섹션에 정리했다.
 
 #### GET /users/me
 
@@ -359,6 +372,22 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
   "interests": ["string"]
 }
 ```
+
+#### POST /users/me/password/verify
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Request Body:** `{ "currentPassword": "string" }`
+
+비밀번호 변경 화면이 "현재 비밀번호 확인 → 새 비밀번호 입력" 2단계로 구성되어 있어, 확인을 별도 API로 분리했다. 확인에 성공하면 Redis에 `password-change:verified:{userId}`를 10분 TTL로 저장하고, `PATCH /users/me/password`는 이 플래그가 있어야만 동작한다(없으면 403 `FORBIDDEN`) — 확인 단계를 건너뛰고 변경 API를 바로 호출하는 것을 막기 위함.
+
+#### PATCH /users/me/password
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Request Body:** `{ "newPassword": "string" }`
+
+직전에 `POST /users/me/password/verify`를 거쳐야 한다. 변경 성공 시 해당 계정의 모든 Refresh Token을 폐기한다(다른 기기 재로그인 필요).
 
 #### PATCH /users/me/onboarding
 
@@ -410,6 +439,28 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 #### DELETE /goals/{goalId}
 
 목표 조회/수정/삭제는 모두 `NOT_FOUND`(존재하지 않거나 본인 소유가 아닌 goalId) 공통 에러 코드를 사용한다.
+
+#### GET /users/me/usage
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Query String:** 없음 — 항상 "현재 주기"의 사용량만 반환한다. 과거 주기 조회는 이번 범위에 없다.
+
+**Response (200):** `data` — `cycleStart`, `cycleEnd`, `aiCount`, `feedbackCount`, `aiLimit`(`null`=무제한), `feedbackLimit`(`null`=무제한).
+
+사용량은 달력 월(`YYYY-MM`)이 아니라 **롤링 1개월 주기**로 집계한다. 주기의 기준일(anchor)은:
+- 유효한(active + 만료 전) 구독이 있으면 그 **구독의 `started_at`**
+- 없으면(무료 등급) **회원가입일**(`Users.created_at`)
+
+주기는 anchor로부터 매달 반복되며(`getCurrentCycleStart`, `shared/utils/date.ts`), `aiLimit`/`feedbackLimit`은 유저의 현재 유효 플랜(`payment` 모듈의 `getUsageContext` — 유효한 active 구독이 없으면 free 플랜)에서 가져온다. 해당 주기의 사용량 데이터(`Usage` 테이블, `cycle_start` 컬럼으로 식별)가 없으면 `aiCount`/`feedbackCount`는 0으로 응답한다.
+
+> 구독을 시작/결제 완료하거나 만료되면 anchor가 바뀌어 사용량 주기 경계도 함께 바뀐다 (예: 가입일 기준으로 쓰다가 구독 결제를 완료하면 그 시점부터 구독 시작일 기준으로 재계산됨). **취소는 anchor를 바꾸지 않는다** — 취소해도 만료일 전까지는 여전히 프리미엄으로 취급되어(`isSubscriptionEffective`) 구독 시작일 기준 anchor와 한도가 그대로 유지되고, 실제 만료 시점이 지나야 비로소 가입일 기준(무료)으로 되돌아간다. 별도 배치 없이 조회 시점마다 anchor와 현재 시각으로 주기를 그때그때 계산한다(lazy).
+
+#### GET /badges/me
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Response (200):** `data.badges[]` — `id`, `name`, `description`, `iconUrl`, `earnedAt`. `User_Badges`에 있는 데이터를 조회만 한다 — 배지를 실제로 부여하는 자동 획득 로직(조건 판정)은 이번 범위에 없고, 당분간 배지 데이터는 수동으로 넣어둔다.
 
 ### Mission APIs
 
@@ -681,7 +732,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 **Errors:** 잘못된 `page`/`size`는 `VALIDATION_ERROR`(400).
 
-> 배지 관련 API(`GET /badges`, `POST /badges/grant`)는 기능명세서 J101에 함께 묶여 있으나 아직 구현되지 않았다.
+> 배지 목록 조회(`GET /badges/me`)는 `### User APIs` 섹션에 구현되어 있다. 배지를 실제로 부여하는 자동 획득 로직(`POST /badges/grant` 등, 기능명세서 J101에 함께 묶여 있던 부분)은 아직 구현되지 않았다 — 현재는 `User_Badges` 데이터를 수동으로 넣어야 한다.
 
 ### Community APIs (미구현)
 
@@ -713,7 +764,7 @@ API 명세서에는 정의되어 있으나 아직 스키마/코드 모두 구현
 
 채팅 메시지는 REST 저장과 동시에 Socket.IO 채널(`community:{id}`)로 실시간 브로드캐스트할 예정이다 (미구현).
 
-### Payment & Subscription APIs (미구현)
+### Payment & Subscription APIs
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -724,8 +775,50 @@ API 명세서에는 정의되어 있으나 아직 스키마/코드 모두 구현
 | POST | /payments | 결제 요청 |
 | GET | /payments/me | 결제 내역 조회 |
 
+> 사업자등록증이 없어 실제 PG(결제대행사) 연동이 불가능하다. `POST /payments`는 클라이언트가 보낸 결제 정보를 검증 없이 그대로 신뢰하고 즉시 `completed`로 기록하는 **mock 구현**이다. `POST /subscriptions`와 `POST /payments`는 명세서상 별도 리소스로 분리되어 있어 그대로 두 개의 엔드포인트로 구현했고, **결제가 성공해야 구독이 활성화**된다 — `POST /subscriptions`는 `pending`(결제 대기) 상태로만 구독을 만들고, 그 구독을 참조하는 `POST /payments`가 성공해야 비로소 `active`로 전환된다. `Subscriptions.status`에 `pending`을 추가했다(원래 ERD엔 active/expired/cancelled만 있었음).
+>
 > 이전 초안에 있던 `POST /payments/webhook`(PG사 Webhook 수신)은 현재 API 명세서에는 없다. 실제 PG사 연동 시 필요 여부를 다시 확인한다.
-> **결제**: Android 인앱결제(Google Play Billing) 정책상 디지털 재화(구독)는 Play Billing 연동이 필요할 수 있으므로, PG사 직결제 도입 전 Google Play 정책 검토가 필요하다.
+> **결제**: Android 인앱결제(Google Play Billing) 정책상 디지털 재화(구독)는 Play Billing 연동이 필요할 수 있으므로, PG사 직결제 도입 전 Google Play 정책 검토가 필요하다 (미구현).
+
+#### GET /plans
+
+**Header:** `Authorization` 불필요
+
+**Response (200):** `data.plans[]` — `id`, `name`(free/premium), `price`, `currency`, `aiLimit`/`feedbackLimit`(`null`=무제한), `features[]`. `prisma/seed.ts`로 시딩된 데이터를 그대로 반환한다.
+
+#### POST /subscriptions
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Request Body:** `{ "planId": "string" }`
+
+`pending` 또는 유효한(만료되지 않은) `active` 구독이 이미 있으면 409 `DUPLICATED`. 존재하지 않거나 비활성 플랜이면 400 `VALIDATION_ERROR`. 응답의 `status`는 `pending`이고 `expiresAt`은 `null`이다 — 아직 프리미엄이 아니며, `POST /payments`로 결제를 완료해야 `active`로 전환되고 그 시점부터 1개월짜리 `expiresAt`이 계산된다.
+
+#### GET /subscriptions/me
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+가장 최근 구독을 조회해, `status`가 `pending`/`expired`이거나 `expires_at`이 지났으면(lazy 판정) 404 `NOT_FOUND`("활성화된 구독이 없습니다.")를 반환한다. 결제 전(`pending`) 구독은 아직 프리미엄이 아니므로 여기서 보이지 않는다. `status: cancelled`인데 아직 만료 전이면 정상 응답한다 — 취소해도 이미 결제한 기간까지는 조회/이용이 가능하다는 의미다.
+
+#### DELETE /subscriptions/me
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+현재 `active`이고 만료 전인 구독만 취소 가능(그 외엔 404). `expires_at`은 변경하지 않고 `status`만 `cancelled`로 바꾼다 — 다음 갱신 시점(만료일)에 자연스럽게 무료로 내려간다(배치 없이 `GET /subscriptions/me` 등 조회 시점마다 lazy 판정).
+
+#### POST /payments
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+**Request Body:** `{ "subscriptionId": "string", "amount": 9900, "currency": "KRW", "method": "card", "externalId": "string" }`
+
+`subscriptionId`가 본인 소유 구독이 아니거나 이미 `pending`이 아닌(이미 결제 완료/취소/만료된) 구독이면 400 `VALIDATION_ERROR`. 성공 시 결제 기록을 남기고, 해당 구독을 `active`로 전환한다(`started_at`을 결제 성공 시각으로, `expires_at`을 그로부터 1개월 후로 설정). PG 연동이 없어 402 `PAYMENT_FAILED`는 명세서 형태만 정의해두었고 현재 코드에서 실제로 도달하는 경로는 없다.
+
+#### GET /payments/me
+
+**Header:** `Authorization: Bearer {accessToken}` 필수
+
+본인의 결제 내역을 최신순으로 반환한다.
 
 ### Report & Feedback APIs (미구현)
 
@@ -782,8 +875,6 @@ API 명세서에는 정의되어 있으나 아직 스키마/코드 모두 구현
 | PATCH | /users/me/settings | 설정 수정 |
 | DELETE | /users/me | 회원 탈퇴 |
 | POST | /uploads/profile-image | 프로필 이미지 업로드 |
-| GET | /badges/me | 보유 배지 목록 조회 |
-| GET | /users/me/usage | 사용량 조회 |
 | GET | /users/me/dashboard | 마이페이지 요약 |
 | GET | /home/summary | 홈 대시보드/요약 |
 

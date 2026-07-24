@@ -1,6 +1,7 @@
 // modules/feedback/dtos/feedback.dto.ts
 import { z } from "zod";
 import { FeedbackMetricKey } from "./feedback.constants";
+import { NewlyEarnedBadgeDto } from "../../badge/dtos/badge.dto";
 
 // 지표 하나의 상세. Feedbacks.metrics(Json)에 이 형태의 배열로 저장되고, 응답에도 그대로 쓰인다.
 export interface FeedbackMetricDto {
@@ -32,6 +33,8 @@ export interface FeedbackResponseDto {
   missionSummary: string[];
   savedPhrase: string | null;
   status: FeedbackStatusDto;
+  // 이번 생성으로 새로 획득한 뱃지 (없으면 빈 배열). 완료 직후 축하 모달 표시용.
+  newlyEarnedBadges: NewlyEarnedBadgeDto[];
 }
 
 // GET /feedback/{feedbackId} — 상세 조회

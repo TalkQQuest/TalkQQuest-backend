@@ -106,6 +106,99 @@ const PLANS = [
   },
 ];
 
+// 이슈 #73: 14종 전부. #5 "먼저 건넨 인사"는 별도 "미션 유형" 필드 없이,
+// 기존 Missions.category 중 "짧은 대화"/"일상 대화"를 그대로 묶어서 판정한다(PM 확인 완료).
+// condition은 badge/dtos/badge-condition.dto.ts의 BadgeCondition 형태를 따른다.
+// icon_url은 실제 디자인 에셋이 없어 임시로 null — 기획/디자인 확정되면 채워 넣으면 된다.
+const BADGES = [
+  {
+    name: "설레는 첫걸음",
+    description: "대화 미션을 처음으로 1회 완료",
+    condition: { type: "mission_complete_count", target: 1 },
+  },
+  {
+    name: "먼저 건넨 인사",
+    description: "'먼저 인사하기' 유형의 미션을 3회 완료",
+    condition: {
+      type: "mission_complete_count_by_categories",
+      categories: ["짧은 대화", "일상 대화"],
+      target: 3,
+    },
+  },
+  {
+    name: "대화 새싹",
+    description: "대화 미션을 누적 5회 완료",
+    condition: { type: "mission_complete_count", target: 5 },
+  },
+  {
+    name: "대화 탐험가",
+    description: "대화 미션을 누적 15회 완료",
+    condition: { type: "mission_complete_count", target: 15 },
+  },
+  {
+    name: "대화 마스터",
+    description: "대화 미션을 누적 30회 완료",
+    condition: { type: "mission_complete_count", target: 30 },
+  },
+  {
+    name: "새로운 도전",
+    description: "서로 다른 유형의 대화 미션을 5종 이상 완료",
+    condition: { type: "distinct_mission_category_count", target: 5 },
+  },
+  {
+    name: "꾸준한 대화 습관",
+    description: "3일 연속으로 하루 1개 이상의 미션을 완료",
+    condition: { type: "mission_streak_days", target: 3 },
+  },
+  {
+    name: "일주일의 변화",
+    description: "7일 연속으로 하루 1개 이상의 미션을 완료",
+    condition: { type: "mission_streak_days", target: 7 },
+  },
+  {
+    name: "친절한 한마디",
+    description: "AI 피드백의 '친절한 태도' 항목에서 80점 이상을 3회 달성",
+    condition: { type: "feedback_metric_threshold_count", metric: "kindness", threshold: 80, target: 3 },
+  },
+  {
+    name: "공감의 귀",
+    description: "AI 피드백의 '공감 능력' 항목에서 80점 이상을 3회 달성",
+    condition: { type: "feedback_metric_threshold_count", metric: "empathy", threshold: 80, target: 3 },
+  },
+  {
+    name: "대화의 리더",
+    description: "AI 피드백의 '대화 주도' 항목에서 80점 이상을 3회 달성",
+    condition: { type: "feedback_metric_threshold_count", metric: "initiative", threshold: 80, target: 3 },
+  },
+  {
+    name: "질문의 달인",
+    description: "AI 피드백의 '질문 연결성' 항목에서 80점 이상을 3회 달성",
+    condition: { type: "feedback_metric_threshold_count", metric: "questionLink", threshold: 80, target: 3 },
+  },
+  {
+    name: "균형 잡힌 대화자",
+    description: "한 번의 대화에서 모든 항목에서 80점 이상을 4회 달성",
+    condition: { type: "feedback_all_metrics_threshold_count", threshold: 80, target: 4 },
+  },
+  {
+    name: "피드백 수집가",
+    description: "AI 대화 피드백 결과를 누적 10회 확인",
+    condition: { type: "feedback_created_count", target: 10 },
+  },
+];
+
+async function seedBadges() {
+  for (const badge of BADGES) {
+    const existing = await prisma.badges.findFirst({ where: { name: badge.name } });
+    if (existing) {
+      await prisma.badges.update({ where: { id: existing.id }, data: badge });
+    } else {
+      await prisma.badges.create({ data: badge });
+    }
+  }
+  console.log(`뱃지 시드 완료: ${BADGES.length}건`);
+}
+
 async function seedPlans() {
   for (const plan of PLANS) {
     const existing = await prisma.plans.findFirst({ where: { name: plan.name } });
@@ -126,6 +219,7 @@ async function main() {
   console.log(`템플릿 미션 시드 완료: ${deleted.count}건 삭제, ${created.count}건 생성`);
 
   await seedPlans();
+  await seedBadges();
 }
 
 main()

@@ -102,8 +102,8 @@ enum DeviceTokenPlatform {
 }
 
 enum ReportType {
-  monthly
-  weekly
+  growth
+  weekly_compare
 }
 
 // ============================================================
@@ -393,12 +393,15 @@ model Feedbacks {
   id                  String         @id @default(uuid()) @db.Char(36)
   user_id             String         @db.Char(36)
   conversation_id     String         @db.Char(36)
-  kindness_score      Int?           
+  kindness_score      Int?
   initiative_score    Int?
   empathy_score       Int?
   question_link_score Int?
-  strengths           Json?
-  improvements        Json?
+  // 지표(kindness/initiative/empathy/questionLink) 4개 각각의 상세 결과를
+  // [{ key, label, score, strengths, improvements, bestSentence }] 배열로 저장한다.
+  // 이슈 #70 진행 중 최유경 님과 구두 미확정 상태에서 이 구조로 가정하고 진행 — 추후 다르게 확정되면 매핑만 수정.
+  metrics             Json?
+  mission_summary     Json?
   saved_phrase        String?        @db.Text
   status              FeedbackStatus @default(pending)
   created_at          DateTime       @default(now())
@@ -671,7 +674,7 @@ model Reports {
   id         String     @id @default(uuid()) @db.Char(36)
   user_id    String     @db.Char(36)
   type       ReportType
-  period     String     @db.VarChar(10) 
+  period     String     @db.VarChar(30)
   data       Json?      
   created_at DateTime   @default(now())
 

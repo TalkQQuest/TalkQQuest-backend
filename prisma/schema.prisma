@@ -393,12 +393,15 @@ model Feedbacks {
   id                  String         @id @default(uuid()) @db.Char(36)
   user_id             String         @db.Char(36)
   conversation_id     String         @db.Char(36)
-  kindness_score      Int?           
+  topic               String?        @db.VarChar(255) // 생성 시점 Conversations.selected_topic 스냅샷 (POST /feedback 참고)
+  kindness_score      Int?
   initiative_score    Int?
   empathy_score       Int?
   question_link_score Int?
-  strengths           Json?
-  improvements        Json?
+  // 지표(kindness/initiative/empathy/questionLink)별 strengths[]/improvements[]/bestSentence.
+  // { kindness: { strengths: string[], improvements: string[], bestSentence: string }, initiative: {...}, ... }
+  metrics_detail      Json?
+  mission_summary     Json? // 미션 완료 화면용 짧은 요약 태그 배열 (string[])
   saved_phrase        String?        @db.Text
   status              FeedbackStatus @default(pending)
   created_at          DateTime       @default(now())
@@ -406,6 +409,7 @@ model Feedbacks {
   user         Users         @relation(fields: [user_id], references: [id], onDelete: Cascade)
   conversation Conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
 
+  @@unique([conversation_id]) // 대화당 피드백 1건만 (재생성은 이 행을 갱신하는 retry로 처리)
   @@map("Feedbacks")
 }
 

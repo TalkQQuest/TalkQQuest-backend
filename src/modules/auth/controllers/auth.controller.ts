@@ -150,7 +150,6 @@ export class AuthController extends Controller {
   @Middlewares(validate(loginRequestSchema))
   @Response(400, "VALIDATION_ERROR")
   @Response(400, "INVALID_PASSWORD")
-  @Response(403, "FORBIDDEN")
   @Response(404, "NOT_FOUND")
   public async login(@Body() body: LoginRequestDto): Promise<ApiResponse<LoginResponseDto>> {
     const result = await loginWithEmail(body);

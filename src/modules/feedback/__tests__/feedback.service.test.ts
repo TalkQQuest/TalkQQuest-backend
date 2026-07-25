@@ -32,6 +32,8 @@ const validMetric = {
 const llmSuccess = () => ({
   metrics: { kindness: validMetric, initiative: validMetric, empathy: validMetric, questionLink: validMetric },
   missionSummary: ["장소 경험을 공유했어요"],
+  summaryChips: ["자기성장", "첫 만남", "스몰토크"],
+  conversationSummary: "카페에서 처음 만난 사람과 날씨 이야기를 나눴습니다.",
   savedPhrase: "오늘 날씨가 좋네요.",
 });
 
@@ -75,6 +77,8 @@ const buildFeedbackRow = (overrides: Record<string, unknown> = {}) =>
       metricRow("questionLink", "질문 연결성", 78),
     ],
     mission_summary: ["장소 경험을 공유했어요"],
+    summary_chips: ["자기성장", "첫 만남", "스몰토크"],
+    conversation_summary: "카페에서 처음 만난 사람과 날씨 이야기를 나눴습니다.",
     saved_phrase: "오늘 날씨가 좋네요.",
     status: "ready",
     // topic은 컬럼이 아니라 conversation.selected_topic에서 온다 (findFeedbackByIdAndUserId include).

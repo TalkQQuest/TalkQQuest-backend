@@ -1,3 +1,10 @@
+// 대화 소요 시간(분) 계산. 종료 시각이 없으면(진행 중) null. 반올림, 최소 0.
+export const durationMinutes = (startedAt: Date, finishedAt: Date | null): number | null => {
+  if (!finishedAt) return null;
+  const ms = finishedAt.getTime() - startedAt.getTime();
+  return Math.max(0, Math.round(ms / 60000));
+};
+
 export const addMonths = (date: Date, months: number): Date => {
   const result = new Date(date);
   result.setMonth(result.getMonth() + months);

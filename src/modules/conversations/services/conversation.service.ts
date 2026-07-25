@@ -12,6 +12,7 @@ import {
 } from "../dtos/conversation.dto";
 import { ConversationError } from "../errors/conversation.error";
 import { generateGuideReply, MAX_HISTORY_MESSAGES } from "./conversation-llm.service";
+import { durationMinutes } from "../../../shared/utils/date";
 
 // LLM이 실패(키 없음/오류/재시도까지 실패)했을 때 대화가 끊기지 않도록 쓰는 템플릿 폴백 (Requirement 5.5).
 const MOCK_GUIDE_RESPONSES = [
@@ -68,6 +69,7 @@ const MOCK_GUIDE_RESPONSES = [
         status: conversation.status,
         startedAt: conversation.started_at.toISOString(),
         finishedAt: conversation.finished_at ? conversation.finished_at.toISOString() : null,
+        durationMinutes: durationMinutes(conversation.started_at, conversation.finished_at),
         messages: conversation.messages.map((msg) => ({
             id: msg.id,
             role: msg.role,

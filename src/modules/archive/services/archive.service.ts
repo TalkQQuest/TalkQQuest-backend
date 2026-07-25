@@ -28,6 +28,11 @@ import {
 } from "../dtos/archive.dto";
 import { DuplicatedError } from "../../../shared/errors/common.error";
 import { DIFFICULTY_TO_LABEL } from "../../mission/dtos/mission.constants";
+import { durationMinutes } from "../../../shared/utils/date";
+
+// Feedbacks.summary_chips(Json)를 안전하게 string[]로 변환한다. 없거나 형식이 다르면 빈 배열.
+const toSummaryChips = (raw: unknown): string[] =>
+    Array.isArray(raw) ? raw.filter((c): c is string => typeof c === "string") : [];
 
 const RECENT_ITEMS_LIMIT = 10;
 const DEFAULT_PAGE = 1;
@@ -340,9 +345,12 @@ export const getConversationDetail = async (
     return {
         conversationId: conversation.id,
         missionTitle: conversation.mission?.title ?? null,
-        // TODO: Conversations.summary 필드가 스키마에 없음
-        // AI summary 파이프라인 연결 시 migration 필요
-        summary: "",
+        // 대화 요약은 피드백 생성 시 함께 만들어 저장한다(Feedbacks.conversation_summary).
+        // 피드백 생성 전이면 빈 문자열.
+        summary: feedback?.conversation_summary ?? "",
+        durationMinutes: durationMinutes(conversation.started_at, conversation.finished_at),
+        // 대화 요약 칩은 피드백 생성 시 저장된다(Feedbacks.summary_chips).
+        summaryChips: toSummaryChips(feedback?.summary_chips),
         messages: conversation.messages.map((m) => ({
             sender: m.role === "user" ? "USER" : "AI",
             content: m.content,
@@ -376,6 +384,7 @@ export const getPhraseDetail = async (
         missionTitle: phrase.conversation?.mission?.title ?? null,
         conversationId: phrase.conversation_id,
         folderId: archiveItem?.folder_id ?? null,
+        summaryChips: toSummaryChips(phrase.conversation?.feedbacks?.[0]?.summary_chips),
         createdAt: phrase.created_at.toISOString(),
     };
 };

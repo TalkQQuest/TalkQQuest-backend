@@ -44,6 +44,8 @@ export const CreateConversationSchema = z.object({
     status: "in_progress" | "completed" | "abandoned";
     startedAt: string;
     finishedAt: string | null;
+    /** 대화 소요 시간(분). 아직 종료되지 않았으면 null. */
+    durationMinutes: number | null;
     messages: ConversationMessage[];
     }
 

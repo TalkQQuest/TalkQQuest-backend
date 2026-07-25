@@ -132,6 +132,8 @@ const runGeneration = async (
     questionLinkScore: result.metrics.questionLink.score,
     metrics: buildMetricsArray(result.metrics),
     missionSummary: result.missionSummary,
+    summaryChips: result.summaryChips,
+    conversationSummary: result.conversationSummary,
     savedPhrase: result.savedPhrase,
   });
 };

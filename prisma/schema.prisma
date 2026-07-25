@@ -402,6 +402,11 @@ model Feedbacks {
   // 이슈 #70 진행 중 최유경 님과 구두 미확정 상태에서 이 구조로 가정하고 진행 — 추후 다르게 확정되면 매핑만 수정.
   metrics             Json?
   mission_summary     Json?
+  // 대화 전체를 요약하는 키워드 칩 3개(단어 형태, 예: "자기성장", "첫 만남", "스몰토크").
+  // conversation 상세·phrase 상세에서 재사용한다(이슈 #83).
+  summary_chips       Json?
+  // 대화 전체를 2~3문장으로 요약한 텍스트. /archives/conversations/{id}의 summary로 반환한다(이슈 #83).
+  conversation_summary String?       @db.Text
   saved_phrase        String?        @db.Text
   status              FeedbackStatus @default(pending)
   created_at          DateTime       @default(now())

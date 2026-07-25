@@ -162,7 +162,13 @@ export const findPhraseById = (phraseId: string, userId: string) =>
     prisma.saved_Phrases.findFirst({
         where: { id: phraseId, user_id: userId },
         include: {
-            conversation: { include: { mission: { select: { title: true } } } },
+            conversation: {
+                include: {
+                    mission: { select: { title: true } },
+                    // 메모 칩은 대화 요약 칩(Feedbacks.summary_chips)을 재사용한다 (이슈 #83).
+                    feedbacks: { select: { summary_chips: true } },
+                },
+            },
         },
     });
 

@@ -25,12 +25,19 @@ const metricSchema = z.object({
   bestSentence: z.string().min(1),
 });
 
+// 요약 칩은 문장이 아니라 단어/짧은 키워드여야 한다(예: "자기성장", "첫 만남", "스몰토크").
+// 공백을 포함할 수 있으나(첫 만남) 너무 길면 문장으로 본다 → 12자 상한으로 단어 포맷을 강제한다.
+const summaryChipSchema = z.array(z.string().min(1).max(12)).length(3);
+
 const feedbackLlmSchema = z.object({
   kindness: metricSchema,
   initiative: metricSchema,
   empathy: metricSchema,
   questionLink: metricSchema,
   missionSummary: z.array(z.string().min(1)).min(1).max(3),
+  summaryChips: summaryChipSchema,
+  // 대화 전체를 2~3문장으로 요약한 텍스트(칩과 달리 문장형).
+  conversationSummary: z.string().min(1).max(500),
   savedPhrase: z.string().min(1),
 });
 
@@ -39,6 +46,8 @@ export type FeedbackLlmMetrics = Record<FeedbackMetricKey, z.infer<typeof metric
 export interface FeedbackLlmResult {
   metrics: FeedbackLlmMetrics;
   missionSummary: string[];
+  summaryChips: string[];
+  conversationSummary: string;
   savedPhrase: string;
 }
 
@@ -54,6 +63,8 @@ const SYSTEM_PROMPT = `당신은 사용자의 실제 대화 연습을 분석하�
 규칙:
 - 각 지표마다 strengths(잘한 점)와 improvements(개선 제안)를 1~3개씩, 그리고 그 지표를 가장 잘 보여주는 사용자 발화 원문 하나를 bestSentence로 뽑습니다.
 - missionSummary: 미션 완료 화면에 보여줄 짧은 요약 태그를 1~3개 생성합니다 (예: "장소 경험을 공유했어요").
+- summaryChips: 이 대화 전체를 대표하는 키워드 칩을 정확히 3개 생성합니다. 반드시 문장이 아니라 단어/짧은 명사구여야 하며(예: "자기성장", "첫 만남", "스몰토크"), 각 칩은 최대 12자, 마침표나 서술형 어미를 쓰지 않습니다.
+- conversationSummary: 이 대화가 어떤 내용이었는지 2~3문장으로 요약합니다. 나중에 대화 기록을 다시 볼 때 한눈에 파악할 수 있도록 무엇에 대해 이야기했는지 중심으로 쓰고, 평가나 점수는 넣지 않습니다.
 - savedPhrase: 사용자가 나중에 다시 쓰기 좋은, 사용자 자신의 발화 중 하나를 그대로 인용합니다.
 - 근거 없이 과장하지 말고, 실제 대화 내용에 기반해 구체적으로 씁니다.
 - 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
@@ -63,6 +74,8 @@ const SYSTEM_PROMPT = `당신은 사용자의 실제 대화 연습을 분석하�
   "empathy": { ... 위와 동일 구조 ... },
   "questionLink": { ... 위와 동일 구조 ... },
   "missionSummary": ["string"],
+  "summaryChips": ["단어", "단어", "단어"],
+  "conversationSummary": "string",
   "savedPhrase": "string"
 }`;
 
@@ -122,6 +135,8 @@ const parseFeedbackLlm = (rawContent: string): FeedbackLlmResult | null => {
       questionLink: data.questionLink,
     },
     missionSummary: data.missionSummary,
+    summaryChips: data.summaryChips,
+    conversationSummary: data.conversationSummary,
     savedPhrase: data.savedPhrase,
   };
 };

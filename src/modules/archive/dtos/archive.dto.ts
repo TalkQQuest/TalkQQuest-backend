@@ -115,7 +115,12 @@ export interface ConversationFeedbackDto {
 export interface ConversationDetailResponseDto {
     conversationId: string;
     missionTitle: string | null;
+    /** 대화 전체를 2~3문장으로 요약한 텍스트. 피드백 생성 전에는 빈 문자열. */
     summary: string;
+    /** 대화 소요 시간(분). 아직 종료되지 않았으면 null. */
+    durationMinutes: number | null;
+    /** 대화 요약 키워드 칩 3개(단어 형태). 피드백 생성 전에는 빈 배열. */
+    summaryChips: string[];
     messages: ConversationDetailMessageDto[];
     feedback: ConversationFeedbackDto | null;
 }
@@ -128,6 +133,11 @@ export interface PhraseDetailResponseDto {
     missionTitle: string | null;
     conversationId: string | null;
     folderId: string | null;
+    /**
+     * 메모 키워드 칩 3개. 현재는 대화 요약 칩(Feedbacks.summary_chips)을 재사용한다.
+     * (Figma상 대화 요약 칩과 메모 칩이 구분되지 않아 추후 확정 필요 — 이슈 #83)
+     */
+    summaryChips: string[];
     createdAt: string;
 }
 

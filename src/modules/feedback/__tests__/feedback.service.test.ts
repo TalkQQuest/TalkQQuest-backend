@@ -3,9 +3,13 @@ jest.mock("../services/feedback-llm.service", () => ({
   ...jest.requireActual("../services/feedback-llm.service"),
   generateFeedbackWithLlm: jest.fn(),
 }));
+jest.mock("../../badge/services/badge.service", () => ({
+  checkAndAwardBadges: jest.fn(),
+}));
 
 import * as repository from "../repositories/feedback.repository";
 import { generateFeedbackWithLlm } from "../services/feedback-llm.service";
+import { checkAndAwardBadges } from "../../badge/services/badge.service";
 import {
   FeedbackConversationNotFoundError,
   FeedbackInputTooShortError,
@@ -16,6 +20,7 @@ import { createFeedback, retryFeedback } from "../services/feedback.service";
 
 const mockedRepo = jest.mocked(repository);
 const mockedGenerate = jest.mocked(generateFeedbackWithLlm);
+const mockedCheckAndAwardBadges = jest.mocked(checkAndAwardBadges);
 
 const validMetric = {
   score: 90,
@@ -82,6 +87,7 @@ beforeEach(() => {
   mockedRepo.markFeedbackPending.mockResolvedValue({} as never);
   mockedRepo.markFeedbackFailed.mockResolvedValue({} as never);
   mockedRepo.markFeedbackReady.mockResolvedValue({} as never);
+  mockedCheckAndAwardBadges.mockResolvedValue([]);
 });
 
 describe("createFeedback", () => {

@@ -13,22 +13,6 @@ export const findProfileByUserId = (userId: string) =>
 export const updateProfile = (userId: string, data: Prisma.User_ProfilesUpdateInput) =>
   prisma.user_Profiles.update({ where: { user_id: userId }, data });
 
-export const saveOnboardingStepData = (
-  userId: string,
-  step: number,
-  data: Prisma.User_ProfilesUpdateInput
-) =>
-  prisma.user_Profiles.update({
-    where: { user_id: userId },
-    data: { ...data, onboarding_step: step },
-  });
-
-export const completeOnboarding = (userId: string) =>
-  prisma.user_Profiles.update({
-    where: { user_id: userId },
-    data: { onboarding_completed: true },
-  });
-
 // 탈퇴해도 Auth_Identities.email을 그대로 두면 (provider, email) unique 제약 때문에
 // 같은 이메일로 재가입이 영구히 불가능해진다. userId는 가입마다 새로 발급되는 UUID라
 // 같은 이메일로 가입→탈퇴를 여러 번 반복해도 이 값끼리는 절대 충돌하지 않는다.

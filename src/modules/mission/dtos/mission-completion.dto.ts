@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NewlyEarnedBadgeDto } from "../../badge/dtos/badge.dto";
 
 export type MissionCompletionResult = "success" | "failure" | "avoidance";
 
@@ -23,4 +24,6 @@ export interface CompleteMissionResponseDto {
   status: "completed";
   xpEarned: number;
   completedAt: string;
+  // 이번 완료로 새로 획득한 뱃지 (없으면 빈 배열). 완료 직후 축하 모달 표시용.
+  newlyEarnedBadges: NewlyEarnedBadgeDto[];
 }

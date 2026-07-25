@@ -10,6 +10,7 @@ import {
 // 레벨 공식은 xp 모듈이 소유한다 — GET /xp/summary의 nextLevelXp와 반드시 같은 값을 써야 하므로
 // 여기서 따로 정의하지 않고 import한다 (xp/services/level.service.ts).
 import { calculateNextLevelXp } from "../../xp/services/level.service";
+import { checkAndAwardBadges } from "../../badge/services/badge.service";
 
 export const completeMission = async (
   userId: string,
@@ -85,11 +86,17 @@ export const completeMission = async (
       await missionCompletionRepository.updateProfileXpAndLevel(userId, { xp, level }, tx);
     }
 
+    // 미션/스트릭/카테고리 기반 뱃지는 방금 만든 기록까지 포함해서 판정해야 하므로
+    // 같은 트랜잭션(tx) 안에서 실행한다. 피드백 기반 뱃지는 여기서 조건이 안 채워지므로
+    // GET /badges/me 조회 시점에 별도로 잡힌다 (badge.service.ts 참고).
+    const newlyEarnedBadges = await checkAndAwardBadges(tx, userId);
+
     return {
       missionRecordId: record.id,
       status: "completed",
       xpEarned,
       completedAt: record.completed_at!.toISOString(),
+      newlyEarnedBadges,
     };
   });
 };

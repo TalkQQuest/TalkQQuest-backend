@@ -1,5 +1,7 @@
 // modules/feedback/services/feedback.service.ts
 import { logger } from "../../../config/logger";
+import { prisma } from "../../../config/database";
+import { checkAndAwardBadges } from "../../badge/services/badge.service";
 import * as feedbackRepository from "../repositories/feedback.repository";
 import {
   FeedbackConversationNotFoundError,
@@ -76,7 +78,11 @@ const emptyMetrics = (): FeedbackMetricDto[] =>
   }));
 
 // POST /feedback 응답 매핑. topic은 Feedbacks에 저장하지 않고 conversation.selected_topic에서 가져온다.
-const toResponseDto = (row: FeedbackRowForResponse, topic: string | null): FeedbackResponseDto => {
+const toResponseDto = (
+  row: FeedbackRowForResponse,
+  topic: string | null,
+  newlyEarnedBadges: FeedbackResponseDto["newlyEarnedBadges"]
+): FeedbackResponseDto => {
   const status = row.status as FeedbackStatusDto;
   const ready = status === "ready";
 
@@ -89,6 +95,7 @@ const toResponseDto = (row: FeedbackRowForResponse, topic: string | null): Feedb
     missionSummary: ready && Array.isArray(row.mission_summary) ? (row.mission_summary as string[]) : [],
     savedPhrase: row.saved_phrase,
     status,
+    newlyEarnedBadges,
   };
 };
 
@@ -152,7 +159,7 @@ export const createFeedback = async (
       throw new FeedbackNotReadyError("피드백이 아직 준비되지 않았습니다.");
     }
     if (existing.status === "ready") {
-      return toResponseDto(existing, conversation.selected_topic);
+      return toResponseDto(existing, conversation.selected_topic, []);
     }
     await feedbackRepository.markFeedbackPending(existing.id);
     feedbackId = existing.id;
@@ -169,7 +176,12 @@ export const createFeedback = async (
   );
 
   const saved = await feedbackRepository.findFeedbackByIdAndUserId(feedbackId, userId);
-  return toResponseDto(saved!, saved!.conversation.selected_topic);
+  // 피드백 기반 뱃지(누적 생성 횟수, 지표 달성 횟수 등)는 여기서 생성 직후 바로 판정한다.
+  // 미션 완료(mission-completion.service.ts)와 동일하게, 조건을 만족하면 응답에 실어서
+  // 완료 화면에서 바로 축하 모달을 띄울 수 있게 한다. GET /badges/me도 별도로 지연 판정하므로
+  // 여기서 놓쳐도(예: 재시도 백그라운드 완료 시점) 다음 조회에서 채워진다.
+  const newlyEarnedBadges = await checkAndAwardBadges(prisma, userId);
+  return toResponseDto(saved!, saved!.conversation.selected_topic, newlyEarnedBadges);
 };
 
 // POST /feedback/{feedbackId}/retry — 상태를 pending으로 바꾸고 즉시 응답한다.

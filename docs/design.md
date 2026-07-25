@@ -1014,6 +1014,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 | POST | /reports | 리포트 저장 (스냅샷) |
 | GET | /reports | 리포트 목록 조회 |
 | GET | /reports/{reportId} | 리포트 상세 조회 |
+| DELETE | /reports/{reportId} | 리포트 저장 해제 (`#85`) |
 
 모두 `Authorization: Bearer {accessToken}` 필수.
 
@@ -1044,6 +1045,12 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 #### GET /reports/{reportId}
 
 **Response (200):** `data` — `id`, `type`, `period`, `growth`(`type`이 growth일 때만 값, 아니면 `null`), `weeklyCompare`(`type`이 weekly_compare일 때만 값, 아니면 `null`), `createdAt`. discriminated union이라 `type`을 보고 어느 필드를 렌더링할지 분기한다. 존재하지 않으면 404 `NOT_FOUND`.
+
+#### DELETE /reports/{reportId} — 리포트 저장 해제 (`#85`)
+
+**Response (200):** `{ "success": true, "message": "리포트 저장이 해제되었습니다.", "data": { "reportId": "uuid", "deleted": true }, "errorCode": null }`
+
+본인 소유가 아니거나 존재하지 않으면 404 `NOT_FOUND`. `POST /reports`가 저장 시 함께 만든 `Archive_Items`(`type: "report"`) row도 트랜잭션으로 같이 삭제한다(둘 다 없으면 정상 진행, 매핑 누락에 대해 방어적으로 처리).
 
 ### Home APIs
 

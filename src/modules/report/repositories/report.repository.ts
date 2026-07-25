@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
 import { ReportType } from "../dtos/report.dto";
 
@@ -94,3 +95,6 @@ export const findReportsByUserId = (userId: string, type?: ReportType) =>
 
 export const findReportByIdAndUserId = (reportId: string, userId: string) =>
   prisma.reports.findFirst({ where: { id: reportId, user_id: userId } });
+
+export const deleteReport = (reportId: string, tx?: Prisma.TransactionClient) =>
+  (tx ?? prisma).reports.delete({ where: { id: reportId } });

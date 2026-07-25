@@ -107,3 +107,9 @@ export interface ReportDetailResponseDto {
   weeklyCompare: WeeklyCompareReportDto | null;
   createdAt: string;
 }
+
+// DELETE /reports/{reportId}
+export interface DeleteReportResponseDto {
+  reportId: string;
+  deleted: true;
+}

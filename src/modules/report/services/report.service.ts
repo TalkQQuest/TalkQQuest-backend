@@ -1,10 +1,12 @@
+import { prisma } from "../../../config/database";
 import { ReportNotFoundError } from "../errors/report.error";
 import * as reportRepository from "../repositories/report.repository";
-import { createArchiveItem } from "../../archive/repositories/archive.repository";
+import { createArchiveItem, deleteArchiveItem, findArchiveItemByReference } from "../../archive/repositories/archive.repository";
 import { getGrowthReport, getGrowthWindowStart } from "./growth.service";
 import { calculateWeeklyCompare, getThisWeekStart } from "./weekly-compare.service";
 import { addDays } from "./week-window";
 import {
+  DeleteReportResponseDto,
   GrowthReportDto,
   ListReportsQueryDto,
   ListReportsResponseDto,
@@ -125,4 +127,25 @@ export const getReportDetail = async (
     weeklyCompare: type === "weekly_compare" ? (data.report as WeeklyCompareReportDto) : null,
     createdAt: row.created_at.toISOString(),
   };
+};
+
+// 저장(POST /reports)이 Reports + Archive_Items를 함께 만드는 것과 대칭으로, 해제도 둘 다 지운다.
+// Archive_Items 쪽에 매핑 row가 없어도(정상적으로는 항상 있어야 함) Reports 삭제 자체는 계속 진행한다.
+export const deleteReport = async (
+  userId: string,
+  reportId: string
+): Promise<DeleteReportResponseDto> => {
+  const report = await reportRepository.findReportByIdAndUserId(reportId, userId);
+  if (!report) throw new ReportNotFoundError();
+
+  const archiveItem = await findArchiveItemByReference(userId, "report", reportId);
+
+  await prisma.$transaction(async (tx) => {
+    if (archiveItem) {
+      await deleteArchiveItem(archiveItem.id, tx);
+    }
+    await reportRepository.deleteReport(reportId, tx);
+  });
+
+  return { reportId, deleted: true };
 };

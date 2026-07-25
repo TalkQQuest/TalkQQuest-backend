@@ -920,13 +920,17 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 `recentItems[]` 필드: `id`, `type`(`conversation`\|`phrase`\|`report`\|`mission`), `title`, `isBookmarked`, `missionId`(`string | null`), `conversationId`(`string | null`), `missionRecordId`(`string | null`), `missionStatus?`(`in_progress`\|`completed`, mission 타입만), `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`(마지막 4개는 mission 타입만), `createdAt`.
 
+> **`missionRecordCount`는 필드명과 달리 "완료 기록 수"가 아니라 "북마크한 미션 수"다** (`#86`, 미션 탭이 북마크 기준으로 바뀌면서 메인 화면 카운트도 같은 기준으로 맞춤). `recentItems[]`의 최근 활동 피드는 이 변경과 무관하게 완료/시작 이벤트 기준 그대로다 — 그래서 북마크 안 한 미션이라도 최근 완료했다면 `recentItems`엔 나올 수 있다(카운트에는 안 잡힘).
+
 #### GET /archives — 검색 및 필터
 
-**Query String:** `keyword`, `type`(`conversation`\|`phrase`\|`report`\|`mission`), `startDate`, `endDate`(YYYY-MM-DD), `sort`(`latest`\|`oldest`\|`saved`), `folderId`, `tag`, `page`, `size`.
+**Query String:** `keyword`, `type`(`conversation`\|`phrase`\|`report`\|`mission`), `startDate`, `endDate`(YYYY-MM-DD), `sort`(`latest`\|`oldest`), `missionFilter`(`all`\|`completed`\|`incomplete`, `type=mission` 전용), `folderId`, `tag`, `page`, `size`.
 
-`type`을 안 주면 conversation/phrase/report + mission을 합쳐서 반환한다. `sort=saved`는 mission 타입에서만 유효(저장한 순).
+`type`을 안 주면 conversation/phrase/report + mission을 합쳐서 반환한다.
 
 **Response (200):** `data` — `totalCount`, `items[]`, `pageInfo`. `items[]` 필드는 `archiveItemId`(`string | null`, mission은 null), `referenceId`, `id`, `type`, `title`, `tags[]`, `folderId`(`string | null`), `isBookmarked`, `missionStatus?`, `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`, `missionId`(`string | null`), `missionRecordId`(`string | null`), `createdAt`.
+
+> **미션 탭 base set은 항상 북마크(`Mission_Saves`)다** (`#86`). 완료 여부와 무관하게 찜한 미션 전체가 노출되고, `missionFilter`로 그 안에서 완료/미완료를 좁힌다. `sort`는 북마크한 시각 기준 정렬이다. 완료했지만 북마크 안 한 미션은 여기 안 나온다 — 위 `missionRecordCount` note 참고.
 
 #### GET /archives/conversations/{conversationId}
 
@@ -1165,6 +1169,8 @@ API 명세서에는 정의되어 있으나 아직 스키마/코드 모두 구현
 | DUPLICATED | 409 | 리소스 중복 (일반, 이메일 중복 포함) |
 | EXPIRED | 410 | 인증번호/토큰 등이 만료됨 |
 | SERVER_ERROR | 500 | 서버 내부 오류 |
+
+> ⚠️ **알려진 버그**: 컨트롤러의 `@Query() foo?: "a" | "b"` 같은 유니온 타입 쿼리 파라미터에 정의되지 않은 값을 보내면, tsoa가 자체적으로 던지는 `ValidateError`(정상적으로는 400)를 `errorHandler`가 `AppError`로만 인식해서 놓치고 그대로 500 `SERVER_ERROR`로 응답한다(`#86` 작업 중 `GET /archives?type=`/`sort=`/`missionFilter=`에 잘못된 값을 넣어보다 발견, 이 엔드포인트만의 문제가 아니라 비슷한 유니온 타입 쿼리 파라미터를 쓰는 다른 곳에도 있을 가능성이 큼). 별도 이슈로 `errorHandler`가 tsoa `ValidateError`도 400으로 매핑하도록 고쳐야 한다.
 
 **도메인별 세부 코드**
 

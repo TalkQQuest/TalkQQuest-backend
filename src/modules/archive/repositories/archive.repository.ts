@@ -1,16 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
 
-// 최근 활동용: 미션은 상태 무관(완료+진행중) 전체 카운트
-export const countMissionRecords = async (userId: string) => {
-    const rows = await prisma.mission_Records.findMany({
-        where: { user_id: userId },
-        distinct: ["mission_id"],
-        select: { mission_id: true },
-    });
-    return rows.length;
-};
-
 export const countConversations = (userId: string) =>
     prisma.archive_Items.count({ where: { user_id: userId, item_type: "conversation" } });
 
@@ -136,59 +126,6 @@ export const countArchiveItems = (params: {
                 ? params.type
                 : { in: ["conversation", "phrase", "report"] },
             ...(params.folderId && { folder_id: params.folderId }),
-            ...(params.startDate || params.endDate
-                ? {
-                    created_at: {
-                        ...(params.startDate && { gte: params.startDate }),
-                        ...(params.endDate && { lte: params.endDate }),
-                    },
-                }
-                : {}),
-        },
-    });
-
-// 미션 검색/필터: 상태 무관(진행중+완료) 전체, date 필터는 created_at 기준
-export const searchMissionRecords = (params: {
-    userId: string;
-    startDate?: Date;
-    endDate?: Date;
-    sort: "asc" | "desc";
-}) =>
-    prisma.mission_Records.findMany({
-        where: {
-            user_id: params.userId,
-            ...(params.startDate || params.endDate
-                ? {
-                    created_at: {
-                        ...(params.startDate && { gte: params.startDate }),
-                        ...(params.endDate && { lte: params.endDate }),
-                    },
-                }
-                : {}),
-        },
-        include: {
-            mission: {
-                select: {
-                    id: true,
-                    title: true,
-                    category: true,
-                    difficulty: true,
-                    estimated_minutes: true,
-                    reward_xp: true,
-                },
-            },
-        },
-        orderBy: { created_at: params.sort },
-    });
-
-export const countMissionRecordsFiltered = (params: {
-    userId: string;
-    startDate?: Date;
-    endDate?: Date;
-}) =>
-    prisma.mission_Records.count({
-        where: {
-            user_id: params.userId,
             ...(params.startDate || params.endDate
                 ? {
                     created_at: {

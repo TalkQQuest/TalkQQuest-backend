@@ -1,3 +1,4 @@
+import { withSubjectParticle } from "../../../shared/utils/korean";
 import * as reportRepository from "../repositories/report.repository";
 import {
   MetricChangeDto,
@@ -84,7 +85,7 @@ export const calculateWeeklyCompare = async (userId: string): Promise<WeeklyComp
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
     .slice(0, 2);
   for (const change of biggestChanges) {
-    highlights.push(`${change.label}이(가) 가장 많이 ${change.delta > 0 ? "상승" : "하락"}했어요`);
+    highlights.push(`${withSubjectParticle(change.label)} 가장 많이 ${change.delta > 0 ? "상승" : "하락"}했어요`);
   }
 
   return {

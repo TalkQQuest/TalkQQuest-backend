@@ -12,8 +12,10 @@ import {
   SaveReportRequestDto,
   saveReportRequestSchema,
   SaveReportResponseDto,
+  WeeklyCompareReportDto,
 } from "../dtos/report.dto";
 import { getGrowthReport } from "../services/growth.service";
+import { calculateWeeklyCompare } from "../services/weekly-compare.service";
 import * as reportService from "../services/report.service";
 
 @Route("reports")
@@ -28,6 +30,20 @@ export class ReportController extends Controller {
   @Response(401, "UNAUTHORIZED")
   public async getGrowth(@Request() req: ExpressRequest): Promise<ApiResponse<GrowthReportDto>> {
     const result = await getGrowthReport(req.user!.id);
+    return success(result);
+  }
+
+  /**
+   * @summary 주간 비교 리포트 조회 (이번 주 vs 지난 주)
+   */
+  @Get("weekly-compare")
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  public async getWeeklyCompare(
+    @Request() req: ExpressRequest
+  ): Promise<ApiResponse<WeeklyCompareReportDto>> {
+    const result = await calculateWeeklyCompare(req.user!.id);
     return success(result);
   }
 

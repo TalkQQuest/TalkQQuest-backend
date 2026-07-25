@@ -12,6 +12,15 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(1),
   JWT_ACCESS_EXPIRES_IN: z.string().default("1h"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("14d"),
+  // 이메일 발송(Resend). 값이 없으면 실제 발송 없이 로그로만 인증번호를 출력한다
+  // (팀원들이 각자 API 키를 세팅하지 않아도 로컬 개발/테스트가 가능하도록).
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z.string().default("onboarding@resend.dev"),
+  // 미션 추천 LLM(Upstage Solar, OpenAI 호환). 키가 없으면 LLM 호출을 건너뛰고
+  // 규칙 기반 템플릿 추천(3단계)으로 폴백한다 — 키 없이도 로컬 개발/테스트가 동작.
+  UPSTAGE_API_KEY: z.string().optional(),
+  UPSTAGE_BASE_URL: z.string().default("https://api.upstage.ai/v1"),
+  UPSTAGE_MODEL: z.string().default("solar-pro"),
 });
 
 const parsed = envSchema.safeParse(process.env);

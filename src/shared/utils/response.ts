@@ -1,24 +1,21 @@
 // CONVENTION.md `## 3.7 공통 응답 포맷` 참고 — 모든 API 응답은 이 형식을 따릅니다.
-export interface ApiErrorBody {
-  code: string;
-  message: string;
-  details?: unknown;
-}
-
 export interface ApiResponse<T> {
   success: boolean;
+  message: string;
   data: T | null;
-  error: ApiErrorBody | null;
+  errorCode: string | null;
 }
 
-export const success = <T>(data: T): ApiResponse<T> => ({
+export const success = <T>(data: T, message = "OK"): ApiResponse<T> => ({
   success: true,
+  message,
   data,
-  error: null,
+  errorCode: null,
 });
 
-export const failure = (error: ApiErrorBody): ApiResponse<null> => ({
+export const failure = (errorCode: string, message: string): ApiResponse<null> => ({
   success: false,
+  message,
   data: null,
-  error,
+  errorCode,
 });

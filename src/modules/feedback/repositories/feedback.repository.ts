@@ -54,6 +54,7 @@ export const markFeedbackReady = (
     metrics: unknown; // [{ key, label, score, strengths, improvements, bestSentence }]
     missionSummary: string[];
     summaryChips: string[]; // 대화 요약 키워드 칩 3개(단어 형태)
+    conversationSummary: string; // 대화 전체 2~3문장 요약
     savedPhrase: string;
   }
 ) =>
@@ -67,6 +68,7 @@ export const markFeedbackReady = (
       metrics: data.metrics as Prisma.InputJsonValue,
       mission_summary: data.missionSummary as unknown as Prisma.InputJsonValue,
       summary_chips: data.summaryChips as unknown as Prisma.InputJsonValue,
+      conversation_summary: data.conversationSummary,
       saved_phrase: data.savedPhrase,
       status: "ready",
     },

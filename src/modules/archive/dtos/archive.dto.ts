@@ -112,6 +112,7 @@ export interface ConversationFeedbackDto {
 export interface ConversationDetailResponseDto {
     conversationId: string;
     missionTitle: string | null;
+    /** 대화 전체를 2~3문장으로 요약한 텍스트. 피드백 생성 전에는 빈 문자열. */
     summary: string;
     /** 대화 소요 시간(분). 아직 종료되지 않았으면 null. */
     durationMinutes: number | null;

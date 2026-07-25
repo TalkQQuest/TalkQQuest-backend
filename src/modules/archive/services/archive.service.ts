@@ -388,9 +388,9 @@ export const getConversationDetail = async (
     return {
         conversationId: conversation.id,
         missionTitle: conversation.mission?.title ?? null,
-        // TODO: Conversations.summary 필드가 스키마에 없음
-        // AI summary 파이프라인 연결 시 migration 필요
-        summary: "",
+        // 대화 요약은 피드백 생성 시 함께 만들어 저장한다(Feedbacks.conversation_summary).
+        // 피드백 생성 전이면 빈 문자열.
+        summary: feedback?.conversation_summary ?? "",
         durationMinutes: durationMinutes(conversation.started_at, conversation.finished_at),
         // 대화 요약 칩은 피드백 생성 시 저장된다(Feedbacks.summary_chips).
         summaryChips: toSummaryChips(feedback?.summary_chips),

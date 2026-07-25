@@ -33,6 +33,7 @@ const validResponse = JSON.stringify({
   empathy: validMetric,
   questionLink: validMetric,
   missionSummary: ["장소 경험을 공유했어요"],
+  summaryChips: ["자기성장", "첫 만남", "스몰토크"],
   savedPhrase: "오늘 날씨가 정말 좋네요.",
 });
 
@@ -71,6 +72,7 @@ describe("generateFeedbackWithLlm", () => {
 
     expect(result?.metrics.kindness.score).toBe(90);
     expect(result?.missionSummary).toEqual(["장소 경험을 공유했어요"]);
+    expect(result?.summaryChips).toEqual(["자기성장", "첫 만남", "스몰토크"]);
     expect(result?.savedPhrase).toBe("오늘 날씨가 정말 좋네요.");
     expect(mockedCall).toHaveBeenCalledTimes(1);
   });
@@ -119,10 +121,43 @@ describe("generateFeedbackWithLlm", () => {
         empathy: validMetric,
         questionLink: validMetric,
         missionSummary: ["요약"],
+        summaryChips: ["자기성장", "첫 만남", "스몰토크"],
         savedPhrase: "문장",
       }),
     });
 
+    expect(await generateFeedbackWithLlm(transcript, "인사 연습", null)).toBeNull();
+  });
+
+  it("summaryChips가 3개가 아니거나 문장(12자 초과)이면 null을 반환한다", async () => {
+    // 2개(부족)
+    mockedCall.mockResolvedValueOnce({
+      ok: true,
+      content: JSON.stringify({
+        kindness: validMetric,
+        initiative: validMetric,
+        empathy: validMetric,
+        questionLink: validMetric,
+        missionSummary: ["요약"],
+        summaryChips: ["자기성장", "첫 만남"],
+        savedPhrase: "문장",
+      }),
+    });
+    expect(await generateFeedbackWithLlm(transcript, "인사 연습", null)).toBeNull();
+
+    // 문장형(12자 초과) — 단어 포맷 위반
+    mockedCall.mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({
+        kindness: validMetric,
+        initiative: validMetric,
+        empathy: validMetric,
+        questionLink: validMetric,
+        missionSummary: ["요약"],
+        summaryChips: ["자기성장", "첫 만남", "오늘 처음 만난 사람과 즐겁게 대화했어요"],
+        savedPhrase: "문장",
+      }),
+    });
     expect(await generateFeedbackWithLlm(transcript, "인사 연습", null)).toBeNull();
   });
 

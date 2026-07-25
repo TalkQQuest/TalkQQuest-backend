@@ -84,7 +84,9 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
         recentStartedMissionRows,
     ] =
         await Promise.all([
-            archiveRepository.countMissionRecords(userId),
+            // #86: 미션 탭이 북마크 기준으로 바뀌면서, 이 카운트도 "완료 기록 수"가 아니라
+            // "북마크한 미션 수"로 의미가 바뀐다 (필드명 missionRecordCount는 유지, 의미만 변경).
+            missionRepository.countSavedMissions(userId),
             archiveRepository.countConversations(userId),
             archiveRepository.countSavedPhrases(userId),
             archiveRepository.countReports(userId),
@@ -242,17 +244,18 @@ export const searchArchives = async (
     return paginate(combinedItems, page, size);
 };
 
-// type=mission 전용 검색 경로
-// - 저장(북마크) 여부는 Archive_Items가 아니라 Mission_Saves(mission_id 기준)로 판단
+// type=mission 전용 검색 경로 (#86: 북마크 기준으로 재설계)
+// - base set은 항상 Mission_Saves(북마크)다 — 완료 여부와 무관하게 찜한 미션이 전부 노출된다.
+// - missionFilter(all/completed/incomplete)로 그 안에서 완료 여부를 좁힌다.
+// - sort(latest/oldest)는 북마크한 시각(Mission_Saves.created_at) 기준 정렬이다.
 // - 미션은 folder/tag 개념이 없음(Mission_Saves에 해당 컬럼 없음) -> folderId/tag가 오면 빈 결과 반환.
-// - sort=saved: 저장(찜)한 미션 전체. 수행 기록이 아직 없는(진행중/수행전) 미션도 포함, 저장 시각 기준 정렬.
-// - 기본(latest/oldest): 진행중+완료 미션 기록 전체.
 const searchMissionArchives = async (
     userId: string,
     params: {
         startDate?: Date;
         endDate?: Date;
-        sort?: "latest" | "oldest" | "saved";
+        sort?: "latest" | "oldest";
+        missionFilter?: "all" | "completed" | "incomplete";
         folderId?: string;
         tag?: string;
         keyword?: string;
@@ -264,28 +267,31 @@ const searchMissionArchives = async (
     }
 
     const prismaSort = params.sort === "oldest" ? "asc" : "desc";
+    const missionFilter = params.missionFilter ?? "all";
 
-    if (params.sort === "saved") {
-        const savedRows = await missionRepository.findSavedMissions({
-            userId,
-            startDate: params.startDate,
-            endDate: params.endDate,
-            sort: prismaSort,
-        });
+    const savedRows = await missionRepository.findSavedMissions({
+        userId,
+        startDate: params.startDate,
+        endDate: params.endDate,
+        sort: prismaSort,
+    });
 
-        const savedMissionIdList = savedRows.map((r) => r.mission.id);
-        const savedMissionRecords = savedMissionIdList.length
-            ? await missionRepository.findLatestMissionRecordsByMissionIds(userId, savedMissionIdList)
-            : [];
+    const savedMissionIdList = savedRows.map((r) => r.mission.id);
+    const savedMissionRecords = savedMissionIdList.length
+        ? await missionRepository.findLatestMissionRecordsByMissionIds(userId, savedMissionIdList)
+        : [];
 
-        const latestStatusByMissionId = new Map<string, "in_progress" | "completed">();
-        for (const record of savedMissionRecords) {
-            if (!latestStatusByMissionId.has(record.mission_id)) {
-                latestStatusByMissionId.set(record.mission_id, record.status);
-            }
+    // 미션당 완료 기록(status=completed)이 실제로 만들어지는 유일한 경로라, "완료"는 completed 기록 존재 여부로 판정한다.
+    const latestRecordByMissionId = new Map<string, { id: string; status: "in_progress" | "completed" }>();
+    for (const record of savedMissionRecords) {
+        if (!latestRecordByMissionId.has(record.mission_id)) {
+            latestRecordByMissionId.set(record.mission_id, { id: record.id, status: record.status });
         }
+    }
 
-        const savedItemsWithTitle: ArchiveSearchItemDto[] = savedRows.map((row) => ({
+    let itemsWithTitle: ArchiveSearchItemDto[] = savedRows.map((row) => {
+        const latestRecord = latestRecordByMissionId.get(row.mission.id);
+        return {
             id: row.mission.id,
             archiveItemId: null,
             referenceId: row.mission.id,
@@ -294,80 +300,31 @@ const searchMissionArchives = async (
             tags: [],
             folderId: null,
             isBookmarked: true,
-            missionStatus: latestStatusByMissionId.get(row.mission.id) ?? null,
+            missionStatus: latestRecord?.status ?? null,
             category: row.mission.category,
             difficulty: DIFFICULTY_TO_LABEL[row.mission.difficulty],
             estimatedMinutes: row.mission.estimated_minutes,
             rewardXp: row.mission.reward_xp,
             missionId: row.mission.id,
-            missionRecordId: null,
+            missionRecordId: latestRecord?.status === "completed" ? latestRecord.id : null,
             createdAt: row.created_at.toISOString(),
-        }));
-
-        const savedItems = params.keyword
-            ? savedItemsWithTitle.filter((item) => item.title.toLowerCase().includes(params.keyword!))
-            : savedItemsWithTitle;
-
-        return {
-            totalCount: savedItems.length,
-            items: savedItems,
-            pageInfo: { currentPage: 1, totalPages: 1, totalCount: savedItems.length },
         };
-    }
-
-    // 기본(latest/oldest): 진행중 + 완료 미션 기록 전체
-    const missionRecordRows = await archiveRepository.searchMissionRecords({
-        userId,
-        startDate: params.startDate,
-        endDate: params.endDate,
-        sort: prismaSort,
     });
 
-    const missionIdList = missionRecordRows
-        .map((r) => r.mission?.id)
-        .filter((id): id is string => !!id);
-    const savedMissionIdRows = missionIdList.length
-        ? await missionRepository.findSavedMissionIds(userId, missionIdList)
-        : [];
-    const savedMissionIdSet = new Set(savedMissionIdRows.map((s) => s.mission_id));
-
-    // Mission_Records is execution history: repeated attempts are valid. The archive
-    // presents one card per mission, choosing the first row from the requested order.
-    const uniqueMissionRowsById = new Map<string, (typeof missionRecordRows)[number]>();
-    for (const row of missionRecordRows) {
-        if (!uniqueMissionRowsById.has(row.mission_id)) {
-            uniqueMissionRowsById.set(row.mission_id, row);
-        }
+    if (missionFilter === "completed") {
+        itemsWithTitle = itemsWithTitle.filter((item) => item.missionStatus === "completed");
+    } else if (missionFilter === "incomplete") {
+        itemsWithTitle = itemsWithTitle.filter((item) => item.missionStatus !== "completed");
     }
-    const uniqueMissionRows = [...uniqueMissionRowsById.values()];
 
-    const recordItemsWithTitle: ArchiveSearchItemDto[] = uniqueMissionRows.map((row) => ({
-        id: row.mission_id,
-        archiveItemId: null,
-        referenceId: row.mission_id,
-        type: "mission" as ArchiveItemType,
-        title: row.mission?.title ?? "제목 없음",
-        tags: [],
-        folderId: null,
-        isBookmarked: row.mission ? savedMissionIdSet.has(row.mission.id) : false,
-        missionStatus: row.status,
-        category: row.mission?.category,
-        difficulty: row.mission ? DIFFICULTY_TO_LABEL[row.mission.difficulty] : undefined,
-        estimatedMinutes: row.mission?.estimated_minutes,
-        rewardXp: row.mission?.reward_xp,
-        missionId: row.mission_id,
-        missionRecordId: row.id,
-        createdAt: (row.completed_at ?? row.created_at).toISOString(),
-    }));
-
-    const recordItems = params.keyword
-        ? recordItemsWithTitle.filter((item) => item.title.toLowerCase().includes(params.keyword!))
-        : recordItemsWithTitle;
+    const items = params.keyword
+        ? itemsWithTitle.filter((item) => item.title.toLowerCase().includes(params.keyword!))
+        : itemsWithTitle;
 
     return {
-        totalCount: recordItems.length,
-        items: recordItems,
-        pageInfo: { currentPage: 1, totalPages: 1, totalCount: recordItems.length },
+        totalCount: items.length,
+        items,
+        pageInfo: { currentPage: 1, totalPages: 1, totalCount: items.length },
     };
 };
 

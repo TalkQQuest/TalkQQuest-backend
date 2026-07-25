@@ -133,6 +133,7 @@ const runGeneration = async (
     metrics: buildMetricsArray(result.metrics),
     missionSummary: result.missionSummary,
     summaryChips: result.summaryChips,
+    conversationSummary: result.conversationSummary,
     savedPhrase: result.savedPhrase,
   });
 };

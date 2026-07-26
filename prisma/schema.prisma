@@ -36,8 +36,8 @@ enum TermsType {
 
 enum PrepItemType {
   question // 추천 질문
-  starter  // 대화 시작 문장
-  tip      // 준비 팁
+  starter // 대화 시작 문장
+  tip // 준비 팁
 }
 
 enum ConversationStatus {
@@ -71,7 +71,7 @@ enum FeedbackStatus {
 
 // 미션 추천 결과를 만든 단계 (Recommendation_Logs.source)
 enum RecommendationSource {
-  llm      // 4단계 LLM 생성
+  llm // 4단계 LLM 생성
   template // 3단계 템플릿 선택
   fallback // 매칭 실패 시 입문 하드 폴백
 }
@@ -99,11 +99,36 @@ enum ArchiveItemType {
 
 enum DeviceTokenPlatform {
   android
+  ios
 }
 
 enum ReportType {
   growth
   weekly_compare
+}
+
+enum CommunityVisibility {
+  public
+  private
+}
+
+enum CommunityStatus {
+  draft
+  open
+  closed
+}
+
+enum CommunityMemberRole {
+  host
+  member
+}
+
+enum JoinRequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
+  waitlisted
 }
 
 // ============================================================
@@ -124,30 +149,35 @@ model Users {
   deleted_at      DateTime?
 
   // Relations
-  auth_identities      Auth_Identities[]
-  refresh_tokens       Refresh_Tokens[]
-  user_profile         User_Profiles?
-  goals                Goals[]
-  mission_saves        Mission_Saves[]
-  conversations        Conversations[]
-  mission_records      Mission_Records[]
-  xp_history           XP_History[]
-  feedbacks            Feedbacks[]
-  saved_phrases        Saved_Phrases[]
-  recommendation_logs  Recommendation_Logs[]
-  usages               Usage[]
-  payments             Payments[]
-  subscriptions        Subscriptions[]
-  user_badges          User_Badges[]
-  notifications        Notifications[]
-  archive_folders      Archive_Folders[]
-  archive_items        Archive_Items[]
-  blocked_by_me        Blocked_Users[]       @relation("BlockedUsers_User")
-  blocked_me           Blocked_Users[]       @relation("BlockedUsers_BlockedUser")
-  device_tokens        Device_Tokens[]
-  reports              Reports[]
-  login_history        Login_History[]
-  notification_setting Notification_Settings?
+  auth_identities         Auth_Identities[]
+  refresh_tokens          Refresh_Tokens[]
+  user_profile            User_Profiles?
+  goals                   Goals[]
+  mission_saves           Mission_Saves[]
+  conversations           Conversations[]
+  mission_records         Mission_Records[]
+  xp_history              XP_History[]
+  feedbacks               Feedbacks[]
+  saved_phrases           Saved_Phrases[]
+  recommendation_logs     Recommendation_Logs[]
+  usages                  Usage[]
+  payments                Payments[]
+  subscriptions           Subscriptions[]
+  user_badges             User_Badges[]
+  notifications           Notifications[]
+  archive_folders         Archive_Folders[]
+  archive_items           Archive_Items[]
+  blocked_by_me           Blocked_Users[]           @relation("BlockedUsers_User")
+  blocked_me              Blocked_Users[]           @relation("BlockedUsers_BlockedUser")
+  device_tokens           Device_Tokens[]
+  reports                 Reports[]
+  login_history           Login_History[]
+  notification_setting    Notification_Settings?
+  hosted_communities      Communities[]             @relation("Communities_Host")
+  chat_messages           Chat_Messages[]
+  calendar_events         Calendar_Events[]
+  community_join_requests Community_Join_Requests[]
+  community_memberships   Community_Members[]
 
   @@map("Users")
 }
@@ -187,6 +217,7 @@ model Refresh_Tokens {
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id])
   @@map("Refresh_Tokens")
 }
 
@@ -194,12 +225,12 @@ model Refresh_Tokens {
 // Terms
 // ----------------------------
 model Terms {
-  id         String   @id @default(uuid()) @db.Char(36)
+  id         String    @id @default(uuid()) @db.Char(36)
   type       TermsType
-  version    String   @db.VarChar(20)
-  content    String   @db.Text
-  is_active  Boolean  @default(false)
-  created_at DateTime @default(now())
+  version    String    @db.VarChar(20)
+  content    String    @db.Text
+  is_active  Boolean   @default(false)
+  created_at DateTime  @default(now())
 
   @@map("Terms")
 }
@@ -216,7 +247,7 @@ model User_Profiles {
   difficult_situations    Json?
   preferred_style         String?          @db.VarChar(255)
   interests               Json?
-  purpose                 Json?            // 연습하고 싶은 대화 유형 배열 (최대 2개)
+  purpose                 Json? // 연습하고 싶은 대화 유형 배열 (최대 2개)
   avatar_url              String?          @db.VarChar(500)
   bio                     String?          @db.Text
   daily_conversation_goal Int              @default(1)
@@ -247,6 +278,7 @@ model Goals {
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id])
   @@map("Goals")
 }
 
@@ -257,9 +289,9 @@ model Missions {
   id                String   @id @default(uuid()) @db.Char(36)
   title             String   @db.VarChar(255)
   description       String   @db.Text
-  preparation_tip   String?  @db.Text 
+  preparation_tip   String?  @db.Text
   caution           String?  @db.Text
-  difficulty        Int      
+  difficulty        Int
   estimated_minutes Int
   reward_xp         Int      @default(0)
   category          String   @db.VarChar(100)
@@ -304,6 +336,7 @@ model Mission_Saves {
   mission Missions @relation(fields: [mission_id], references: [id], onDelete: Cascade)
 
   @@unique([user_id, mission_id])
+  @@index([mission_id])
   @@map("Mission_Saves")
 }
 
@@ -327,6 +360,8 @@ model Conversations {
   feedbacks       Feedbacks[]
   saved_phrases   Saved_Phrases[]
 
+  @@index([user_id])
+  @@index([mission_id])
   @@map("Conversations")
 }
 
@@ -366,6 +401,9 @@ model Mission_Records {
   mission      Missions       @relation(fields: [mission_id], references: [id], onDelete: Cascade)
   conversation Conversations? @relation(fields: [conversation_id], references: [id], onDelete: SetNull)
 
+  @@index([user_id])
+  @@index([mission_id])
+  @@index([conversation_id])
   @@map("Mission_Records")
 }
 
@@ -375,10 +413,10 @@ model Mission_Records {
 model XP_History {
   id             String   @id @default(uuid()) @db.Char(36)
   user_id        String   @db.Char(36)
-  amount         Int      
+  amount         Int
   reason         String   @db.VarChar(255)
-  reference_id   String?  @db.Char(36) 
-  reference_type String?  @db.VarChar(50) 
+  reference_id   String?  @db.Char(36)
+  reference_type String?  @db.VarChar(50)
   created_at     DateTime @default(now())
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
@@ -390,30 +428,33 @@ model XP_History {
 // Feedbacks
 // ----------------------------
 model Feedbacks {
-  id                  String         @id @default(uuid()) @db.Char(36)
-  user_id             String         @db.Char(36)
-  conversation_id     String         @db.Char(36)
-  kindness_score      Int?
-  initiative_score    Int?
-  empathy_score       Int?
-  question_link_score Int?
+  id                   String         @id @default(uuid()) @db.Char(36)
+  user_id              String         @db.Char(36)
+  // DB에 Feedbacks_conversation_id_key UNIQUE 인덱스가 이미 있었는데(마이그레이션 파일에는 없던 드리프트)
+  // 스키마가 이를 반영하지 않고 있었다. 대화당 피드백 1건 규칙과 일치하므로 unique로 명시한다.
+  conversation_id      String         @unique @db.Char(36)
+  kindness_score       Int?
+  initiative_score     Int?
+  empathy_score        Int?
+  question_link_score  Int?
   // 지표(kindness/initiative/empathy/questionLink) 4개 각각의 상세 결과를
   // [{ key, label, score, strengths, improvements, bestSentence }] 배열로 저장한다.
   // 이슈 #70 진행 중 최유경 님과 구두 미확정 상태에서 이 구조로 가정하고 진행 — 추후 다르게 확정되면 매핑만 수정.
-  metrics             Json?
-  mission_summary     Json?
+  metrics              Json?
+  mission_summary      Json?
   // 대화 전체를 요약하는 키워드 칩 3개(단어 형태, 예: "자기성장", "첫 만남", "스몰토크").
   // conversation 상세·phrase 상세에서 재사용한다(이슈 #83).
-  summary_chips       Json?
+  summary_chips        Json?
   // 대화 전체를 2~3문장으로 요약한 텍스트. /archives/conversations/{id}의 summary로 반환한다(이슈 #83).
-  conversation_summary String?       @db.Text
-  saved_phrase        String?        @db.Text
-  status              FeedbackStatus @default(pending)
-  created_at          DateTime       @default(now())
+  conversation_summary String?        @db.Text
+  saved_phrase         String?        @db.Text
+  status               FeedbackStatus @default(pending)
+  created_at           DateTime       @default(now())
 
   user         Users         @relation(fields: [user_id], references: [id], onDelete: Cascade)
   conversation Conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id])
   @@map("Feedbacks")
 }
 
@@ -423,7 +464,7 @@ model Feedbacks {
 model Saved_Phrases {
   id              String   @id @default(uuid()) @db.Char(36)
   user_id         String   @db.Char(36)
-  conversation_id String?  @db.Char(36) 
+  conversation_id String?  @db.Char(36)
   content         String   @db.Text
   memo            String?  @db.Text
   created_at      DateTime @default(now())
@@ -431,6 +472,8 @@ model Saved_Phrases {
   user         Users          @relation(fields: [user_id], references: [id], onDelete: Cascade)
   conversation Conversations? @relation(fields: [conversation_id], references: [id], onDelete: SetNull)
 
+  @@index([user_id])
+  @@index([conversation_id])
   @@map("Saved_Phrases")
 }
 
@@ -440,19 +483,20 @@ model Saved_Phrases {
 model Recommendation_Logs {
   id                  String               @id @default(uuid()) @db.Char(36)
   user_id             String               @db.Char(36)
-  source              RecommendationSource 
-  llm_model           String?              @db.VarChar(50) 
-  target_difficulty   Int?                 
-  avoided_categories  Json?                
-  prompt_input        Json?                
-  raw_response        String?              @db.Text 
-  parse_success       Boolean              @default(false) 
-  recommended_mission Json?                
-  fallback_reason     String?              @db.VarChar(100) 
+  source              RecommendationSource
+  llm_model           String?              @db.VarChar(50)
+  target_difficulty   Int?
+  avoided_categories  Json?
+  prompt_input        Json?
+  raw_response        String?              @db.Text
+  parse_success       Boolean              @default(false)
+  recommended_mission Json?
+  fallback_reason     String?              @db.VarChar(100)
   created_at          DateTime             @default(now())
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id])
   @@map("Recommendation_Logs")
 }
 
@@ -471,6 +515,7 @@ model Usage {
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@unique([user_id, cycle_start])
+  @@index([user_id])
   @@map("Usage")
 }
 
@@ -479,10 +524,10 @@ model Usage {
 // ----------------------------
 model Plans {
   id             String   @id @default(uuid()) @db.Char(36)
-  name           String   @db.VarChar(100) 
+  name           String   @db.VarChar(100)
   price          Decimal  @default(0) @db.Decimal(10, 2)
   currency       String   @default("KRW") @db.VarChar(3)
-  ai_limit       Int?     
+  ai_limit       Int?
   feedback_limit Int?
   features       Json?
   is_active      Boolean  @default(true)
@@ -509,6 +554,8 @@ model Subscriptions {
   plan     Plans      @relation(fields: [plan_id], references: [id], onDelete: Restrict)
   payments Payments[]
 
+  @@index([user_id])
+  @@index([plan_id])
   @@map("Subscriptions")
 }
 
@@ -523,7 +570,7 @@ model Payments {
   currency        String        @default("KRW") @db.VarChar(3)
   method          String        @db.VarChar(50)
   status          PaymentStatus
-  external_id     String?       @db.VarChar(255) 
+  external_id     String?       @db.VarChar(255)
   retry_count     Int           @default(0)
   created_at      DateTime      @default(now())
   completed_at    DateTime?
@@ -531,6 +578,8 @@ model Payments {
   user         Users          @relation(fields: [user_id], references: [id], onDelete: Cascade)
   subscription Subscriptions? @relation(fields: [subscription_id], references: [id], onDelete: SetNull)
 
+  @@index([user_id])
+  @@index([subscription_id])
   @@map("Payments")
 }
 
@@ -541,7 +590,7 @@ model Badges {
   id          String  @id @default(uuid()) @db.Char(36)
   name        String  @db.VarChar(100)
   description String? @db.Text
-  condition   Json    
+  condition   Json
   icon_url    String? @db.VarChar(500)
 
   user_badges User_Badges[]
@@ -559,6 +608,7 @@ model User_Badges {
   badge Badges @relation(fields: [badge_id], references: [id], onDelete: Cascade)
 
   @@unique([user_id, badge_id])
+  @@index([badge_id])
   @@map("User_Badges")
 }
 
@@ -568,7 +618,7 @@ model User_Badges {
 model Notifications {
   id             String   @id @default(uuid()) @db.Char(36)
   user_id        String   @db.Char(36)
-  type           String   @db.VarChar(50) 
+  type           String   @db.VarChar(50)
   title          String   @db.VarChar(255)
   body           String?  @db.Text
   reference_id   String?  @db.Char(36)
@@ -578,6 +628,7 @@ model Notifications {
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id])
   @@map("Notifications")
 }
 
@@ -608,6 +659,7 @@ model Archive_Folders {
   user  Users           @relation(fields: [user_id], references: [id], onDelete: Cascade)
   items Archive_Items[]
 
+  @@index([user_id])
   @@map("Archive_Folders")
 }
 
@@ -623,6 +675,8 @@ model Archive_Items {
   user   Users            @relation(fields: [user_id], references: [id], onDelete: Cascade)
   folder Archive_Folders? @relation(fields: [folder_id], references: [id], onDelete: SetNull)
 
+  @@index([user_id])
+  @@index([folder_id])
   @@map("Archive_Items")
 }
 
@@ -631,14 +685,15 @@ model Archive_Items {
 // ----------------------------
 model Blocked_Users {
   id              String   @id @default(uuid()) @db.Char(36)
-  user_id         String   @db.Char(36) 
-  blocked_user_id String   @db.Char(36) 
+  user_id         String   @db.Char(36)
+  blocked_user_id String   @db.Char(36)
   created_at      DateTime @default(now())
 
   user         Users @relation("BlockedUsers_User", fields: [user_id], references: [id], onDelete: Cascade)
   blocked_user Users @relation("BlockedUsers_BlockedUser", fields: [blocked_user_id], references: [id], onDelete: Cascade)
 
   @@unique([user_id, blocked_user_id])
+  @@index([blocked_user_id])
   @@map("Blocked_Users")
 }
 
@@ -655,6 +710,7 @@ model Device_Tokens {
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id])
   @@map("Device_Tokens")
 }
 
@@ -680,11 +736,12 @@ model Reports {
   user_id    String     @db.Char(36)
   type       ReportType
   period     String     @db.VarChar(30)
-  data       Json?      
+  data       Json?
   created_at DateTime   @default(now())
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id])
   @@map("Reports")
 }
 
@@ -700,5 +757,117 @@ model Login_History {
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id])
   @@map("Login_History")
+}
+
+// ----------------------------
+// Communities
+// ----------------------------
+model Communities {
+  id              String              @id @default(uuid()) @db.Char(36)
+  host_user_id    String              @db.Char(36)
+  name            String              @db.VarChar(200)
+  description     String?             @db.Text
+  category        String?             @db.VarChar(100)
+  region          String?             @db.VarChar(100)
+  capacity        Int
+  current_members Int                 @default(0)
+  started_at      DateTime?           @db.Timestamp(0)
+  ended_at        DateTime?           @db.Timestamp(0)
+  cover_image_url String?             @db.VarChar(500)
+  tags            Json?
+  visibility      CommunityVisibility @default(public)
+  status          CommunityStatus     @default(draft)
+  interests       Json?
+  created_at      DateTime            @default(now()) @db.Timestamp(0)
+
+  // Relations
+  host            Users                     @relation("Communities_Host", fields: [host_user_id], references: [id], onDelete: Cascade)
+  chat_messages   Chat_Messages[]
+  calendar_events Calendar_Events[]
+  join_requests   Community_Join_Requests[]
+  members         Community_Members[]
+
+  @@index([host_user_id])
+  @@index([status])
+  @@map("Communities")
+}
+
+// ----------------------------
+// Chat_Messages
+// ----------------------------
+model Chat_Messages {
+  id           String   @id @default(uuid()) @db.Char(36)
+  community_id String   @db.Char(36)
+  user_id      String   @db.Char(36)
+  content      String   @db.Text
+  created_at   DateTime @default(now()) @db.Timestamp(0)
+
+  community Communities @relation(fields: [community_id], references: [id], onDelete: Cascade)
+  user      Users       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([community_id])
+  @@index([user_id])
+  @@map("Chat_Messages")
+}
+
+// ----------------------------
+// Calendar_Events
+// ----------------------------
+model Calendar_Events {
+  id           String    @id @default(uuid()) @db.Char(36)
+  user_id      String    @db.Char(36)
+  community_id String?   @db.Char(36)
+  title        String    @db.VarChar(255)
+  started_at   DateTime  @db.Timestamp(0)
+  ended_at     DateTime? @db.Timestamp(0)
+  created_at   DateTime  @default(now()) @db.Timestamp(0)
+
+  user      Users        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  community Communities? @relation(fields: [community_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([community_id])
+  @@map("Calendar_Events")
+}
+
+// ----------------------------
+// Community_Join_Requests
+// ----------------------------
+model Community_Join_Requests {
+  id             String            @id @default(uuid()) @db.Char(36)
+  community_id   String            @db.Char(36)
+  user_id        String            @db.Char(36)
+  status         JoinRequestStatus @default(pending)
+  waitlist_order Int? // 대기자 순서
+  message        String?           @db.Text
+  created_at     DateTime          @default(now()) @db.Timestamp(0)
+  updated_at     DateTime          @default(dbgenerated("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")) @db.Timestamp(0)
+
+  community Communities @relation(fields: [community_id], references: [id], onDelete: Cascade)
+  user      Users       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([community_id, user_id])
+  @@index([user_id])
+  @@index([community_id])
+  @@map("Community_Join_Requests")
+}
+
+// ----------------------------
+// Community_Members
+// ----------------------------
+model Community_Members {
+  id           String              @id @default(uuid()) @db.Char(36)
+  community_id String              @db.Char(36)
+  user_id      String              @db.Char(36)
+  role         CommunityMemberRole @default(member)
+  joined_at    DateTime            @default(now()) @db.Timestamp(0)
+
+  community Communities @relation(fields: [community_id], references: [id], onDelete: Cascade)
+  user      Users       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([community_id, user_id])
+  @@index([user_id])
+  @@map("Community_Members")
 }

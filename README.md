@@ -50,7 +50,8 @@ src/
 ├── middlewares/          # requestId, validator(Zod), auth(JWT), errorHandler
 ├── modules/              # 도메인별 controller → service → repository → dto → error
 │   ├── auth/               # 로그인, 회원가입, OAuth
-│   ├── user/               # 유저 정보, 탈퇴, 온보딩(성향 입력)
+│   ├── user/               # 유저 정보, 탈퇴
+│   ├── onboarding/         # 온보딩 단계별 저장/완료 (URL은 /users/me/onboarding 하위 유지)
 │   ├── mission/            # 미션 목록/상세/추천
 │   ├── conversations/      # AI 대화 진행
 │   ├── feedback/           # 대화 피드백(LLM 채점)
@@ -64,7 +65,6 @@ src/
 │   ├── setting/            # 설정
 │   ├── upload/             # 프로필 이미지 업로드(S3)
 │   ├── payment/            # 결제/구독
-│   ├── onboarding/         # 스캐폴드만 존재, 미구현 (온보딩은 실제로 user/ 안에 구현됨)
 │   ├── coaching/           # 스캐폴드만 존재, 미구현
 │   ├── community/          # 스캐폴드만 존재, 미구현
 │   └── health/             # 헬스체크

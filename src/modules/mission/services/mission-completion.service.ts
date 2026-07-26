@@ -58,6 +58,7 @@ export const completeMission = async (
     );
 
     await missionCompletionRepository.markConversationCompleted(body.conversationId, tx);
+    await missionCompletionRepository.archiveConversationIfMissing(userId, body.conversationId, tx);
 
     if (xpEarned > 0) {
       const profile = await missionCompletionRepository.findProfileForUpdate(userId, tx);

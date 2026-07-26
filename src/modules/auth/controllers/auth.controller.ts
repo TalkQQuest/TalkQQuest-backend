@@ -131,19 +131,6 @@ export class AuthController extends Controller {
   }
 
   /**
-   * @summary 이메일 회원가입 (signup과 동일)
-   */
-  @Post("register")
-  @Middlewares(validate(signupRequestSchema))
-  @Response(400, "VALIDATION_ERROR")
-  @Response(409, "DUPLICATED")
-  @Response(422, "UNVERIFIED_EMAIL")
-  public async register(@Body() body: SignupRequestDto): Promise<ApiResponse<SignupResponseDto>> {
-    const result = await signupWithEmail(body);
-    return success(result);
-  }
-
-  /**
    * @summary 이메일 로그인
    */
   @Post("login")

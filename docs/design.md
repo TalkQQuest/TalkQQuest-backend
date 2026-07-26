@@ -184,7 +184,6 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 | POST | /auth/oauth/kakao | 카카오 로그인 |
 | POST | /auth/oauth/naver | 네이버 로그인 |
 | POST | /auth/signup | 이메일 회원가입 |
-| POST | /auth/register | 이메일 회원가입 (signup과 동일 핸들러) |
 | POST | /auth/login | 이메일 로그인 |
 | POST | /auth/email/request | 이메일 인증코드 발송 |
 | POST | /auth/email/verify | 이메일 인증코드 확인 |
@@ -199,7 +198,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 >
 > **소셜 로그인(Android 클라이언트) 인증 방식**: Kakao SDK / Naver SDK가 디바이스에서 로그인을 처리하고 **Provider Access Token**을 앱에 직접 발급한다. 백엔드는 Authorization Code → Token 교환을 수행하지 않고, **클라이언트가 전달한 Provider Access Token을 그대로 카카오/네이버의 사용자 정보 조회 API에 전달해 검증**한다. API 명세서 원안은 Authorization Code 방식(`code`/`state`)으로 작성되어 있으나, 팀 논의로 Provider Access Token 방식을 유지하기로 확정했다 — 명세서보다 실제 구현이 우선한다.
 >
-> **이메일 로그인**: `/auth/signup`(`/auth/register`)은 이메일 인증(`/auth/email/request` → `/auth/email/verify`) 완료 후 비밀번호와 이름, `termsAgreedAt`(ISO 8601 동의 시각)을 받아 계정을 생성한다. 비밀번호는 8자 이상 + 숫자 + 영문 + 특수문자 포함 규칙을 적용하고 bcrypt로 해시하여 저장한다. 이메일 중복 여부는 `/auth/email/request` 시점에 이미 체크한다. (생년월일/학교·직업은 어떤 가입 경로로도 수집·사용하지 않아 `Users` 스키마에서 제거했다.)
+> **이메일 로그인**: `/auth/signup`은 이메일 인증(`/auth/email/request` → `/auth/email/verify`) 완료 후 비밀번호와 이름, `termsAgreedAt`(ISO 8601 동의 시각)을 받아 계정을 생성한다. 비밀번호는 8자 이상 + 숫자 + 영문 + 특수문자 포함 규칙을 적용하고 bcrypt로 해시하여 저장한다. 이메일 중복 여부는 `/auth/email/request` 시점에 이미 체크한다. (생년월일/학교·직업은 어떤 가입 경로로도 수집·사용하지 않아 `Users` 스키마에서 제거했다.)
 >
 > **계정 연동**: 카카오/네이버 로그인 시, 같은 이메일로 다른 수단이 이미 가입되어 있으면 새 계정을 만들지 않고 응답에 `needsLinking: true`와 기존 계정 정보를 포함한다(토큰은 발급하지 않음). 실제로 두 계정을 병합하는 API는 아직 없다.
 >
@@ -250,7 +249,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 **Response (200):** `/auth/oauth/kakao`와 동일 구조, `provider: "naver"`
 
-#### POST /auth/signup, POST /auth/register
+#### POST /auth/signup
 
 **Request Body:**
 ```json
@@ -438,7 +437,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 #### PATCH /users/me/onboarding
 
-온보딩은 여러 단계(step)로 나뉘며, step 값에 따라 필수 필드가 다르다 (1: `personalityType`, 2: `difficultSituations`, 이후 단계는 `purpose` 등). 상세 단계 구성은 `src/modules/user/services/onboarding.service.ts` 참고.
+온보딩은 여러 단계(step)로 나뉘며, step 값에 따라 필수 필드가 다르다 (1: `personalityType`, 2: `difficultSituations`, 3: `purpose`). 2·3단계 선택지는 `src/modules/onboarding/dtos/onboarding.constants.ts`에 고정 목록으로 정의되어 있다 — `difficultSituations`는 그중 최대 2개(1개까지 직접 입력 허용), `purpose`는 최대 2개(직접 입력 불가). 상세 단계 구성은 `src/modules/onboarding/services/onboarding.service.ts` 참고.
 
 **Request Body (step 1 예시):**
 ```json

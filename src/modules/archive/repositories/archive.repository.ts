@@ -151,10 +151,10 @@ export const findSavedPhraseContent = (phraseId: string) =>
         select: { content: true },
     });
 
-export const findReportMeta = (reportId: string) =>
+export const findReportData = (reportId: string) =>
     prisma.reports.findUnique({
         where: { id: reportId },
-        select: { type: true, period: true },
+        select: { data: true },
     });
 
 // Saved Phrases

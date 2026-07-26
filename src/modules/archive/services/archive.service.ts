@@ -70,10 +70,10 @@ const resolveItemTitle = async (
             return phrase.content.length > 40 ? `${phrase.content.slice(0, 40)}...` : phrase.content;
         }
         case "report": {
-            const report = await archiveRepository.findReportMeta(referenceId);
+            const report = await archiveRepository.findReportData(referenceId);
             if (!report) return "제목 없음";
-            const typeLabel = report.type === "growth" ? "성장" : "주간 비교";
-            return `${report.period} ${typeLabel} 리포트`;
+            const data = report.data as { title?: unknown } | null;
+            return typeof data?.title === "string" ? data.title : "제목 없음";
         }
     }
 };

@@ -112,6 +112,7 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
     const archiveItemsResolved = await Promise.all(
         recentArchiveRows.map(async (row) => ({
             id: row.id,
+            referenceId: row.reference_id,
             type: row.item_type as ArchiveItemType,
             title: await resolveItemTitle(row.item_type as "conversation" | "phrase" | "report", row.reference_id),
             isBookmarked: true,
@@ -124,6 +125,7 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
 
     const completedMissionItems = recentMissionRows.map((row) => ({
         id: row.mission_id,
+        referenceId: row.mission_id,
         missionId: row.mission_id,
         conversationId: null,
         missionRecordId: row.id,
@@ -140,6 +142,7 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
 
     const startedMissionItems = recentStartedMissionRows.map((row) => ({
         id: row.mission_id,
+        referenceId: row.mission_id,
         missionId: row.mission_id,
         conversationId: row.id,
         missionRecordId: null,

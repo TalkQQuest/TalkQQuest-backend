@@ -438,7 +438,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 #### PATCH /users/me/onboarding
 
-온보딩은 여러 단계(step)로 나뉘며, step 값에 따라 필수 필드가 다르다 (1: `personalityType`, 2: `difficultSituations`, 이후 단계는 `purpose` 등). 상세 단계 구성은 `src/modules/user/services/onboarding.service.ts` 참고.
+온보딩은 여러 단계(step)로 나뉘며, step 값에 따라 필수 필드가 다르다 (1: `personalityType`, 2: `difficultSituations`, 3: `purpose`). 2·3단계 선택지는 `src/modules/onboarding/dtos/onboarding.constants.ts`에 고정 목록으로 정의되어 있다 — `difficultSituations`는 그중 최대 2개(1개까지 직접 입력 허용), `purpose`는 최대 2개(직접 입력 불가). 상세 단계 구성은 `src/modules/onboarding/services/onboarding.service.ts` 참고.
 
 **Request Body (step 1 예시):**
 ```json

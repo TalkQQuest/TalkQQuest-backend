@@ -8,8 +8,10 @@ export interface RecentArchiveItemDto {
     /**
      * 미션 항목은 missionId, 그 외 항목은 archive item ID
      * @example "550e8400-e29b-41d4-a716-446655440000"
-     */
+    */
     id: string;
+    /** ID of the resource used by its detail API (conversation/phrase/report/mission). */
+    referenceId: string;
     type: ArchiveItemType;
     title: string;
     isBookmarked: boolean;

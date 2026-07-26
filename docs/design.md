@@ -918,7 +918,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 **Response (200):** `data` — `totalCount`, `missionRecordCount`, `conversationCount`, `phraseCount`, `reportCount`, `recentItems[]`(최근 10건).
 
-`recentItems[]` 필드: `id`, `type`(`conversation`\|`phrase`\|`report`\|`mission`), `title`, `isBookmarked`, `missionId`(`string | null`), `conversationId`(`string | null`), `missionRecordId`(`string | null`), `missionStatus?`(`in_progress`\|`completed`, mission 타입만), `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`(마지막 4개는 mission 타입만), `createdAt`.
+`recentItems[]` 필드: `id`, `referenceId`(상세 API 조회에 사용하는 원본 리소스 ID), `type`(`conversation`\|`phrase`\|`report`\|`mission`), `title`, `isBookmarked`, `missionId`(`string | null`), `conversationId`(`string | null`), `missionRecordId`(`string | null`), `missionStatus?`(`in_progress`\|`completed`, mission 타입만), `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`(마지막 4개는 mission 타입만), `createdAt`.
 
 > **`missionRecordCount`는 필드명과 달리 "완료 기록 수"가 아니라 "북마크한 미션 수"다** (`#86`, 미션 탭이 북마크 기준으로 바뀌면서 메인 화면 카운트도 같은 기준으로 맞춤). `recentItems[]`의 최근 활동 피드는 이 변경과 무관하게 완료/시작 이벤트 기준 그대로다 — 그래서 북마크 안 한 미션이라도 최근 완료했다면 `recentItems`엔 나올 수 있다(카운트에는 안 잡힘).
 

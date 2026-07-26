@@ -35,6 +35,10 @@ export const findSavedMissionIds = (userId: string, missionIds: string[]) =>
     select: { mission_id: true },
   });
 
+// 아카이브 요약(missionRecordCount)이 "완료 기록 수"에서 "북마크한 미션 수" 기준으로 바뀌면서 필요해짐 (#86).
+export const countSavedMissions = (userId: string) =>
+  prisma.mission_Saves.count({ where: { user_id: userId } });
+
 export const findSavedMission = (userId: string, missionId: string) =>
   prisma.mission_Saves.findUnique({
     where: { user_id_mission_id: { user_id: userId, mission_id: missionId } },
@@ -81,7 +85,7 @@ export const findLatestMissionRecordsByMissionIds = (userId: string, missionIds:
   prisma.mission_Records.findMany({
     where: { user_id: userId, mission_id: { in: missionIds } },
     orderBy: { created_at: "desc" },
-    select: { mission_id: true, status: true },
+    select: { id: true, mission_id: true, status: true },
   });
 
 export const createMissionSave = (userId: string, missionId: string) =>

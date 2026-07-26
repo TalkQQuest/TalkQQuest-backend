@@ -8,8 +8,10 @@ export interface RecentArchiveItemDto {
     /**
      * 미션 항목은 missionId, 그 외 항목은 archive item ID
      * @example "550e8400-e29b-41d4-a716-446655440000"
-     */
+    */
     id: string;
+    /** ID of the resource used by its detail API (conversation/phrase/report/mission). */
+    referenceId: string;
     type: ArchiveItemType;
     title: string;
     isBookmarked: boolean;
@@ -42,7 +44,9 @@ export interface SearchArchivesQueryDto {
     type?: ArchiveItemType;
     startDate?: string;
     endDate?: string;
-    sort?: "latest" | "oldest" | "saved";
+    sort?: "latest" | "oldest";
+    /** type=mission 전용. 북마크한 미션을 완료 여부로 좁힌다 (#86). */
+    missionFilter?: "all" | "completed" | "incomplete";
     folderId?: string;
     tag?: string;
     page?: number;
@@ -54,7 +58,8 @@ export const searchArchivesQuerySchema = z.object({
     type: z.enum(["conversation", "phrase", "report", "mission"]).optional(),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    sort: z.enum(["latest", "oldest", "saved"]).optional(),
+    sort: z.enum(["latest", "oldest"]).optional(),
+    missionFilter: z.enum(["all", "completed", "incomplete"]).optional(),
     folderId: z.string().optional(),
     tag: z.string().optional(),
     page: z.coerce.number().int().positive().optional(),

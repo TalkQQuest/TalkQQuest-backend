@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Middlewares, Path, Post, Query, Request, Response, Route, Security, Tags } from "tsoa";
+import { Body, Controller, Delete, Get, Middlewares, Path, Post, Query, Request, Response, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
 import { validate } from "../../../middlewares/validator";
 import { ValidationError } from "../../../shared/errors/common.error";
 import { success, ApiResponse } from "../../../shared/utils/response";
 import {
+  DeleteReportResponseDto,
   GrowthReportDto,
   listReportsQuerySchema,
   ListReportsResponseDto,
@@ -96,5 +97,21 @@ export class ReportController extends Controller {
   ): Promise<ApiResponse<ReportDetailResponseDto>> {
     const result = await reportService.getReportDetail(req.user!.id, reportId);
     return success(result);
+  }
+
+  /**
+   * @summary 리포트 저장 해제
+   */
+  @Delete("{reportId}")
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "NOT_FOUND")
+  public async deleteReport(
+    @Request() req: ExpressRequest,
+    @Path() reportId: string
+  ): Promise<ApiResponse<DeleteReportResponseDto>> {
+    const result = await reportService.deleteReport(req.user!.id, reportId);
+    return success(result, "리포트 저장이 해제되었습니다.");
   }
 }

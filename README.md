@@ -1,24 +1,98 @@
 # TalkQuest Backend
 
-TalkQuest Node.js + Express + TypeScript 백엔드입니다.
-컨벤션/구조 결정 배경은 [docs/CONVENTION.md](docs/CONVENTION.md), [docs/design.md](docs/design.md), [docs/requirements.md](docs/requirements.md)를 참고하세요.
-초기 세팅(레이어 구조, tsoa, Zod, 로깅 등)을 왜 이렇게 했는지는 [docs/SETUP_NOTES.md](docs/SETUP_NOTES.md)에 정리해두었습니다.
+톡깨(TalkQQuest) - AI가 추천하는 현실 대화 미션을 수행하고, 기록과 성장 리포트로 사회적 자신감의 변화를 확인하는 서비스의 백엔드 API 서버입니다.
+
+컨벤션/구조 결정 배경은 [docs/CONVENTION.md](docs/CONVENTION.md), API 상세 명세는 [docs/design.md](docs/design.md), 요구사항은 [docs/requirements.md](docs/requirements.md)를 참고하세요. 초기 세팅(레이어 구조, tsoa, Zod, 로깅 등)을 왜 이렇게 했는지는 [docs/SETUP_NOTES.md](docs/SETUP_NOTES.md)에 정리되어 있습니다.
+
+---
+
+## 팀원 소개 및 역할 분담
+
+| 네온/최희수 | 션/김서연 | 영/최유경 | 웬디/양다원 |
+|:---:|:---:|:---:|:---:|
+| <img width="120px" src="https://github.com/jajagyu.png" /> | <img width="120px" src="https://github.com/superbobstar7.png" /> | <img width="120px" src="https://github.com/cccyyy333.png" /> | <img width="120px" src="https://github.com/Dawon-Y.png" /> |
+| [@jajagyu](https://github.com/jajagyu) | [@superbobstar7](https://github.com/superbobstar7) | [@cccyyy333](https://github.com/cccyyy333) | [@Dawon-Y](https://github.com/Dawon-Y) |
+
+| 담당 | 팀원 (별명/실명) | 담당 도메인 |
+| --- | --- | --- |
+| A | 네온/최희수 | 인증(Auth), 결제/구독(Payment/Subscription), 뱃지(Badge), 리포트(Report, 공동) |
+| B | 션/김서연 | 아카이브(Archive), 미션(Mission) |
+| C | 영/최유경 | 유저(User, 온보딩 포함), 피드백(Feedback), XP, 리포트(Report, 공동), **AI/LLM 연동 전반**(대화 가이드 응답, 피드백 채점, 미션 추천·난이도) |
+| D | 웬디/양다원 | 대화(Conversations), 알림(Notification), 홈(Home), 안전/설정(Safety/Setting), 업로드(Upload) |
+
+> 작업 시작 전 자기 담당 도메인의 API 명세는 [docs/design.md](docs/design.md)에서 확인하세요.
+
+---
 
 ## 기술 스택
 
-- Node.js 20 LTS / Express / TypeScript
-- Prisma (MySQL 8.0)
-- Redis (세션/캐시)
-- tsoa (라우팅 + Swagger/OpenAPI 자동 생성)
-- Zod (요청 검증)
-- Jest + Supertest (테스트)
+| 구분 | 내용 |
+| --- | --- |
+| 언어 | TypeScript |
+| 런타임 | Node.js 20 LTS |
+| 프레임워크 | Express |
+| ORM / DB | Prisma / MySQL 8.0 |
+| 캐시 / 세션 | Redis |
+| 라우팅 / 문서화 | tsoa (Swagger/OpenAPI 자동 생성) |
+| 검증 | Zod |
+| 인증 | JWT, Kakao/Naver OAuth2.0 |
+| 파일 업로드 | Multer + AWS S3 |
+| 테스트 | Jest + Supertest |
 
-## 시작하기
+---
+
+## 프로젝트 구조
+
+```
+src/
+├── app.ts / server.ts
+├── config/               # env, database(Prisma), redis
+├── middlewares/          # requestId, validator(Zod), auth(JWT), errorHandler
+├── modules/              # 도메인별 controller → service → repository → dto → error
+│   ├── auth/               # 로그인, 회원가입, OAuth
+│   ├── user/               # 유저 정보, 탈퇴, 온보딩(성향 입력)
+│   ├── mission/            # 미션 목록/상세/추천
+│   ├── conversations/      # AI 대화 진행
+│   ├── feedback/           # 대화 피드백(LLM 채점)
+│   ├── badge/              # 뱃지 자동 판정
+│   ├── report/             # 성장/주간 비교 리포트
+│   ├── archive/            # 보관함(대화/문장/리포트/미션 북마크)
+│   ├── xp/                 # XP/레벨
+│   ├── home/               # 홈 요약
+│   ├── notification/       # 알림
+│   ├── safety/             # 안전 신고 등
+│   ├── setting/            # 설정
+│   ├── upload/             # 프로필 이미지 업로드(S3)
+│   ├── payment/            # 결제/구독
+│   ├── onboarding/         # 스캐폴드만 존재, 미구현 (온보딩은 실제로 user/ 안에 구현됨)
+│   ├── coaching/           # 스캐폴드만 존재, 미구현
+│   ├── community/          # 스캐폴드만 존재, 미구현
+│   └── health/             # 헬스체크
+├── shared/               # AppError, 공통 응답 포맷, 에러 코드 상수, LLM/유틸
+└── generated/            # tsoa 자동 생성 (routes.ts) — gitignore
+```
+
+세부 규칙(브랜치/커밋/PR/네이밍)은 [docs/CONVENTION.md](docs/CONVENTION.md)를 따릅니다.
+
+---
+
+## 시작 가이드
 
 ```bash
 npm install
-cp .env.example .env   # 값 채워넣기 (DATABASE_URL, REDIS_URL, JWT 시크릿 등)
+cp .env.example .env   # 값 채워넣기
 ```
+
+필요한 환경변수:
+
+| 키 | 설명 |
+| --- | --- |
+| `DATABASE_URL` | MySQL 접속 정보 |
+| `REDIS_URL` | Redis 접속 정보 |
+| `JWT_SECRET` 등 | 액세스/리프레시 토큰 시크릿 |
+| `KAKAO_*` / `NAVER_*` | 소셜 로그인 OAuth 키 |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` / `S3_BUCKET_NAME` | 프로필 이미지 업로드(S3) |
+| `UPSTAGE_API_KEY` | 피드백 LLM 채점(Upstage Solar) |
 
 ### 1. Prisma 클라이언트 생성
 
@@ -26,7 +100,7 @@ cp .env.example .env   # 값 채워넣기 (DATABASE_URL, REDIS_URL, JWT 시크�
 npm run prisma:generate
 ```
 
-DB가 준비되면 마이그레이션을 실행합니다 (아직 DB가 없다면 스킵 가능):
+DB가 준비되면 마이그레이션을 실행합니다:
 
 ```bash
 npm run prisma:migrate
@@ -34,7 +108,7 @@ npm run prisma:migrate
 
 ### 2. tsoa 라우트/Swagger 생성
 
-`src/generated/routes.ts`와 `dist/swagger.json`은 자동 생성 파일이라 커밋하지 않습니다. 최초 1회 또는 컨트롤러 변경 시 실행하세요.
+`src/generated/routes.ts`와 `dist/swagger.json`은 자동 생성 파일이라 커밋하지 않습니다. 최초 1회 또는 컨트롤러 변경 시 실행하세요 (`npm run dev`는 자동으로 실행합니다).
 
 ```bash
 npm run tsoa:gen
@@ -56,30 +130,21 @@ npm run dev
 npm test
 ```
 
-## 디렉토리 구조
+---
 
-[docs/CONVENTION.md](docs/CONVENTION.md) `## 2. 프로젝트 구조`에 정의된 구조를 그대로 따릅니다.
+## API 문서
 
-```
-src/
-├── app.ts / server.ts
-├── config/            # env, database(Prisma), redis
-├── middlewares/        # requestId, validator(Zod), auth(JWT), errorHandler
-├── modules/             # 도메인별 controller → service → repository → dto → error
-│   ├── auth/ onboarding/ mission/ coaching/ community/ payment/ report/ notification/
-│   └── health/          # 헬스체크 (구조 검증용 샘플 모듈)
-├── shared/              # AppError, 공통 응답 포맷, 에러 코드 상수
-└── generated/           # tsoa 자동 생성 (routes.ts) — gitignore
-```
-
-도메인 모듈 폴더(`controllers/services/repositories/dtos/errors`)는 아직 기능이 확정되지 않아 `.gitkeep`만 있는 빈 폴더 상태입니다. `health` 모듈만 구조 검증용으로 컨트롤러를 채워뒀습니다.
+전체 API 명세는 [docs/design.md](docs/design.md)에서 확인하세요. 도메인별 요청/응답 형식, 알려진 이슈(구현 안 된 기능, 알려진 버그 등)까지 정리되어 있습니다.
 
 ## 공통 응답 / 에러 포맷
 
 모든 API는 `{ success, message, data, errorCode }` 형식으로 응답합니다 (`src/shared/utils/response.ts`).
 에러 코드는 `VALIDATION_ERROR`, `UNAUTHORIZED`처럼 SCREAMING_SNAKE_CASE 문자열 상수를 사용합니다 (`src/shared/constants/error-codes.ts`, [docs/CONVENTION.md](docs/CONVENTION.md) `## 3.8` 참고).
 
-## 아직 결정되지 않은 것
+---
 
-- DB 접속 정보 (MySQL 로컬/원격 여부)
-- Kakao/Naver OAuth, FCM 연동 키 값
+## 배포
+
+`main` 브랜치에 push되면 GitHub Actions(`.github/workflows/deploy.yml`)가 테스트 통과 후 EC2에 자동 배포합니다 (`git pull` → `npm ci` → `prisma generate` → `build` → `pm2 restart`).
+
+> DB 스키마 마이그레이션(`prisma migrate deploy`/`db push`)과 시드는 자동 배포에 포함되지 않으며, 스키마 변경 시 별도로 EC2에 SSH 접속해 수동으로 실행해야 합니다.

@@ -103,6 +103,7 @@ export interface ReportDetailResponseDto {
   id: string;
   type: ReportType;
   period: string;
+  title: string;
   growth: GrowthReportDto | null;
   weeklyCompare: WeeklyCompareReportDto | null;
   createdAt: string;

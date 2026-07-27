@@ -3,26 +3,25 @@ import { ReportNotFoundError } from "../errors/report.error";
 import * as reportRepository from "../repositories/report.repository";
 import { createArchiveItem, deleteArchiveItem, findArchiveItemByReference } from "../../archive/repositories/archive.repository";
 import { getGrowthReport, getGrowthWindowStart } from "./growth.service";
-import { calculateWeeklyCompare, getThisWeekStart } from "./weekly-compare.service";
-import { addDays } from "./week-window";
+import { calculateWeeklyCompare } from "./weekly-compare.service";
 import {
   DeleteReportResponseDto,
   GrowthReportDto,
-  ListReportsQueryDto,
   ListReportsResponseDto,
   ReportDetailResponseDto,
-  ReportType,
-  SaveReportRequestDto,
   SaveReportResponseDto,
   WeeklyCompareReportDto,
 } from "../dtos/report.dto";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-// 스냅샷 리포트 Json 컬럼 안에 저장하는 실제 구조 — 목록 화면 title은 별도 컬럼이 없어서 데이터와 함께 저장한다.
+// 스냅샷 리포트 Json 컬럼 안에 저장하는 실제 구조 (#112 — growth/weeklyCompare를 항상 함께 저장한다).
+// period(growth 기준 기간)는 Reports.period 컬럼에 별도로 저장되고, weeklyComparePeriod는 이 안에만 있다.
 interface StoredReportData {
   title: string;
-  report: GrowthReportDto | WeeklyCompareReportDto;
+  weeklyComparePeriod: string;
+  growth: GrowthReportDto;
+  weeklyCompare: WeeklyCompareReportDto;
 }
 
 const toDateOnly = (date: Date): string => date.toISOString().slice(0, 10);
@@ -41,6 +40,7 @@ const getIsoWeekLabel = (date: Date): string => {
   return `${date.getUTCFullYear()}-W${String(weekNum).padStart(2, "0")}`;
 };
 
+// 대표 제목은 growth 기간(더 넓은 범위, 주간 비교 기간을 포함) 기준으로 뽑는다.
 const findRepresentativeTitle = async (userId: string, start: Date, end: Date): Promise<string> => {
   const conversations = await reportRepository.findConversationMissionTitlesInRange(userId, start, end);
   const counts = new Map<string, number>();
@@ -58,49 +58,36 @@ const findRepresentativeTitle = async (userId: string, start: Date, end: Date): 
   return top ?? "톡깨 리포트";
 };
 
-export const saveReport = async (
-  userId: string,
-  body: SaveReportRequestDto
-): Promise<SaveReportResponseDto> => {
+// #112 — growth/weekly_compare를 더 이상 따로 저장하지 않고 항상 함께 계산해 하나의 리포트로 저장한다.
+export const saveReport = async (userId: string): Promise<SaveReportResponseDto> => {
   const now = new Date();
+  const growthWindowStart = getGrowthWindowStart(now);
 
-  if (body.type === "growth") {
-    const windowStart = getGrowthWindowStart(now);
-    const [report, title] = await Promise.all([
-      getGrowthReport(userId),
-      findRepresentativeTitle(userId, windowStart, now),
-    ]);
-    const period = `${toDateOnly(windowStart)}~${toDateOnly(now)}`;
-    const stored: StoredReportData = { title, report };
-    const created = await reportRepository.createReport(userId, "growth", period, stored);
-    await createArchiveItem({ user: { connect: { id: userId } }, item_type: "report", reference_id: created.id });
-    return { reportId: created.id, type: "growth", period, createdAt: created.created_at.toISOString() };
-  }
-
-  const thisWeekStart = getThisWeekStart(now);
-  const [report, title] = await Promise.all([
+  const [growth, weeklyCompare, title] = await Promise.all([
+    getGrowthReport(userId),
     calculateWeeklyCompare(userId),
-    findRepresentativeTitle(userId, thisWeekStart, addDays(thisWeekStart, 7)),
+    findRepresentativeTitle(userId, growthWindowStart, now),
   ]);
-  const period = getIsoWeekLabel(now);
-  const stored: StoredReportData = { title, report };
-  const created = await reportRepository.createReport(userId, "weekly_compare", period, stored);
+
+  const period = `${toDateOnly(growthWindowStart)}~${toDateOnly(now)}`;
+  const weeklyComparePeriod = getIsoWeekLabel(now);
+  const stored: StoredReportData = { title, weeklyComparePeriod, growth, weeklyCompare };
+
+  const created = await reportRepository.createReport(userId, period, stored);
   await createArchiveItem({ user: { connect: { id: userId } }, item_type: "report", reference_id: created.id });
-  return { reportId: created.id, type: "weekly_compare", period, createdAt: created.created_at.toISOString() };
+
+  return { reportId: created.id, period, weeklyComparePeriod, createdAt: created.created_at.toISOString() };
 };
 
-export const listReports = async (
-  userId: string,
-  query: ListReportsQueryDto
-): Promise<ListReportsResponseDto> => {
-  const rows = await reportRepository.findReportsByUserId(userId, query.type as ReportType | undefined);
+export const listReports = async (userId: string): Promise<ListReportsResponseDto> => {
+  const rows = await reportRepository.findReportsByUserId(userId);
   return {
     reports: rows.map((row) => {
       const data = row.data as unknown as StoredReportData;
       return {
         id: row.id,
-        type: row.type as ReportType,
         period: row.period,
+        weeklyComparePeriod: data?.weeklyComparePeriod ?? "",
         title: data?.title ?? "톡깨 리포트",
         createdAt: row.created_at.toISOString(),
       };
@@ -116,15 +103,14 @@ export const getReportDetail = async (
   if (!row) throw new ReportNotFoundError();
 
   const data = row.data as unknown as StoredReportData;
-  const type = row.type as ReportType;
 
   return {
     id: row.id,
-    type,
     period: row.period,
+    weeklyComparePeriod: data.weeklyComparePeriod,
     title: data?.title ?? "톡깨 리포트",
-    growth: type === "growth" ? (data.report as GrowthReportDto) : null,
-    weeklyCompare: type === "weekly_compare" ? (data.report as WeeklyCompareReportDto) : null,
+    growth: data.growth,
+    weeklyCompare: data.weeklyCompare,
     createdAt: row.created_at.toISOString(),
   };
 };

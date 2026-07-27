@@ -72,12 +72,14 @@ export const countDistinctCompletedMissions = async (userId: string) => {
   return rows.length;
 };
 
-// ----- Conversations (목록 표시용 대표 주제) -----
+// ----- Conversations (목록 표시용 대표 미션 제목) -----
+// selected_topic은 대화 시작 시 사용자가 입력하는 자유 입력 필드로 미션과 무관하다(#107).
+// 대표 제목은 반드시 실제 미션 제목(Missions.title) 기준으로 뽑아야 한다.
 
-export const findConversationTopicsInRange = (userId: string, start: Date, end: Date) =>
+export const findConversationMissionTitlesInRange = (userId: string, start: Date, end: Date) =>
   prisma.conversations.findMany({
-    where: { user_id: userId, started_at: { gte: start, lt: end }, selected_topic: { not: null } },
-    select: { selected_topic: true },
+    where: { user_id: userId, started_at: { gte: start, lt: end } },
+    select: { mission: { select: { title: true } } },
   });
 
 // ----- Reports -----

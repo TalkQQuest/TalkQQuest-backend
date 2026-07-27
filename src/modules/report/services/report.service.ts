@@ -42,18 +42,17 @@ const getIsoWeekLabel = (date: Date): string => {
 };
 
 const findRepresentativeTitle = async (userId: string, start: Date, end: Date): Promise<string> => {
-  const conversations = await reportRepository.findConversationTopicsInRange(userId, start, end);
+  const conversations = await reportRepository.findConversationMissionTitlesInRange(userId, start, end);
   const counts = new Map<string, number>();
-  for (const { selected_topic } of conversations) {
-    if (!selected_topic) continue;
-    counts.set(selected_topic, (counts.get(selected_topic) ?? 0) + 1);
+  for (const { mission } of conversations) {
+    counts.set(mission.title, (counts.get(mission.title) ?? 0) + 1);
   }
   let top: string | null = null;
   let max = 0;
-  for (const [topic, count] of counts) {
+  for (const [title, count] of counts) {
     if (count > max) {
       max = count;
-      top = topic;
+      top = title;
     }
   }
   return top ?? "톡깨 리포트";
@@ -123,6 +122,7 @@ export const getReportDetail = async (
     id: row.id,
     type,
     period: row.period,
+    title: data?.title ?? "톡깨 리포트",
     growth: type === "growth" ? (data.report as GrowthReportDto) : null,
     weeklyCompare: type === "weekly_compare" ? (data.report as WeeklyCompareReportDto) : null,
     createdAt: row.created_at.toISOString(),

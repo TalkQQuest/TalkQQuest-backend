@@ -15,6 +15,7 @@ import {
     NotApprovedError,
 } from "../errors/community.error";
 import { NotFoundError } from "../../../shared/errors/common.error";
+import { broadcastSystemMessage } from "../realtime/chat.socket";
 import {
     BookmarkResponseDto,
     ChatPreviewResponseDto,
@@ -266,6 +267,10 @@ export const approveJoinRequest = async (
         });
     });
 
+    // #115 — 승인 즉시 채팅방에 입장 시스템 메시지를 남긴다. 채팅 자체의 핵심 흐름은 아니라
+    // 실패해도 승인 자체는 이미 끝난 상태이므로 여기서 막지 않는다.
+    await broadcastSystemMessage(communityId, `${request.user.name}님이 입장했습니다.`);
+
     return { requestId, status: "approved" };
 };
 
@@ -418,7 +423,7 @@ export const getChatPreview = async (communityId: string): Promise<ChatPreviewRe
     return {
         communityId,
         recentMessages: rows.reverse().map((row) => ({
-            userNickname: row.user.name,
+            userNickname: row.user?.name ?? null,
             content: row.content,
             createdAt: row.created_at.toISOString(),
         })),

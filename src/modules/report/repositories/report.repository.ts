@@ -1,6 +1,5 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
-import { ReportType } from "../dtos/report.dto";
 
 // ----- User level/xp -----
 
@@ -84,14 +83,14 @@ export const findConversationMissionTitlesInRange = (userId: string, start: Date
 
 // ----- Reports -----
 
-export const createReport = (userId: string, type: ReportType, period: string, data: unknown) =>
+export const createReport = (userId: string, period: string, data: unknown) =>
   prisma.reports.create({
-    data: { user_id: userId, type, period, data: data as object },
+    data: { user_id: userId, period, data: data as object },
   });
 
-export const findReportsByUserId = (userId: string, type?: ReportType) =>
+export const findReportsByUserId = (userId: string) =>
   prisma.reports.findMany({
-    where: { user_id: userId, ...(type && { type }) },
+    where: { user_id: userId },
     orderBy: { created_at: "desc" },
   });
 

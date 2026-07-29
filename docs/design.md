@@ -1021,7 +1021,9 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 모두 `Authorization: Bearer {accessToken}` 필수.
 
-> `growth`/`weekly-compare` 두 GET은 별도 배치 없이 조회 시점에 `Feedbacks`/`Mission_Records`/`XP_History`를 집계해서 계산한다(lazy). 계산 기준 주는 **호출 시각 기준 rolling이 아니라 달력 주(월요일 시작)**로 고정되어 있어(`report/services/week-window.ts`), 같은 주 안에서는 몇 번을 호출해도 활동이 안 늘면 값이 그대로 유지된다. 이 결과를 그대로 얼려서 보관하고 싶으면 `POST /reports`로 저장한다. `Reports.type`은 `growth` \| `weekly_compare` 두 값만 쓴다(과거 `monthly`/`weekly` enum은 폐기됨).
+> `growth`/`weekly-compare` 두 GET은 별도 배치 없이 조회 시점에 `Feedbacks`/`Mission_Records`/`XP_History`를 집계해서 계산한다(lazy). 계산 기준 주는 **호출 시각 기준 rolling이 아니라 달력 주(월요일 시작)**로 고정되어 있어(`report/services/week-window.ts`), 같은 주 안에서는 몇 번을 호출해도 활동이 안 늘면 값이 그대로 유지된다. 이 결과를 그대로 얼려서 보관하고 싶으면 `POST /reports`로 저장한다.
+>
+> **(`#112`) growth/weekly_compare는 더 이상 별개 타입이 아니다.** 예전엔 `Reports.type`으로 둘 중 하나만 골라 저장했는데, 이제 `POST /reports`를 호출하면 항상 두 계산을 함께 수행해 하나의 리포트로 저장한다. `Reports.type` 컬럼/enum은 삭제되었다.
 
 #### GET /reports/growth
 
@@ -1033,21 +1035,19 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 #### POST /reports
 
-**Request Body:** `{ "type": "growth" | "weekly_compare" }`
+**Request Body:** 없음 (`#112` — `type` 파라미터 삭제, 항상 growth+weekly_compare 통합 저장)
 
-**Response (200):** `data` — `reportId`, `type`, `period`(growth: `YYYY-MM-DD~YYYY-MM-DD`, weekly_compare: `YYYY-Www`), `createdAt`.
+**Response (200):** `data` — `reportId`, `period`(growth 계산 기준 기간, `YYYY-MM-DD~YYYY-MM-DD`), `weeklyComparePeriod`(주간 비교 계산 기준 기간, `YYYY-Www`), `createdAt`.
 
-저장 시 위 두 GET이 그 순간 반환하는 라이브 데이터를 그대로 스냅샷으로 얼려 저장하고, 동시에 아카이브에도 노출되도록 `Archive_Items`(`type: "report"`)를 함께 생성한다. `type`이 `growth`/`weekly_compare`가 아니면 400 `VALIDATION_ERROR`.
+저장 시 위 두 GET이 그 순간 반환하는 라이브 데이터를 그대로 스냅샷으로 얼려 저장하고, 동시에 아카이브에도 노출되도록 `Archive_Items`(`type: "report"`)를 함께 생성한다.
 
 #### GET /reports
 
-**Query String:** `type`(선택)
-
-**Response (200):** `data.reports[]` — `id`, `type`, `period`, `title`(대표 미션 주제, 없으면 "톡깨 리포트"), `createdAt`.
+**Response (200):** `data.reports[]` — `id`, `period`, `weeklyComparePeriod`, `title`(대표 미션 주제, 없으면 "톡깨 리포트"), `createdAt`.
 
 #### GET /reports/{reportId}
 
-**Response (200):** `data` — `id`, `type`, `period`, `growth`(`type`이 growth일 때만 값, 아니면 `null`), `weeklyCompare`(`type`이 weekly_compare일 때만 값, 아니면 `null`), `createdAt`. discriminated union이라 `type`을 보고 어느 필드를 렌더링할지 분기한다. 존재하지 않으면 404 `NOT_FOUND`.
+**Response (200):** `data` — `id`, `period`, `weeklyComparePeriod`, `title`, `growth`(항상 값 있음), `weeklyCompare`(항상 값 있음), `createdAt`. `#112`부터는 growth/weeklyCompare 둘 다 항상 채워진다(예전의 discriminated union 방식 폐기). 존재하지 않으면 404 `NOT_FOUND`.
 
 #### DELETE /reports/{reportId} — 리포트 저장 해제 (`#85`)
 

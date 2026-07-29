@@ -1,17 +1,12 @@
-import { Body, Controller, Delete, Get, Middlewares, Path, Post, Query, Request, Response, Route, Security, Tags } from "tsoa";
+import { Controller, Delete, Get, Middlewares, Path, Post, Request, Response, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
-import { validate } from "../../../middlewares/validator";
-import { ValidationError } from "../../../shared/errors/common.error";
 import { success, ApiResponse } from "../../../shared/utils/response";
 import {
   DeleteReportResponseDto,
   GrowthReportDto,
-  listReportsQuerySchema,
   ListReportsResponseDto,
   ReportDetailResponseDto,
-  SaveReportRequestDto,
-  saveReportRequestSchema,
   SaveReportResponseDto,
   WeeklyCompareReportDto,
 } from "../dtos/report.dto";
@@ -49,18 +44,14 @@ export class ReportController extends Controller {
   }
 
   /**
-   * @summary 리포트 저장
+   * @summary 리포트 저장 (성장 + 주간 비교 통합, #112)
    */
   @Post()
   @Security("bearerAuth")
-  @Middlewares(authorizeUser(), validate(saveReportRequestSchema))
-  @Response(400, "VALIDATION_ERROR")
+  @Middlewares(authorizeUser())
   @Response(401, "UNAUTHORIZED")
-  public async save(
-    @Request() req: ExpressRequest,
-    @Body() body: SaveReportRequestDto
-  ): Promise<ApiResponse<SaveReportResponseDto>> {
-    const result = await reportService.saveReport(req.user!.id, body);
+  public async save(@Request() req: ExpressRequest): Promise<ApiResponse<SaveReportResponseDto>> {
+    const result = await reportService.saveReport(req.user!.id);
     return success(result, "리포트가 저장되었습니다.");
   }
 
@@ -71,15 +62,8 @@ export class ReportController extends Controller {
   @Security("bearerAuth")
   @Middlewares(authorizeUser())
   @Response(401, "UNAUTHORIZED")
-  public async list(
-    @Request() req: ExpressRequest,
-    @Query() type?: "growth" | "weekly_compare"
-  ): Promise<ApiResponse<ListReportsResponseDto>> {
-    const parsed = listReportsQuerySchema.safeParse({ type });
-    if (!parsed.success) {
-      throw new ValidationError("잘못된 조회 조건입니다.", parsed.error.issues);
-    }
-    const result = await reportService.listReports(req.user!.id, parsed.data);
+  public async list(@Request() req: ExpressRequest): Promise<ApiResponse<ListReportsResponseDto>> {
+    const result = await reportService.listReports(req.user!.id);
     return success(result);
   }
 

@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 export interface WeeklyTrendPointDto {
   week: string;
   score: number;
@@ -60,37 +58,19 @@ export interface WeeklyCompareReportDto {
   highlights: string[];
 }
 
-export type ReportType = "growth" | "weekly_compare";
-
-export interface SaveReportRequestDto {
-  type: ReportType;
-}
-
-export const saveReportRequestSchema = z.object({
-  type: z.enum(["growth", "weekly_compare"], {
-    errorMap: () => ({ message: "유효하지 않은 리포트 종류입니다." }),
-  }),
-}) satisfies z.ZodType<SaveReportRequestDto>;
-
+// #112 — growth/weekly_compare가 더 이상 별개 타입이 아니라 하나의 리포트로 통합되어 저장된다.
+// period는 growth 계산 기준 기간(YYYY-MM-DD~YYYY-MM-DD), weeklyComparePeriod는 주간 비교 계산 기준 기간(YYYY-Www)이다.
 export interface SaveReportResponseDto {
   reportId: string;
-  type: ReportType;
   period: string;
+  weeklyComparePeriod: string;
   createdAt: string;
 }
 
-export interface ListReportsQueryDto {
-  type?: ReportType;
-}
-
-export const listReportsQuerySchema = z.object({
-  type: z.enum(["growth", "weekly_compare"]).optional(),
-}) satisfies z.ZodType<ListReportsQueryDto>;
-
 export interface ReportListItemDto {
   id: string;
-  type: ReportType;
   period: string;
+  weeklyComparePeriod: string;
   title: string;
   createdAt: string;
 }
@@ -101,11 +81,11 @@ export interface ListReportsResponseDto {
 
 export interface ReportDetailResponseDto {
   id: string;
-  type: ReportType;
   period: string;
+  weeklyComparePeriod: string;
   title: string;
-  growth: GrowthReportDto | null;
-  weeklyCompare: WeeklyCompareReportDto | null;
+  growth: GrowthReportDto;
+  weeklyCompare: WeeklyCompareReportDto;
   createdAt: string;
 }
 

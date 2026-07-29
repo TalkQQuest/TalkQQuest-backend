@@ -102,11 +102,6 @@ enum DeviceTokenPlatform {
   ios
 }
 
-enum ReportType {
-  growth
-  weekly_compare
-}
-
 enum CommunityVisibility {
   public
   private
@@ -732,12 +727,11 @@ model Email_Verifications {
 // Reports
 // ----------------------------
 model Reports {
-  id         String     @id @default(uuid()) @db.Char(36)
-  user_id    String     @db.Char(36)
-  type       ReportType
-  period     String     @db.VarChar(30)
+  id         String   @id @default(uuid()) @db.Char(36)
+  user_id    String   @db.Char(36)
+  period     String   @db.VarChar(30)
   data       Json?
-  created_at DateTime   @default(now())
+  created_at DateTime @default(now())
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 

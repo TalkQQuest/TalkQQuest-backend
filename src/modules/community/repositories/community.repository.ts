@@ -125,7 +125,10 @@ export const findJoinRequest = (communityId: string, userId: string) =>
     });
 
 export const findJoinRequestById = (requestId: string) =>
-    prisma.community_Join_Requests.findUnique({ where: { id: requestId } });
+    prisma.community_Join_Requests.findUnique({
+        where: { id: requestId },
+        include: { user: { select: { name: true } } },
+    });
 
 export const countWaitlisted = (communityId: string) =>
     prisma.community_Join_Requests.count({ where: { community_id: communityId, status: "waitlisted" } });

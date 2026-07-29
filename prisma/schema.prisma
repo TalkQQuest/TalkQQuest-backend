@@ -126,6 +126,11 @@ enum JoinRequestStatus {
   waitlisted
 }
 
+enum ChatMessageType {
+  text
+  system
+}
+
 // ============================================================
 // MODELS
 // ============================================================
@@ -795,17 +800,20 @@ model Communities {
 // Chat_Messages
 // ----------------------------
 model Chat_Messages {
-  id           String   @id @default(uuid()) @db.Char(36)
-  community_id String   @db.Char(36)
-  user_id      String   @db.Char(36)
-  content      String   @db.Text
-  created_at   DateTime @default(now()) @db.Timestamp(0)
+  id           String          @id @default(uuid()) @db.Char(36)
+  community_id String          @db.Char(36)
+  // 시스템 메시지("OOO님이 입장했습니다")는 특정 유저 발화가 아니라 null이다 (#115).
+  user_id      String?         @db.Char(36)
+  content      String          @db.Text
+  type         ChatMessageType @default(text)
+  created_at   DateTime        @default(now()) @db.Timestamp(0)
 
   community Communities @relation(fields: [community_id], references: [id], onDelete: Cascade)
-  user      Users       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user      Users?      @relation(fields: [user_id], references: [id], onDelete: SetNull)
 
-  @@index([community_id])
   @@index([user_id])
+  // 채팅 이력 커서 페이지네이션은 community_id로 필터하고 created_at으로 정렬하므로 복합 인덱스로 묶는다.
+  @@index([community_id, created_at])
   @@map("Chat_Messages")
 }
 

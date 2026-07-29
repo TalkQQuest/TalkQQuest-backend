@@ -29,7 +29,9 @@ import {
     waitlistOrderRequestSchema,
     WaitlistOrderResponseDto,
 } from "../dtos/community.dto";
+import { listChatMessagesQuerySchema, ListChatMessagesResponseDto } from "../dtos/chat.dto";
 import * as communityService from "../services/community.service";
+import * as chatService from "../services/chat.service";
 
 @Route("communities")
 @Tags("Community")
@@ -121,6 +123,29 @@ export class CommunityController extends Controller {
         @Path() communityId: string
     ): Promise<ApiResponse<ChatPreviewResponseDto>> {
         const result = await communityService.getChatPreview(communityId);
+        return success(result);
+    }
+
+    /**
+     * @summary 채팅 메시지 목록 조회 (커서 기반 페이지네이션)
+     */
+    @Get("{communityId}/messages")
+    @Security("bearerAuth")
+    @Middlewares(authorizeUser())
+    @Response(401, "UNAUTHORIZED")
+    @Response(403, "FORBIDDEN")
+    @Response(404, "COMMUNITY_NOT_FOUND")
+    public async listMessages(
+        @Request() req: ExpressRequest,
+        @Path() communityId: string,
+        @Query() cursor?: string,
+        @Query() size?: number
+    ): Promise<ApiResponse<ListChatMessagesResponseDto>> {
+        const parsed = listChatMessagesQuerySchema.safeParse({ cursor, size });
+        if (!parsed.success) {
+            throw new ValidationError("잘못된 조회 조건입니다.", parsed.error.issues);
+        }
+        const result = await chatService.listMessages(req.user!.id, communityId, parsed.data);
         return success(result);
     }
 

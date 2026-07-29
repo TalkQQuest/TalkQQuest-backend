@@ -173,6 +173,7 @@ model Users {
   calendar_events         Calendar_Events[]
   community_join_requests Community_Join_Requests[]
   community_memberships   Community_Members[]
+  community_bookmarks     Community_Bookmarks[]
 
   @@map("Users")
 }
@@ -765,6 +766,7 @@ model Communities {
   description     String?             @db.Text
   category        String?             @db.VarChar(100)
   region          String?             @db.VarChar(100)
+  address         String?             @db.VarChar(255)
   capacity        Int
   current_members Int                 @default(0)
   started_at      DateTime?           @db.Timestamp(0)
@@ -782,6 +784,7 @@ model Communities {
   calendar_events Calendar_Events[]
   join_requests   Community_Join_Requests[]
   members         Community_Members[]
+  bookmarks       Community_Bookmarks[]
 
   @@index([host_user_id])
   @@index([status])
@@ -864,4 +867,21 @@ model Community_Members {
   @@unique([community_id, user_id])
   @@index([user_id])
   @@map("Community_Members")
+}
+
+// ----------------------------
+// Community_Bookmarks
+// ----------------------------
+model Community_Bookmarks {
+  id           String   @id @default(uuid()) @db.Char(36)
+  community_id String   @db.Char(36)
+  user_id      String   @db.Char(36)
+  created_at   DateTime @default(now()) @db.Timestamp(0)
+
+  community Communities @relation(fields: [community_id], references: [id], onDelete: Cascade)
+  user      Users       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([community_id, user_id])
+  @@index([user_id])
+  @@map("Community_Bookmarks")
 }

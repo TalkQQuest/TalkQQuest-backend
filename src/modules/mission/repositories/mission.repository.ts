@@ -1,30 +1,73 @@
 // modules/mission/repositories/mission.repository.ts
-import { Prisma, PrepItemType, RecommendationSource } from "@prisma/client";
+import { PersonalityType, Prisma, PrepItemType, RecommendationSource } from "@prisma/client";
 import { prisma } from "../../../config/database";
+import { MissionOrigin } from "../dtos/mission.constants";
+
+// 미션 목록에 어떤 미션이 보여야 하는지 결정하는 기준.
+export interface MissionVisibility {
+  userId: string;
+  personalityType: PersonalityType | null;
+  origin?: MissionOrigin;
+}
+
+// 미션 목록의 공개 범위 필터.
+//  - 템플릿 미션: 모두에게 공개
+//  - 내가 만든 AI 미션: 수행 여부와 무관하게 항상 (오늘 받은 미션이 목록에서 사라지면 안 되므로)
+//  - 남이 만든 AI 미션: 나와 성향이 같고 실제로 수행된 적이 있는 것만
+//
+// 내 미션은 "내 것" 조건과 "성향이 같은 사용자" 조건에 동시에 걸릴 수 있지만 OR이라 중복 행은
+// 생기지 않는다. 성향 정보가 없으면(온보딩 전) 유사 성향 조건 자체를 빼는데, null로 매칭하면
+// 성향이 기록되지 않은 과거 미션이 전부 딸려오기 때문이다.
+const buildVisibilityWhere = (visibility: MissionVisibility): Prisma.MissionsWhereInput => {
+  const template: Prisma.MissionsWhereInput = { is_template: true };
+  const mine: Prisma.MissionsWhereInput = {
+    is_template: false,
+    created_by_user_id: visibility.userId,
+  };
+  const similarPerformed: Prisma.MissionsWhereInput[] = visibility.personalityType
+    ? [
+        {
+          is_template: false,
+          creator_personality_type: visibility.personalityType,
+          mission_records: { some: {} },
+        },
+      ]
+    : [];
+
+  if (visibility.origin === "template") return template;
+  if (visibility.origin === "ai") return { OR: [mine, ...similarPerformed] };
+  return { OR: [template, mine, ...similarPerformed] };
+};
+
+const buildMissionWhere = (params: {
+  difficulty?: number;
+  category?: string;
+  visibility: MissionVisibility;
+}): Prisma.MissionsWhereInput => ({
+  ...(params.difficulty !== undefined && { difficulty: params.difficulty }),
+  ...(params.category && { category: params.category }),
+  ...buildVisibilityWhere(params.visibility),
+});
 
 export const findMissions = (params: {
   difficulty?: number;
   category?: string;
+  visibility: MissionVisibility;
   page: number;
   size: number;
 }) =>
   prisma.missions.findMany({
-    where: {
-      ...(params.difficulty !== undefined && { difficulty: params.difficulty }),
-      ...(params.category && { category: params.category }),
-    },
+    where: buildMissionWhere(params),
     orderBy: { created_at: "desc" },
     skip: (params.page - 1) * params.size,
     take: params.size,
   });
 
-export const countMissions = (params: { difficulty?: number; category?: string }) =>
-  prisma.missions.count({
-    where: {
-      ...(params.difficulty !== undefined && { difficulty: params.difficulty }),
-      ...(params.category && { category: params.category }),
-    },
-  });
+export const countMissions = (params: {
+  difficulty?: number;
+  category?: string;
+  visibility: MissionVisibility;
+}) => prisma.missions.count({ where: buildMissionWhere(params) });
 
 export const findMissionById = (missionId: string) =>
   prisma.missions.findUnique({ where: { id: missionId } });
@@ -149,6 +192,16 @@ export const deletePlaybook = (missionId: string) =>
 export const findUserProfileByUserId = (userId: string) =>
   prisma.user_Profiles.findUnique({ where: { user_id: userId } });
 
+// 미션 목록의 유사 성향 필터·AI 미션 생성 시 성향 기록용. 프로필 전체가 필요 없는 자리라
+// 컬럼 하나만 읽는다. 프로필이 없으면(온보딩 전) null.
+export const findUserPersonalityType = async (userId: string): Promise<PersonalityType | null> => {
+  const profile = await prisma.user_Profiles.findUnique({
+    where: { user_id: userId },
+    select: { personality_type: true },
+  });
+  return profile?.personality_type ?? null;
+};
+
 export const findActiveGoalsByUserId = (userId: string) =>
   prisma.goals.findMany({
     where: { user_id: userId, is_active: true },
@@ -191,6 +244,7 @@ export const createRecommendationLog = (data: {
   parseSuccess: boolean;
   recommendedMission: unknown;
   fallbackReason: string | null;
+  recommendedDate: Date;
 }) =>
   prisma.recommendation_Logs.create({
     data: {
@@ -205,5 +259,58 @@ export const createRecommendationLog = (data: {
       parse_success: data.parseSuccess,
       recommended_mission: data.recommendedMission as Prisma.InputJsonValue,
       fallback_reason: data.fallbackReason,
+      recommended_date: data.recommendedDate,
     },
+  });
+
+// 오늘의 미션 캐시용 — 해당 날짜에 마지막으로 뽑은 추천 1건.
+// 새로고침하면 로그가 여러 건 쌓이므로 가장 최근 것이 "현재 오늘의 미션"이다.
+export const findLatestRecommendationLogByDate = (userId: string, recommendedDate: Date) =>
+  prisma.recommendation_Logs.findFirst({
+    where: { user_id: userId, recommended_date: recommendedDate },
+    orderBy: { created_at: "desc" },
+  });
+
+// 해당 날짜에 뽑은 추천 건수. 첫 생성 1건을 뺀 나머지가 사용한 새로고침 횟수다.
+export const countRecommendationLogsByDate = (userId: string, recommendedDate: Date) =>
+  prisma.recommendation_Logs.count({
+    where: { user_id: userId, recommended_date: recommendedDate },
+  });
+
+// POST /missions/from-recommendation용. 로그가 본인 것인지 함께 확인한다.
+export const findRecommendationLogByIdAndUser = (logId: string, userId: string) =>
+  prisma.recommendation_Logs.findFirst({ where: { id: logId, user_id: userId } });
+
+// llm/fallback 추천(원본이 Recommendation_Logs.recommended_mission에만 있던 것)을
+// 실제 Missions 행으로 저장한다. is_template=false로 만들어 관리자 템플릿과 구분하고,
+// 생성자와 그 시점의 성향을 함께 남겨 미션 목록의 유사 성향 필터가 쓸 수 있게 한다.
+export const createMissionFromRecommendation = (data: {
+  title: string;
+  description: string;
+  difficulty: number;
+  estimatedMinutes: number;
+  rewardXp: number;
+  category: string;
+  createdByUserId: string;
+  creatorPersonalityType: PersonalityType | null;
+}) =>
+  prisma.missions.create({
+    data: {
+      title: data.title,
+      description: data.description,
+      difficulty: data.difficulty,
+      estimated_minutes: data.estimatedMinutes,
+      reward_xp: data.rewardXp,
+      category: data.category,
+      is_template: false,
+      created_by_user_id: data.createdByUserId,
+      creator_personality_type: data.creatorPersonalityType,
+    },
+  });
+
+// 저장 완료 후 로그에 생성된 mission_id를 백링크해 재요청 시 중복 생성을 막는다.
+export const markRecommendationLogMissionCreated = (logId: string, missionId: string) =>
+  prisma.recommendation_Logs.update({
+    where: { id: logId },
+    data: { created_mission_id: missionId },
   });

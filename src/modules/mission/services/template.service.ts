@@ -23,6 +23,7 @@ export const INTRO_FALLBACK_MISSION: RecommendedMission = {
   reason: "가장 작은 성공 경험부터 시작할 수 있는 입문 미션이에요.",
   expectedEffect: "작은 성공으로 대화 자신감을 얻습니다.",
   source: "fallback",
+  recommendationLogId: null, // recommendation.service가 로깅 후 채운다
 };
 
 // 후보의 카테고리/제목이 사용자 관심사 중 하나라도 포함하는지.
@@ -93,6 +94,7 @@ const toRecommendedMission = (
   reason: buildTemplateReason(criteria),
   expectedEffect: "작은 대화 시도를 반복하며 사회적 자신감을 쌓습니다.",
   source: "template",
+  recommendationLogId: null, // recommendation.service가 로깅 후 채운다
 });
 
 // Prisma Missions row → 순수 함수가 다루는 후보 타입으로 평탄화.

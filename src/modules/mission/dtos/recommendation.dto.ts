@@ -77,4 +77,8 @@ export interface RecommendedMission {
   reason: string; // 추천 이유
   expectedEffect: string; // 기대 효과
   source: "template" | "fallback" | "llm"; // 어느 단계가 만든 결과인지
+  // 이 추천을 만든 Recommendation_Logs 행의 id. missionId가 null인 llm/fallback 추천을
+  // 실제 Missions로 저장할 때(POST /missions/from-recommendation) 원본을 식별하는 데 쓴다.
+  // 로깅 자체가 실패했을 때만 null (추천 응답은 그대로 반환되므로 그 경우도 대비해야 한다).
+  recommendationLogId: string | null;
 }

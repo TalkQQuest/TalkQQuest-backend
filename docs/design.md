@@ -625,8 +625,9 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /missions | 미션 목록 조회 (필터링: difficulty/category/saved, 페이지네이션) |
-| GET | /missions/today | 오늘의 추천 미션 조회 (AI) |
+| GET | /missions | 미션 목록 조회 (필터링: difficulty/category/saved/origin, 페이지네이션) |
+| GET | /missions/today | 오늘의 추천 미션 조회 (AI, 하루 1건 캐시 + 새로고침 3회) |
+| POST | /missions/from-recommendation | 추천을 실제 미션으로 저장 (보완용 — 아래 설명 참고) |
 | GET | /missions/llm-health | LLM(Upstage) 연결 상태 점검 (진단용) |
 | GET | /missions/{missionId} | 미션 상세 조회 |
 | GET | /missions/{missionId}/prep | 대화 시작 준비 문장 조회 |
@@ -640,7 +641,17 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 #### GET /missions
 
-**Query String:** `difficulty`("쉬움"|"보통"|"어려움"), `category`, `saved`(boolean), `page`, `size`
+**Query String:** `difficulty`("쉬움"|"보통"|"어려움"), `category`, `saved`(boolean), `origin`("template"|"ai"), `page`, `size`
+
+**공개 범위** — 목록에 보이는 미션은 다음 세 종류의 합집합이다(#84 후속).
+
+| 종류 | 조건 |
+|---|---|
+| 템플릿 미션 | `is_template=true` — 모두에게 공개 |
+| 내가 받은 AI 미션 | `created_by_user_id = 나` — 수행 여부와 무관하게 항상 |
+| 남의 AI 미션 | 생성자 성향이 나와 같고(`creator_personality_type`) **실제로 수행된 적이 있는** 것만 |
+
+`origin`으로 종류를 나눠 조회할 수 있어 프런트에서 "추천 미션"과 "나와 비슷한 성향의 사용자가 수행한 미션"을 별도 섹션으로 보여줄 수 있다. 온보딩 전(성향 없음)이면 남의 AI 미션은 비교 기준이 없어 제외되고 템플릿 + 내 미션만 나온다.
 
 **Response (200):**
 ```json
@@ -656,7 +667,9 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
         "difficulty": "쉬움",
         "estimatedMinutes": 10,
         "rewardXp": 10,
-        "isSaved": false
+        "isSaved": false,
+        "origin": "template",
+        "isMine": false
       }
     ],
     "pageInfo": { "currentPage": 1, "totalPages": 3, "totalCount": 42 }
@@ -665,11 +678,24 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 }
 ```
 
-#### GET /missions/today — AI 추천
+#### GET /missions/today — AI 추천 (하루 1건 캐시)
 
 `recommendation.service.ts`가 프로필 기반으로 미션을 추천한다. 4단계 폴백: LLM 생성 → 3단계 템플릿 선택 → 회피 카테고리 제외 하드 폴백. 온보딩 미완료 시 404 `MISSION_PROFILE_NOT_FOUND`.
 
-**Response (200):** `data` — `missionId`(`string | null`, LLM/폴백 생성이라 아직 미저장이면 `null`), `title`, `category`, `difficulty`, `estimatedMinutes`, `rewardXp`, `description`, `reason`(추천 이유).
+**Query String:** `date`(YYYY-MM-DD, 생략 시 서버 KST 기준 오늘), `refresh`(boolean)
+
+- **하루 1건 캐시** — 그날 이미 받은 추천이 있으면 LLM을 다시 부르지 않고 그대로 돌려준다(`isNew=false`). 버킷 키는 `Recommendation_Logs.recommended_date`.
+- **새로고침 3회** — `refresh=true`면 다시 뽑는다. 그날 첫 생성은 새로고침으로 세지 않아 하루 최대 1+3건이 만들어지고, 모두 쓰면 429 `MISSION_REFRESH_LIMIT_EXCEEDED`.
+- **`date`를 클라이언트에서 받는 이유** — 사용자 시간대마다 하루의 경계가 다르기 때문. 다만 임의의 날짜로 새로고침 제한(=LLM 호출 비용)을 우회하지 못하도록 서버 KST 기준 오늘과 ±1일을 벗어나면 400 `INVALID_MISSION_DATE`.
+- **추천 시점에 실제 미션까지 생성** — LLM/폴백 추천도 그 자리에서 `Missions` 행으로 저장되므로 `missionId`가 (추천 로그 저장 자체가 실패한 예외적 경우를 빼면) 항상 채워져 프런트가 바로 대화를 시작할 수 있다. 이때 `created_by_user_id`와 `creator_personality_type`을 함께 남겨 위 목록 공개 범위 판단에 쓴다.
+
+**Response (200):** `data` — `missionId`, `title`, `category`, `difficulty`, `estimatedMinutes`, `rewardXp`, `description`, `reason`(추천 이유), `expectedEffect`, `source`, `isSaved`, `recommendationLogId`, `date`, `refreshCount`, `refreshLimit`, `remainingRefreshes`, `isNew`.
+
+#### POST /missions/from-recommendation
+
+`recommendationLogId`를 받아 그 추천을 실제 `Missions` 행으로 저장한다. `created_mission_id` 백링크가 있어 재요청해도 중복 생성되지 않는다(멱등).
+
+`GET /missions/today`가 추천 시점에 이미 저장하므로 평상시엔 호출할 필요가 없다. 이 기능 도입 이전에 만들어진 추천이나 저장이 중간에 실패한 경우를 위한 보완 경로다. 로그가 없거나 다른 사용자 것이면 404 `RECOMMENDATION_LOG_NOT_FOUND`.
 
 #### GET /missions/llm-health
 

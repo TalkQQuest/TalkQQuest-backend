@@ -176,6 +176,7 @@ export const parseLlmMission = (rawContent: string): ParseResult => {
       reason: data.reason,
       expectedEffect: data.expected_effect,
       source: "llm",
+      recommendationLogId: null, // recommendation.service가 로깅 후 채운다
     },
   };
 };

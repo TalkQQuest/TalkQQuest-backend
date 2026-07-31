@@ -88,25 +88,39 @@ export const buildRecommendationInput = async (
 
 // 추천 진입점 (1→2→3→4단계). GET /missions/today 등이 이 함수를 쓴다.
 // 4단계 LLM 생성을 먼저 시도하고, 실패하거나 키가 없으면 3단계 템플릿으로 폴백한다.
-// 매 호출을 Recommendation_Logs에 기록한다(품질 개선·오류 추적).
-export const recommendMission = async (userId: string): Promise<RecommendedMission> => {
+// 매 호출을 Recommendation_Logs에 기록한다(품질 개선·오류 추적 + missionId가 null인
+// llm/fallback 추천을 나중에 실제 Missions로 저장할 때 원본을 식별하는 용도).
+//
+// recommendedDate는 이 추천이 속한 "하루" 버킷이다. 호출부(getTodayMission)가 오늘 추천을
+// 캐시하고 새로고침 횟수를 세는 기준이라 로그에 반드시 함께 남긴다.
+export const recommendMission = async (
+  userId: string,
+  recommendedDate: Date
+): Promise<RecommendedMission> => {
   const { context, criteria } = await buildRecommendationInput(userId);
   const attempt = await generateMissionWithLlm(context, criteria);
   const mission = attempt.mission ?? (await recommendFromTemplate(criteria));
 
-  await logRecommendationSafe(userId, criteria, attempt, mission);
-  return mission;
+  const recommendationLogId = await logRecommendationSafe(
+    userId,
+    criteria,
+    attempt,
+    mission,
+    recommendedDate
+  );
+  return { ...mission, recommendationLogId };
 };
 
-// 추천 결과 로깅. 로깅 실패가 추천 응답을 막지 않도록 예외를 흡수한다.
+// 추천 결과 로깅. 성공하면 로그 id, 실패하면 null(로깅 실패가 추천 응답 자체를 막지 않는다).
 const logRecommendationSafe = async (
   userId: string,
   criteria: RecommendationCriteria,
   attempt: LlmGenerationResult,
-  mission: RecommendedMission
-): Promise<void> => {
+  mission: RecommendedMission,
+  recommendedDate: Date
+): Promise<string | null> => {
   try {
-    await createRecommendationLog({
+    const log = await createRecommendationLog({
       userId,
       source: mission.source, // llm / template / fallback
       llmModel: attempt.llmModel,
@@ -117,8 +131,11 @@ const logRecommendationSafe = async (
       parseSuccess: attempt.parseSuccess,
       recommendedMission: mission,
       fallbackReason: attempt.fallbackReason,
+      recommendedDate,
     });
+    return log.id;
   } catch (error) {
     logger.warn({ err: error }, "추천 로그 저장 실패 (추천 자체는 정상 반환)");
+    return null;
   }
 };

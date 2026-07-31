@@ -11,6 +11,30 @@ export const addMonths = (date: Date, months: number): Date => {
   return result;
 };
 
+// ── 날짜(YYYY-MM-DD) 단위 유틸 ──
+// "오늘의 미션"처럼 하루를 버킷으로 쓰는 기능용. 서버가 UTC로 떠 있어도 사용자 기준 하루는
+// 한국 시간이라, 서버 기본값은 KST로 계산한다.
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// 지금 시각이 속한 KST 날짜를 YYYY-MM-DD로 반환한다.
+export const todayInKst = (now: Date = new Date()): string =>
+  new Date(now.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
+
+// YYYY-MM-DD를 UTC 자정 Date로 바꾼다. MySQL DATE 컬럼에 그대로 저장·비교하기 위한 형태라
+// 시간대 보정을 하지 않는다(날짜 문자열 ↔ DATE 값이 1:1로 대응해야 한다).
+export const toDateOnly = (value: string): Date => new Date(`${value}T00:00:00.000Z`);
+
+// Date(또는 DATE 컬럼 값)를 YYYY-MM-DD 문자열로 되돌린다.
+export const fromDateOnly = (value: Date): string => value.toISOString().slice(0, 10);
+
+// 두 YYYY-MM-DD 사이의 일수 차이(a - b). 시간대 보정 없이 순수 날짜 차이만 본다.
+export const daysBetween = (a: string, b: string): number =>
+  Math.round((toDateOnly(a).getTime() - toDateOnly(b).getTime()) / MS_PER_DAY);
+
 // anchor(가입일 또는 구독 시작일)를 기준으로, 지금이 속한 롤링 1개월 주기의 시작일을 계산한다.
 // 예: anchor가 7/21이면 주기는 7/21~8/20, 8/21~9/20 ... 식으로 매달 반복된다.
 export const getCurrentCycleStart = (anchor: Date, now: Date = new Date()): Date => {

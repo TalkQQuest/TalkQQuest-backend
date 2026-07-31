@@ -34,3 +34,26 @@ export class PlaybookGenerationFailedError extends AppError {
     super("PLAYBOOK_GENERATION_FAILED", 503, message);
   }
 }
+
+// POST /missions/from-recommendation — recommendationLogId가 존재하지 않거나 다른 사용자 것인 경우.
+export class RecommendationLogNotFoundError extends AppError {
+  constructor(message = "존재하지 않는 추천 기록입니다.") {
+    super("RECOMMENDATION_LOG_NOT_FOUND", 404, message);
+  }
+}
+
+// GET /missions/today?refresh=true — 하루 새로고침 횟수(MISSION_REFRESH_LIMIT)를 모두 쓴 경우.
+// 429를 쓰는 이유: 요청 자체는 올바르고 권한도 있으나 사용량 한도에 걸린 상태라,
+// 클라이언트가 "내일 다시" 또는 "현재 미션 유지"로 안내하면 되는 상황이기 때문이다.
+export class MissionRefreshLimitExceededError extends AppError {
+  constructor(message = "오늘 미션을 새로 받을 수 있는 횟수를 모두 사용했습니다.") {
+    super("MISSION_REFRESH_LIMIT_EXCEEDED", 429, message);
+  }
+}
+
+// GET /missions/today?date=... — 서버 기준 오늘과 너무 동떨어진 날짜를 보낸 경우.
+export class InvalidMissionDateError extends AppError {
+  constructor(message = "오늘 날짜가 올바르지 않습니다.") {
+    super("INVALID_MISSION_DATE", 400, message);
+  }
+}

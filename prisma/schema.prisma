@@ -179,6 +179,7 @@ model Users {
   community_join_requests Community_Join_Requests[]
   community_memberships   Community_Members[]
   community_bookmarks     Community_Bookmarks[]
+  created_missions        Missions[]                @relation("MissionCreatedBy")
 
   @@map("Users")
 }
@@ -297,6 +298,13 @@ model Missions {
   reward_xp         Int      @default(0)
   category          String   @db.VarChar(100)
   is_template       Boolean  @default(false)
+  // AI 추천으로 생성된 미션의 생성자. 관리자 템플릿(is_template=true)과 이 컬럼 도입 이전에
+  // 만들어진 미션은 null이다.
+  created_by_user_id String? @db.Char(36)
+  // 생성 당시 생성자의 성향. 생성자가 나중에 온보딩 성향을 바꿔도 "이 미션이 어떤 성향을 위해
+  // 만들어졌는지"는 변하면 안 되므로 Users→User_Profiles 조인 대신 비정규화해 저장한다.
+  // 미션 목록의 유사 성향 필터가 이 값을 그대로 쓴다.
+  creator_personality_type PersonalityType?
   created_at        DateTime @default(now())
 
   // Relations
@@ -307,7 +315,11 @@ model Missions {
   // 대화 진행 지침. 임베딩 때문에 1MB를 넘길 수 있어 별도 테이블로 뺐다 —
   // 필요한 곳에서만 명시적으로 join할 것(Missions를 select 없이 조회하면 딸려오지 않는다).
   playbook        Mission_Playbooks?
+  created_by      Users?             @relation("MissionCreatedBy", fields: [created_by_user_id], references: [id], onDelete: SetNull)
 
+  @@index([created_by_user_id])
+  // 미션 목록 조회의 주 필터(템플릿 여부 + 유사 성향)를 한 인덱스로 커버한다.
+  @@index([is_template, creator_personality_type])
   @@map("Missions")
 }
 
@@ -523,20 +535,27 @@ model Saved_Phrases {
 model Recommendation_Logs {
   id                  String               @id @default(uuid()) @db.Char(36)
   user_id             String               @db.Char(36)
-  source              RecommendationSource
-  llm_model           String?              @db.VarChar(50)
-  target_difficulty   Int?
-  avoided_categories  Json?
-  prompt_input        Json?
-  raw_response        String?              @db.Text
-  parse_success       Boolean              @default(false)
+  source              RecommendationSource 
+  llm_model           String?              @db.VarChar(50) 
+  target_difficulty   Int?                 
+  avoided_categories  Json?                
+  prompt_input        Json?                
+  raw_response        String?              @db.Text 
+  parse_success       Boolean              @default(false) 
   recommended_mission Json?
   fallback_reason     String?              @db.VarChar(100)
+  created_mission_id  String?              @db.Char(36) // llm/fallback 추천을 실제 Missions로 저장했을 때 그 id (재요청 시 중복 생성 방지용 백링크)
+  // 이 추천이 속한 "하루"(클라이언트 로컬 날짜 기준, YYYY-MM-DD). 오늘의 미션 캐시와
+  // 새로고침 횟수 집계의 버킷 키다. created_at(타임스탬프)로 범위를 계산하지 않고 별도
+  // DATE 컬럼을 두는 이유는 사용자 시간대에 따라 "하루"의 경계가 달라지기 때문이다.
+  // 이 컬럼 도입 이전 로그는 null이라 어느 날짜 버킷에도 잡히지 않는다.
+  recommended_date    DateTime?            @db.Date
   created_at          DateTime             @default(now())
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
+  @@index([user_id, recommended_date])
   @@map("Recommendation_Logs")
 }
 

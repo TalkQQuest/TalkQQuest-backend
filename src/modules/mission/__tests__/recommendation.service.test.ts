@@ -15,6 +15,9 @@ jest.mock("../services/llm.service");
 const mockedRepo = jest.mocked(repository);
 const mockedLlm = jest.mocked(llmService);
 
+// 추천이 속한 하루 버킷(Recommendation_Logs.recommended_date)에 그대로 기록되는 값.
+const RECOMMENDED_DATE = new Date("2026-07-27T00:00:00.000Z");
+
 // Prisma 반환 형태를 흉내 낸 최소 팩토리 (테스트에 필요한 필드만).
 const buildProfile = (overrides: Record<string, unknown> = {}) =>
   ({
@@ -53,7 +56,7 @@ beforeEach(() => {
   mockedRepo.findActiveGoalsByUserId.mockResolvedValue([] as never);
   mockedRepo.findRecentMissionRecords.mockResolvedValue([] as never);
   mockedRepo.findTemplateMissionsExcluding.mockResolvedValue([] as never);
-  mockedRepo.createRecommendationLog.mockResolvedValue({} as never);
+  mockedRepo.createRecommendationLog.mockResolvedValue({ id: "log1" } as never);
   // 기본값: LLM 실패 → 템플릿/폴백 경로. 특정 테스트에서만 성공값으로 덮어쓴다.
   mockedLlm.generateMissionWithLlm.mockResolvedValue(llmFailure());
 });
@@ -191,7 +194,7 @@ describe("recommendMission (1→2→3→4 통합)", () => {
       },
     ] as never);
 
-    const result = await recommendMission("u1");
+    const result = await recommendMission("u1", RECOMMENDED_DATE);
 
     expect(result.source).toBe("template");
     expect(result.missionId).toBe("t1");
@@ -201,7 +204,7 @@ describe("recommendMission (1→2→3→4 통합)", () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     // findTemplateMissionsExcluding는 beforeEach에서 빈 배열로 mock됨
 
-    const result = await recommendMission("u1");
+    const result = await recommendMission("u1", RECOMMENDED_DATE);
 
     expect(result.source).toBe("fallback");
   });
@@ -210,7 +213,7 @@ describe("recommendMission (1→2→3→4 통합)", () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
 
-    const result = await recommendMission("u1");
+    const result = await recommendMission("u1", RECOMMENDED_DATE);
 
     expect(result.source).toBe("llm");
     expect(result.title).toBe("LLM 생성 미션");
@@ -221,7 +224,7 @@ describe("recommendMission (1→2→3→4 통합)", () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
 
-    await recommendMission("u1");
+    await recommendMission("u1", RECOMMENDED_DATE);
 
     expect(mockedRepo.createRecommendationLog).toHaveBeenCalledTimes(1);
     const logged = mockedRepo.createRecommendationLog.mock.calls[0][0];
@@ -230,6 +233,7 @@ describe("recommendMission (1→2→3→4 통합)", () => {
       source: "llm",
       parseSuccess: true,
       fallbackReason: null,
+      recommendedDate: RECOMMENDED_DATE, // 오늘의 미션 캐시·새로고침 집계의 버킷 키
     });
   });
 
@@ -238,8 +242,19 @@ describe("recommendMission (1→2→3→4 통합)", () => {
     mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
     mockedRepo.createRecommendationLog.mockRejectedValue(new Error("db down"));
 
-    const result = await recommendMission("u1");
+    const result = await recommendMission("u1", RECOMMENDED_DATE);
 
     expect(result.source).toBe("llm"); // 로깅 실패가 추천을 막지 않음
+    expect(result.recommendationLogId).toBeNull(); // 원본을 식별할 로그가 없으므로 저장 기능은 못 씀
+  });
+
+  it("생성된 Recommendation_Logs의 id를 recommendationLogId로 돌려준다", async () => {
+    mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
+    mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
+    mockedRepo.createRecommendationLog.mockResolvedValue({ id: "log-abc" } as never);
+
+    const result = await recommendMission("u1", RECOMMENDED_DATE);
+
+    expect(result.recommendationLogId).toBe("log-abc");
   });
 });

@@ -4,7 +4,7 @@ export const findHomeSummaryData = async (userId: string) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const [profile, archiveCount, todayMission] = await Promise.all([
+    const [profile, archiveCount, communityCount, todayMission] = await Promise.all([
         prisma.user_Profiles.findUnique({
         where: { user_id: userId },
         select: {
@@ -16,12 +16,16 @@ export const findHomeSummaryData = async (userId: string) => {
         prisma.archive_Items.count({
         where: { user_id: userId },
         }),
+        prisma.community_Members.count({
+        where: { user_id: userId },
+        }),
         prisma.missions.findFirst({
         where: { is_template: true },
         orderBy: { created_at: "asc" },
         select: {
             id: true,
             title: true,
+            description: true,
             category: true,
             difficulty: true,
             estimated_minutes: true,
@@ -42,5 +46,5 @@ export const findHomeSummaryData = async (userId: string) => {
         }),
     ]);
 
-    return { profile, archiveCount, todayMission };
+    return { profile, archiveCount, communityCount, todayMission };
 };

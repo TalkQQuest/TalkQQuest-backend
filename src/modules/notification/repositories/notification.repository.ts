@@ -45,3 +45,13 @@ export const updateNotificationSettings = (
         where: { user_id: userId },
         data,
     });
+
+export const saveFcmToken = (userId: string, fcmToken: string, platform: "android") =>
+    prisma.device_Tokens.create({
+        data: {
+        user_id: userId,
+        fcm_token: fcmToken,
+        platform,
+        last_active_at: new Date(),
+        },
+    });

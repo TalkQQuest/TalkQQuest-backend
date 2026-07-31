@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Middlewares, Patch, Path, Query, Request, Route, Security, Tags } from "tsoa";
+import { Body, Controller, Get, Middlewares, Patch, Path, Post, Query, Request, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
 import { success, ApiResponse } from "../../../shared/utils/response";
@@ -6,6 +6,7 @@ import {
     NotificationsResponseDto,
     NotificationSettingsResponseDto,
     UpdateNotificationSettingsRequestDto,
+    RegisterFcmTokenRequestDto,
 } from "../dtos/notification.dto";
 import {
     getNotifications,
@@ -13,6 +14,7 @@ import {
     readAllNotifications,
     getNotificationSettings,
     updateNotificationSettingsService,
+    registerFcmToken,
 } from "../services/notification.service";
 
 @Route("notifications")
@@ -91,5 +93,19 @@ export class NotificationController extends Controller {
     ): Promise<ApiResponse<null>> {
         await updateNotificationSettingsService(req.user!.id, body);
         return success(null, "알림 설정이 수정되었습니다.");
+    }
+
+    /**
+     * @summary FCM 토큰 등록
+     */
+    @Post("fcm-token")
+    @Security("bearerAuth")
+    @Middlewares(authorizeUser())
+    public async registerFcmToken(
+        @Body() body: RegisterFcmTokenRequestDto,
+        @Request() req: ExpressRequest
+    ): Promise<ApiResponse<null>> {
+        await registerFcmToken(req.user!.id, body);
+        return success(null, "FCM 토큰이 등록되었습니다.");
     }
 }

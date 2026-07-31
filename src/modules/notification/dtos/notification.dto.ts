@@ -24,3 +24,8 @@ export interface UpdateNotificationSettingsRequestDto {
     reportReady?: boolean;
     marketing?: boolean;
 }
+
+export interface RegisterFcmTokenRequestDto {
+    fcmToken: string;
+    platform?: "android";
+}

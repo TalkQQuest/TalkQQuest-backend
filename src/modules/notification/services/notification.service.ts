@@ -5,11 +5,13 @@ import {
     markAllNotificationsAsRead,
     findNotificationSettings,
     updateNotificationSettings,
+    upsertFcmToken,
 } from "../repositories/notification.repository";
 import {
     NotificationsResponseDto,
     NotificationSettingsResponseDto,
     UpdateNotificationSettingsRequestDto,
+    RegisterFcmTokenRequestDto,
 } from "../dtos/notification.dto";
 import { NotFoundError } from "../../../shared/errors/common.error";
 
@@ -31,9 +33,9 @@ export const getNotifications = async (
         createdAt: n.created_at.toISOString(),
         })),
     };
-    };
+};
 
-    export const readNotification = async (
+export const readNotification = async (
     userId: string,
     notificationId: string
     ): Promise<void> => {
@@ -43,13 +45,13 @@ export const getNotifications = async (
     }
 
     await markNotificationAsRead(notificationId);
-    };
+};
 
-    export const readAllNotifications = async (userId: string): Promise<void> => {
+export const readAllNotifications = async (userId: string): Promise<void> => {
     await markAllNotificationsAsRead(userId);
-    };
+};
 
-    export const getNotificationSettings = async (
+export const getNotificationSettings = async (
     userId: string
     ): Promise<NotificationSettingsResponseDto> => {
     const settings = await findNotificationSettings(userId);
@@ -63,9 +65,9 @@ export const getNotifications = async (
         reportReady: settings.report_ready,
         marketing: settings.marketing,
     };
-    };
+};
 
-    export const updateNotificationSettingsService = async (
+export const updateNotificationSettingsService = async (
     userId: string,
     dto: UpdateNotificationSettingsRequestDto
     ): Promise<void> => {
@@ -80,4 +82,11 @@ export const getNotifications = async (
         ...(dto.reportReady !== undefined && { report_ready: dto.reportReady }),
         ...(dto.marketing !== undefined && { marketing: dto.marketing }),
     });
+};
+
+export const registerFcmToken = async (
+    userId: string,
+    dto: RegisterFcmTokenRequestDto
+    ): Promise<void> => {
+    await upsertFcmToken(userId, dto.fcmToken, dto.platform ?? "android");
 };

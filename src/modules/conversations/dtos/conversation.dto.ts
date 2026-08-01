@@ -23,6 +23,12 @@ export const CreateConversationSchema = z.object({
     selectedTopic: string | null;
     status: "in_progress";
     startedAt: string;
+    /**
+     * 서버가 내려주는 첫 안내 메시지. 파트너임을 밝히고 지금부터 어떤 배역으로 대화하는지 알린다.
+     * 대화 기록에도 guide 메시지로 저장되므로 GET /conversations/{id}에서 다시 볼 수 있다.
+     * (예전엔 서버가 아무것도 안 내려줘 앱이 자체 임시 문구를 띄우고 있었다.)
+     */
+    openingMessage: string;
     }
 
     export interface GetConversationGuideResponse {

@@ -11,7 +11,17 @@ import {
     FinishConversationResponse,
 } from "../dtos/conversation.dto";
 import { ConversationError } from "../errors/conversation.error";
-import { generateGuideReply, MAX_HISTORY_MESSAGES } from "./conversation-llm.service";
+import {
+    buildOpeningMessage,
+    generateGuideReply,
+    generatePersona,
+    generateSuggestions,
+    MAX_HISTORY_MESSAGES,
+} from "./conversation-llm.service";
+import {
+    buildIdentityResponse,
+    matchesIdentityQuestion,
+} from "./conversation-guard.service";
 import { durationMinutes } from "../../../shared/utils/date";
 
 // LLM이 실패(키 없음/오류/재시도까지 실패)했을 때 대화가 끊기지 않도록 쓰는 템플릿 폴백 (Requirement 5.5).
@@ -40,7 +50,15 @@ const MOCK_GUIDE_RESPONSES = [
         const mission = await this.conversationRepository.findMissionById(dto.missionId);
         if (!mission) throw ConversationError.missionNotFound();
 
-        const conversation = await this.conversationRepository.createConversation(userId, dto);
+        // 배역을 이 시점에 한 번 정해 저장한다. 매 턴 다시 만들지 않으므로 대화 내내 일관되고,
+        // 생성이 실패해도(null) 미션 제목 기반으로 그대로 진행된다.
+        const persona = await generatePersona(mission.title, mission.description);
+        const conversation = await this.conversationRepository.createConversation(userId, dto, persona);
+
+        // 첫 안내를 guide 메시지로 저장해 둔다. 앱이 응답에서 바로 띄울 수도 있고,
+        // 나중에 대화 기록을 다시 열었을 때도 같은 안내가 남아 있어야 하기 때문이다.
+        const openingMessage = buildOpeningMessage(mission.title);
+        await this.conversationRepository.createMessage(conversation.id, "guide", openingMessage);
 
         return {
         conversationId: conversation.id,
@@ -50,6 +68,7 @@ const MOCK_GUIDE_RESPONSES = [
         selectedTopic: conversation.selected_topic,
         status: "in_progress",
         startedAt: conversation.started_at.toISOString(),
+        openingMessage,
         };
     }
 
@@ -126,20 +145,7 @@ const MOCK_GUIDE_RESPONSES = [
         conversationId, "user", dto.content
         );
 
-        // 실제 LLM 응답을 우선 생성하고, 실패하면 템플릿으로 폴백한다(5.5).
-        const llmReply = await generateGuideReply({
-        missionTitle: conversation.mission.title,
-        missionDescription: conversation.mission.description,
-        personality: profile?.personality_type ?? null,
-        preferredStyle: profile?.preferred_style ?? null,
-        history: history.filter(
-            (m): m is { role: "user" | "guide"; content: string } => m.role !== "system"
-        ),
-        latestUserMessage: dto.content,
-        });
-        const guideContent =
-        llmReply ??
-        MOCK_GUIDE_RESPONSES[Math.floor(Math.random() * MOCK_GUIDE_RESPONSES.length)];
+        const guideContent = await this.buildGuideContent(conversation, profile, history, dto.content);
 
         const guideMsg = await this.conversationRepository.createMessage(
         conversationId, "guide", guideContent
@@ -149,6 +155,39 @@ const MOCK_GUIDE_RESPONSES = [
         userMessage: { id: userMsg.id, role: "user", content: userMsg.content, createdAt: userMsg.created_at.toISOString() },
         guideMessage: { id: guideMsg.id, role: "guide", content: guideMsg.content, createdAt: guideMsg.created_at.toISOString() },
         };
+    }
+
+    // 이번 턴의 상대 답변을 정한다.
+    //  1) 정체 질문이면 LLM을 거치지 않고 고정 문구로 답한다(가드레일).
+    //  2) 그 외에는 LLM 생성 → 규칙 검증 통과분만 사용.
+    //  3) 생성·검증이 모두 실패하면 대화가 끊기지 않도록 템플릿으로 폴백한다(5.5).
+    private async buildGuideContent(
+        conversation: { persona: string | null; mission: { title: string; description: string | null } },
+        profile: { personality_type: string | null; preferred_style: string | null } | null,
+        history: { role: string; content: string }[],
+        latestUserMessage: string
+    ): Promise<string> {
+        // 정체 질문에 LLM이 매번 다른 자기소개를 지어내고 그 뒤로 배역이 굳던 문제 때문에,
+        // 이 경우만 서버가 직접 답한다. 일관성이 보장되고 호출 비용·지연도 없다.
+        if (matchesIdentityQuestion(latestUserMessage)) {
+        return buildIdentityResponse(conversation.persona);
+        }
+
+        const llmReply = await generateGuideReply({
+        missionTitle: conversation.mission.title,
+        missionDescription: conversation.mission.description,
+        persona: conversation.persona,
+        personality: profile?.personality_type ?? null,
+        preferredStyle: profile?.preferred_style ?? null,
+        history: history.filter(
+            (m): m is { role: "user" | "guide"; content: string } => m.role !== "system"
+        ),
+        latestUserMessage,
+        });
+
+        return (
+        llmReply ?? MOCK_GUIDE_RESPONSES[Math.floor(Math.random() * MOCK_GUIDE_RESPONSES.length)]
+        );
     }
 
     async getConversationSuggestions(
@@ -161,15 +200,24 @@ const MOCK_GUIDE_RESPONSES = [
         );
         if (!conversation) throw ConversationError.conversationNotFound();
 
-        const prepItems = conversation.mission.prep_items;
-        const questionItems = prepItems
-        .filter((item) => item.type === "question")
-        .map((item) => item.content);
+        // 지금 대화 맥락을 보고 생성한다. 예전엔 미션의 question 항목이나 하드코딩 목업을
+        // 그대로 돌려줘 대화와 무관한 추천이 나갔다(카페 주문 중 "평소에도 산책 자주 하세요?").
+        const history = await this.conversationRepository.findRecentMessages(
+        conversationId,
+        MAX_HISTORY_MESSAGES
+        );
 
+        const generated = await generateSuggestions({
+        missionTitle: conversation.mission.title,
+        missionDescription: conversation.mission.description,
+        history: history.filter(
+            (m): m is { role: "user" | "guide"; content: string } => m.role !== "system"
+        ),
+        });
+
+        // LLM이 실패했을 때만 템플릿으로 폴백한다(대화가 끊기지 않도록).
         const suggestions =
-        questionItems.length > 0
-            ? questionItems
-            : MOCK_SUGGESTIONS[Math.floor(Math.random() * MOCK_SUGGESTIONS.length)];
+        generated ?? MOCK_SUGGESTIONS[Math.floor(Math.random() * MOCK_SUGGESTIONS.length)];
 
         return { suggestions };
     }

@@ -349,6 +349,11 @@ model Conversations {
   mission_id     String             @db.Char(36)
   mode           String?            @db.VarChar(50)
   selected_topic String?            @db.VarChar(255)
+  // 이 대화에서 AI가 맡은 배역(예: "동아리 1년차 선배, 친근한 존댓말").
+  // 세션 생성 시 한 번 정해 저장하고 매 턴 시스템 프롬프트에 주입한다.
+  // 저장하지 않으면 배역이 메시지 이력에만 남아, 이력 상한(최근 10개)을 넘기는 순간
+  // 설정이 사라지고 AI가 도우미 말투로 돌아가는 문제가 생긴다.
+  persona        String?            @db.VarChar(255)
   status         ConversationStatus @default(in_progress)
   started_at     DateTime           @default(now())
   finished_at    DateTime?

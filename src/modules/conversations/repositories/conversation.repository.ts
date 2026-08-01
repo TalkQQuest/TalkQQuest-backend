@@ -10,6 +10,8 @@ export class ConversationRepository {
         select: {
             id: true,
             title: true,
+            // 세션 생성 시 배역을 정하는 데 쓴다(상황 설명이 있어야 구체적인 배역이 나온다).
+            description: true,
             preparation_tip: true,
             prep_items: {
             select: { type: true, content: true, order_index: true },
@@ -19,13 +21,16 @@ export class ConversationRepository {
         });
     }
 
-    async createConversation(userId: string, dto: CreateConversationDto) {
+    async createConversation(userId: string, dto: CreateConversationDto, persona: string | null) {
         return this.prisma.conversations.create({
         data: {
             user_id: userId,
             mission_id: dto.missionId,
             mode: dto.mode,
             selected_topic: dto.selectedTopic ?? null,
+            // 배역은 세션 생성 시 한 번 정해 굳힌다. 매 턴 프롬프트에 다시 주입해
+            // 이력이 잘려도 배역이 흔들리지 않게 하기 위함이다.
+            persona,
             status: "in_progress",
             started_at: new Date(),
         },

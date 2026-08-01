@@ -31,6 +31,11 @@ export const toDateOnly = (value: string): Date => new Date(`${value}T00:00:00.0
 // Date(또는 DATE 컬럼 값)를 YYYY-MM-DD 문자열로 되돌린다.
 export const fromDateOnly = (value: Date): string => value.toISOString().slice(0, 10);
 
+// YYYY-MM-DD(KST 기준)의 하루 시작을 실제 순간(UTC instant)으로 바꾼다.
+// toDateOnly와 달리 시간대를 보정하므로 타임스탬프 컬럼(completed_at 등) 비교에 쓴다.
+// 서버가 UTC로 떠 있어도 KST 자정을 정확히 가리킨다.
+export const kstDayStart = (date: string): Date => new Date(`${date}T00:00:00+09:00`);
+
 // 두 YYYY-MM-DD 사이의 일수 차이(a - b). 시간대 보정 없이 순수 날짜 차이만 본다.
 export const daysBetween = (a: string, b: string): number =>
   Math.round((toDateOnly(a).getTime() - toDateOnly(b).getTime()) / MS_PER_DAY);

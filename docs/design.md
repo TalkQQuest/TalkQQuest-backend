@@ -1089,7 +1089,13 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 **Header:** `Authorization: Bearer {accessToken}` 필수
 
-**Response (200):** `data` — `nickname`(`string | null`), `level`, `currentXp`, `nextLevelXp`, `todayMission`(`TodayMissionDto | null` — `{id, title, category, difficulty(number), estimatedMinutes, rewardXp, isCompleted, isSaved}`), `archiveCount`, `communityCount`, `questionOfDay`.
+**Response (200):** `data` — `nickname`(`string | null`), `level`, `currentXp`, `nextLevelXp`, `todayMission`(`TodayMissionDto | null` — `{id, title, category, difficulty("쉬움"|"보통"|"어려움"), estimatedMinutes, rewardXp, description, isCompleted, isSaved}`), `archiveCount`, `communityCount`, `questionOfDay`.
+
+> `difficulty`는 다른 미션 API와 동일한 한글 라벨이다(예전엔 여기만 DB 정수값 1/2/3이 그대로 나갔다). 앱이 라벨 기준으로 난이도 색상을 구분한다.
+>
+> `todayMission`은 `GET /missions/today`와 **동일한 추천**이다(같은 서비스 진입점을 쓴다). 그날 추천이 아직 없으면 홈 요약 호출이 그 자리에서 생성하므로, 하루 중 첫 호출만 LLM 응답만큼 느리고(~2초) 이후에는 캐시로 응답한다.
+>
+> 온보딩 미완료 사용자는 추천 기준을 만들 수 없어 `todayMission`이 `null`로 내려간다(홈 자체는 정상 200). 앱은 이 경우 카드를 비우고 온보딩을 유도하면 된다.
 
 ### Payment & Subscription APIs
 

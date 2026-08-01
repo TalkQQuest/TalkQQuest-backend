@@ -1,8 +1,9 @@
 export interface TodayMissionDto {
     id: string;
     title: string;
+    description: string;
     category: string;
-    difficulty: number;
+    difficulty: string;
     estimatedMinutes: number;
     rewardXp: number;
     isCompleted: boolean;

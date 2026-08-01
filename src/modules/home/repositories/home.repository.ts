@@ -22,6 +22,7 @@ export const findHomeSummaryData = async (userId: string) => {
         select: {
             id: true,
             title: true,
+            description: true,
             category: true,
             difficulty: true,
             estimated_minutes: true,

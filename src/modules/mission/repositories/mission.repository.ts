@@ -1,5 +1,5 @@
 // modules/mission/repositories/mission.repository.ts
-import { Prisma, RecommendationSource } from "@prisma/client";
+import { Prisma, PrepItemType, RecommendationSource } from "@prisma/client";
 import { prisma } from "../../../config/database";
 
 export const findMissions = (params: {
@@ -100,6 +100,27 @@ export const findPrepItems = (missionId: string) =>
   prisma.mission_Prep_Items.findMany({
     where: { mission_id: missionId },
     orderBy: { order_index: "asc" },
+  });
+
+export const findPrepItemsByType = (missionId: string, type: PrepItemType) =>
+  prisma.mission_Prep_Items.findMany({
+    where: { mission_id: missionId, type },
+    orderBy: { order_index: "asc" },
+  });
+
+// 생성한 첫 마디 후보를 캐시해 둔다. 미션당 1회만 만들고 이후에는 재사용한다.
+export const createPrepItems = (
+  missionId: string,
+  type: PrepItemType,
+  contents: string[]
+) =>
+  prisma.mission_Prep_Items.createMany({
+    data: contents.map((content, index) => ({
+      mission_id: missionId,
+      type,
+      content,
+      order_index: index,
+    })),
   });
 
 // ── AI 미션 추천 파이프라인용 조회 (recommendation/difficulty/template.service) ──

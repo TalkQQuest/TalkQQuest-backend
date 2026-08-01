@@ -15,6 +15,7 @@ import {
 } from "../dtos/mission.dto";
 import { DIFFICULTY_TO_INT, DIFFICULTY_TO_LABEL } from "../dtos/mission.constants";
 import { recommendMission } from "./recommendation.service";
+import { generateStarters, pickRandomStarters } from "./prep.service";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_SIZE = 10;
@@ -144,20 +145,41 @@ export const unsaveMission = async (
   return { missionId, isSaved: false };
 };
 
+// GET /missions/{missionId}/prep — "바로 쓰는 첫 마디".
+// 미션별 후보를 한 번 생성해 캐시하고, 호출마다 그중 일부만 무작위로 돌려준다.
+// 앱의 새로고침 버튼이 같은 API를 다시 부르는 구조라 이것만으로 매번 다른 문장이 나온다.
 export const getMissionPrep = async (missionId: string): Promise<MissionPrepResponseDto> => {
   const mission = await missionRepository.findMissionById(missionId);
   if (!mission) throw new MissionNotFoundError();
 
-  const prepItems = await missionRepository.findPrepItems(missionId);
+  let pool = await missionRepository.findPrepItemsByType(missionId, "starter");
+
+  // 아직 후보가 없는 미션(기존 미션 전부 + AI로 새로 생성된 미션)은 이 시점에 만들어 캐시한다.
+  if (pool.length === 0) {
+    const generated = await generateStarters(mission.title, mission.description);
+    if (generated) {
+      await missionRepository.createPrepItems(missionId, "starter", generated);
+      pool = await missionRepository.findPrepItemsByType(missionId, "starter");
+    }
+  }
+
+  // LLM이 실패하면 빈 배열이 나가고 앱이 기존처럼 자체 문구를 띄운다.
+  // 여기서 일반 인사말을 지어내면 "모든 미션이 똑같다"는 원래 문제로 되돌아가므로 채우지 않는다.
+  const picked = pickRandomStarters(pool.map((item) => item.content));
+  const byContent = new Map(pool.map((item) => [item.content, item]));
 
   return {
     missionId,
-    totalCount: prepItems.length,
-    items: prepItems.map((p) => ({
-      id: p.id,
-      type: p.type as MissionPrepItemDto["type"],
-      content: p.content,
-      orderIndex: p.order_index,
-    })),
+    totalCount: picked.length,
+    items: picked.map((content, index) => {
+      const item = byContent.get(content)!;
+      return {
+        id: item.id,
+        type: item.type as MissionPrepItemDto["type"],
+        content,
+        // 노출 순서는 매번 달라지므로 캐시된 order_index가 아니라 이번 응답 기준으로 매긴다.
+        orderIndex: index,
+      };
+    }),
   };
 };

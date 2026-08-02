@@ -11,17 +11,19 @@ import {
     FinishConversationResponse,
 } from "../dtos/conversation.dto";
 import { ConversationError } from "../errors/conversation.error";
-import {
-    buildOpeningMessage,
-    generateGuideReply,
-    generatePersona,
-    generateSuggestions,
-    MAX_HISTORY_MESSAGES,
-} from "./conversation-llm.service";
+import { buildOpeningMessage } from "../dtos/conversation.constants";
+import { generateGuideReply, MAX_HISTORY_MESSAGES } from "./conversation-guide.service";
+import { generateRoleSetup } from "./conversation-role.service";
+import { generateSuggestions } from "./conversation-suggestion.service";
 import {
     buildIdentityResponse,
     matchesIdentityQuestion,
 } from "./conversation-guard.service";
+import {
+    generatePlaybook,
+    matchResponseRules,
+    parseStoredPlaybook,
+} from "../../mission/services/playbook.service";
 import { durationMinutes } from "../../../shared/utils/date";
 
 // LLM이 실패(키 없음/오류/재시도까지 실패)했을 때 대화가 끊기지 않도록 쓰는 템플릿 폴백 (Requirement 5.5).
@@ -50,10 +52,15 @@ const MOCK_GUIDE_RESPONSES = [
         const mission = await this.conversationRepository.findMissionById(dto.missionId);
         if (!mission) throw ConversationError.missionNotFound();
 
-        // 배역을 이 시점에 한 번 정해 저장한다. 매 턴 다시 만들지 않으므로 대화 내내 일관되고,
-        // 생성이 실패해도(null) 미션 제목 기반으로 그대로 진행된다.
-        const persona = await generatePersona(mission.title, mission.description);
-        const conversation = await this.conversationRepository.createConversation(userId, dto, persona);
+        // 배역과 "사용자가 할 일"을 이 시점에 한 번 정해 저장한다. 매 턴 다시 만들지 않으므로
+        // 대화 내내 일관되고, 생성이 실패해도(null) 미션 제목 기반으로 그대로 진행된다.
+        // 플레이북은 미션 단위라 처음 대화를 시작하는 사용자만 생성 비용을 치른다.
+        // 배역 설정과 독립이라 병렬로 처리해 세션 생성 지연을 줄인다.
+        const [roleSetup] = await Promise.all([
+        generateRoleSetup(mission.title, mission.description),
+        this.ensureMissionPlaybook(mission),
+        ]);
+        const conversation = await this.conversationRepository.createConversation(userId, dto, roleSetup);
 
         // 첫 안내를 guide 메시지로 저장해 둔다. 앱이 응답에서 바로 띄울 수도 있고,
         // 나중에 대화 기록을 다시 열었을 때도 같은 안내가 남아 있어야 하기 때문이다.
@@ -157,12 +164,32 @@ const MOCK_GUIDE_RESPONSES = [
         };
     }
 
+    // 미션에 플레이북이 없으면 이 시점에 만들어 캐시한다(미션당 1회, 이후 모든 사용자가 재사용).
+    // 생성에 실패해도 대화 시작을 막지 않는다 — 플레이북 없이도 기존대로 동작한다.
+    private async ensureMissionPlaybook(mission: {
+        id: string;
+        title: string;
+        description: string | null;
+        dialogue_playbook: unknown;
+    }): Promise<void> {
+        if (parseStoredPlaybook(mission.dialogue_playbook)) return;
+
+        const playbook = await generatePlaybook(mission.title, mission.description);
+        if (!playbook) return;
+
+        await this.conversationRepository.saveMissionPlaybook(mission.id, playbook);
+    }
+
     // 이번 턴의 상대 답변을 정한다.
     //  1) 정체 질문이면 LLM을 거치지 않고 고정 문구로 답한다(가드레일).
     //  2) 그 외에는 LLM 생성 → 규칙 검증 통과분만 사용.
     //  3) 생성·검증이 모두 실패하면 대화가 끊기지 않도록 템플릿으로 폴백한다(5.5).
     private async buildGuideContent(
-        conversation: { persona: string | null; mission: { title: string; description: string | null } },
+        conversation: {
+            persona: string | null;
+            user_task: string | null;
+            mission: { title: string; description: string | null; dialogue_playbook?: unknown };
+        },
         profile: { personality_type: string | null; preferred_style: string | null } | null,
         history: { role: string; content: string }[],
         latestUserMessage: string
@@ -173,10 +200,19 @@ const MOCK_GUIDE_RESPONSES = [
         return buildIdentityResponse(conversation.persona);
         }
 
+        // 흐름 지침은 항상, 상황 규칙은 이번 발화와 관련 있는 것만 골라 넣는다.
+        const playbook = parseStoredPlaybook(conversation.mission.dialogue_playbook);
+        const matchedRules = playbook
+        ? await matchResponseRules(playbook, latestUserMessage)
+        : [];
+
         const llmReply = await generateGuideReply({
         missionTitle: conversation.mission.title,
         missionDescription: conversation.mission.description,
         persona: conversation.persona,
+        userTask: conversation.user_task,
+        flow: playbook?.flow ?? [],
+        matchedRules,
         personality: profile?.personality_type ?? null,
         preferredStyle: profile?.preferred_style ?? null,
         history: history.filter(

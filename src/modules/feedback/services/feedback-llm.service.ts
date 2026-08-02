@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { logger } from "../../../config/logger";
-import { callUpstageChat, UpstageChatMessage } from "../../../shared/llm/upstage";
+import {
+  callUpstageChat,
+  generateWithRetry,
+  parseJsonResponse,
+  UpstageChatMessage,
+} from "../../../shared/ai";
 import { FEEDBACK_METRIC_KEYS, FeedbackMetricKey } from "../dtos/feedback.constants";
 
 // 대화 기반 피드백(E101) 생성 — POST /feedback.
@@ -153,32 +158,12 @@ export const buildFeedbackMessages = (
   ];
 };
 
-const cleanJson = (raw: string): string =>
-  raw
-    .trim()
-    .replace(/^```(?:json)?/i, "")
-    .replace(/```$/, "")
-    .trim();
-
 const parseFeedbackLlm = (
   rawContent: string,
   userUtterances: string[]
 ): FeedbackLlmResult | null => {
-  let json: unknown;
-  try {
-    json = JSON.parse(cleanJson(rawContent));
-  } catch {
-    logger.warn("피드백 LLM 응답 JSON 파싱 실패");
-    return null;
-  }
-
-  const parsed = feedbackLlmSchema.safeParse(json);
-  if (!parsed.success) {
-    logger.warn({ issues: parsed.error.issues }, "피드백 LLM 응답 스키마 검증 실패");
-    return null;
-  }
-
-  const data = parsed.data;
+  const data = parseJsonResponse(rawContent, feedbackLlmSchema, "피드백");
+  if (!data) return null;
 
   // 번호를 실제 발화로 되돌린다. 범위를 벗어나면 사용자가 하지 않은 말을 지어낸 것이므로
   // 응답 전체를 버린다(재시도 → 그래도 실패하면 status=failed). 이 앱은 실패를 감수하더라도
@@ -235,7 +220,7 @@ const callOnce = async (
 
 // 진입점. 1회 재시도 후에도 실패하면 null — 호출부(feedback.service)가 status=failed로 남긴다.
 // 미션 추천과 달리 실패 시 가짜 분석으로 대체하지 않는다(허위 피드백 방지).
-export const generateFeedbackWithLlm = async (
+export const generateFeedbackWithLlm = (
   transcript: FeedbackTranscriptMessage[],
   missionTitle: string,
   missionDescription: string | null
@@ -243,15 +228,7 @@ export const generateFeedbackWithLlm = async (
   const messages = buildFeedbackMessages(transcript, missionTitle, missionDescription);
   const userUtterances = collectUserUtterances(transcript);
 
-  const first = await callOnce(messages, userUtterances);
-  if (first) return first;
-
-  logger.warn("피드백 LLM 1차 실패 — 재시도");
-  const retry = await callOnce(messages, userUtterances);
-  if (retry) return retry;
-
-  logger.warn("피드백 LLM 재시도까지 실패");
-  return null;
+  return generateWithRetry(() => callOnce(messages, userUtterances), { label: "피드백" });
 };
 
 // 서비스 계층에서 지표 순서를 고정해 순회할 때 쓴다.

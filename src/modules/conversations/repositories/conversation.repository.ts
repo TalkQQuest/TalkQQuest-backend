@@ -12,6 +12,7 @@ export class ConversationRepository {
             title: true,
             // 세션 생성 시 배역을 정하는 데 쓴다(상황 설명이 있어야 구체적인 배역이 나온다).
             description: true,
+            dialogue_playbook: true,
             preparation_tip: true,
             prep_items: {
             select: { type: true, content: true, order_index: true },
@@ -21,16 +22,21 @@ export class ConversationRepository {
         });
     }
 
-    async createConversation(userId: string, dto: CreateConversationDto, persona: string | null) {
+    async createConversation(
+        userId: string,
+        dto: CreateConversationDto,
+        roleSetup: { persona: string | null; userTask: string | null }
+    ) {
         return this.prisma.conversations.create({
         data: {
             user_id: userId,
             mission_id: dto.missionId,
             mode: dto.mode,
             selected_topic: dto.selectedTopic ?? null,
-            // 배역은 세션 생성 시 한 번 정해 굳힌다. 매 턴 프롬프트에 다시 주입해
-            // 이력이 잘려도 배역이 흔들리지 않게 하기 위함이다.
-            persona,
+            // 배역과 "사용자의 몫"은 세션 생성 시 한 번 정해 굳힌다. 매 턴 프롬프트에 다시
+            // 주입해, 이력이 잘려도 배역이 흔들리거나 AI가 과제를 먼저 하지 않게 한다.
+            persona: roleSetup.persona,
+            user_task: roleSetup.userTask,
             status: "in_progress",
             started_at: new Date(),
         },
@@ -47,6 +53,8 @@ export class ConversationRepository {
                 title: true,
                 description: true,
                 preparation_tip: true,
+                // 매 턴 대화 흐름 지침·상황 규칙을 주입하는 데 쓴다.
+                dialogue_playbook: true,
                 prep_items: {
                 select: { type: true, content: true, order_index: true },
                 orderBy: { order_index: "asc" },
@@ -54,6 +62,14 @@ export class ConversationRepository {
             },
             },
         },
+        });
+    }
+
+    // 미션당 1회 생성한 플레이북을 캐시한다. 이후 모든 사용자가 재사용한다.
+    async saveMissionPlaybook(missionId: string, playbook: unknown) {
+        return this.prisma.missions.update({
+        where: { id: missionId },
+        data: { dialogue_playbook: playbook as never },
         });
     }
 

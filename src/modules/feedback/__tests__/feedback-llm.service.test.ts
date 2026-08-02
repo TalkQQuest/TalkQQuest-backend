@@ -1,12 +1,12 @@
 jest.mock("../../../config/logger", () => ({
   logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
-jest.mock("../../../shared/llm/upstage", () => ({
-  ...jest.requireActual("../../../shared/llm/upstage"),
+jest.mock("../../../shared/ai/upstage.client", () => ({
+  ...jest.requireActual("../../../shared/ai/upstage.client"),
   callUpstageChat: jest.fn(),
 }));
 
-import { callUpstageChat } from "../../../shared/llm/upstage";
+import { callUpstageChat } from "../../../shared/ai/upstage.client";
 import {
   buildFeedbackMessages,
   generateFeedbackWithLlm,

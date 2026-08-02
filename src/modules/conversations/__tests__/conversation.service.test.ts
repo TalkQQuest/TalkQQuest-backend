@@ -1,12 +1,12 @@
 // createMessage의 LLM 연결/폴백 동작 검증. LLM 호출은 mock한다.
-jest.mock("../services/conversation-llm.service", () => ({
-  ...jest.requireActual("../services/conversation-llm.service"),
+jest.mock("../services/conversation-guide.service", () => ({
+  ...jest.requireActual("../services/conversation-guide.service"),
   generateGuideReply: jest.fn(),
 }));
 
 import { ConversationService } from "../services/conversation.service";
 import { ConversationRepository } from "../repositories/conversation.repository";
-import { generateGuideReply } from "../services/conversation-llm.service";
+import { generateGuideReply } from "../services/conversation-guide.service";
 import { ConversationError } from "../errors/conversation.error";
 
 const mockedGenerate = jest.mocked(generateGuideReply);

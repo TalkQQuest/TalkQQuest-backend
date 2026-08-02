@@ -12,18 +12,19 @@ jest.mock("../../../config/env", () => ({
 
 import { env } from "../../../config/env";
 import {
-  AI_IDENTITY_PHRASE,
   buildGuideMessages,
-  buildOpeningMessage,
-  cleanReply,
   generateGuideReply,
   GuideReplyContext,
-} from "../services/conversation-llm.service";
+} from "../services/conversation-guide.service";
+import { AI_IDENTITY_PHRASE } from "../dtos/conversation.constants";
 
 const baseCtx: GuideReplyContext = {
   missionTitle: "카페 점원에게 인사하기",
   missionDescription: "주문할 때 먼저 인사를 건네보세요.",
   persona: "카페 바리스타, 친근한 존댓말",
+  userTask: "점원에게 먼저 인사를 건네기",
+  flow: ["도입: 가볍게 인사 받기", "전개: 주문 이야기 이어가기", "마무리: 짧게 마무리 인사"],
+  matchedRules: [],
   personality: "introvert",
   preferredStyle: "다정하게",
   history: [
@@ -81,63 +82,61 @@ describe("buildGuideMessages", () => {
     expect(system).toContain("배역으로 완전히 복귀");
   });
 
-  it("미션은 사용자의 과제이지 AI가 먼저 할 일이 아님을 명시한다", () => {
+  it("사용자가 할 일을 구체적으로 못박고 AI에게 금지한다", () => {
     const system = buildGuideMessages(baseCtx)[0].content;
-    expect(system).toContain("사용자가 연습할 과제");
-    expect(system).toContain("먼저 꺼내지 마세요");
+    // 추상 규칙("과제에 해당하는 말")은 모델이 좁게 해석해 통하지 않았다 → 행동을 직접 지정한다.
+    expect(system).toContain("사용자가 해야 할 일: 점원에게 먼저 인사를 건네기");
+    expect(system).toContain("절대로 먼저 하지 않고");
+  });
+
+  it("AI가 자기 경험·감상을 먼저 꺼내지 못하게 한다", () => {
+    // 실제 사례: 미션이 "영화 감상 공유"인데 AI가 자기 감상을 먼저 말해버렸다.
+    const system = buildGuideMessages(baseCtx)[0].content;
+    expect(system).toContain("당신의 경험·감상·의견·예시를 **먼저 꺼내지 마세요.**");
+  });
+
+  it("미션 설명은 사용자용 안내문임을 라벨로 못박아 넣는다", () => {
+    const system = buildGuideMessages(baseCtx)[0].content;
+    expect(system).toContain("당신에게 내리는 지시가 아닙니다");
+  });
+
+  it("대화 흐름 단계를 순서대로 프롬프트에 넣는다", () => {
+    const system = buildGuideMessages(baseCtx)[0].content;
+    expect(system).toContain("대화 흐름");
+    expect(system).toContain("1. 도입: 가볍게 인사 받기");
+    expect(system).toContain("3. 마무리: 짧게 마무리 인사");
+  });
+
+  it("선별된 상황 규칙만 넣고, 대본이 아니라 방향임을 명시한다", () => {
+    const system = buildGuideMessages({
+      ...baseCtx,
+      matchedRules: [{ when: "무슨 말을 할지 모르겠다고 함", then: "선택지를 좁혀 하나만 물어보기" }],
+    })[0].content;
+    expect(system).toContain("무슨 말을 할지 모르겠다고 함 → 선택지를 좁혀 하나만 물어보기");
+    expect(system).toContain("문장을 그대로 옮기지 말고");
+  });
+
+  it("매칭된 규칙이 없으면 상황 지침 블록을 넣지 않는다", () => {
+    const system = buildGuideMessages(baseCtx)[0].content;
+    expect(system).not.toContain("지금 상황에 해당할 수 있는 지침");
+  });
+
+  it("플레이북이 없는 미션이면(구 미션) 흐름 블록을 넣지 않는다", () => {
+    const system = buildGuideMessages({ ...baseCtx, flow: [] })[0].content;
+    expect(system).not.toContain("대화 흐름");
+  });
+
+  it("userTask가 없으면(구 대화) 해당 규칙을 넣지 않는다", () => {
+    const system = buildGuideMessages({ ...baseCtx, userTask: null })[0].content;
+    expect(system).not.toContain("사용자가 해야 할 일:");
+    // 일반 규칙은 그대로 적용된다.
+    expect(system).toContain("당신의 경험·감상·의견·예시를 **먼저 꺼내지 마세요.**");
   });
 
   it("자기 해설·마크다운 금지 규칙을 담는다", () => {
     const system = buildGuideMessages(baseCtx)[0].content;
     expect(system).toContain("해설하지 않습니다");
     expect(system).toContain("따옴표로 감싸지도 마세요");
-  });
-});
-
-describe("buildOpeningMessage", () => {
-  it("파트너임을 밝히고 현재 배역을 안내한다(B안)", () => {
-    const opening = buildOpeningMessage("카페 점원에게 인사하기");
-    expect(opening).toContain(AI_IDENTITY_PHRASE);
-    expect(opening).toContain("카페 점원에게 인사하기");
-  });
-});
-
-describe("cleanReply", () => {
-  it("답변 끝에 이모지가 붙어 있어도 닫는 따옴표를 걷어낸다", () => {
-    // 실제 보고된 형태 — 여는 따옴표 없이 닫는 것만 남아 말풍선에 노출됐다.
-    expect(cleanReply('그러면 보통 어떤 방식으로 교환하시나요?" 😊')).toBe(
-      "그러면 보통 어떤 방식으로 교환하시나요? 😊"
-    );
-  });
-
-  it("답변 전체를 감싼 따옴표는 꼬리 이모지를 남기고 벗겨낸다", () => {
-    expect(cleanReply('"오늘 날씨 좋네요!" 😊')).toBe("오늘 날씨 좋네요! 😊");
-  });
-
-  it("따옴표로만 감싼 일반 답변도 벗겨낸다", () => {
-    expect(cleanReply('"안녕하세요, 반가워요."')).toBe("안녕하세요, 반가워요.");
-  });
-
-  it("문장 중간의 따옴표(인용)는 건드리지 않는다", () => {
-    const text = '친구가 "고마워"라고 하더라고요.';
-    expect(cleanReply(text)).toBe(text);
-  });
-
-  it("자기 해설 괄호를 제거한다", () => {
-    // 실제 보고된 형태
-    const raw =
-      "저는 AI 도우미예요! 취미 물어보기는 어땠나요? (자연스러운 대화를 이어가기 위한 후속 질문을 덧붙여 봤습니다) 혹시 동아리 활동 중에 해보고 싶은 게 있으신가요?";
-    const cleaned = cleanReply(raw);
-    expect(cleaned).not.toContain("후속 질문을 덧붙여");
-    expect(cleaned).toContain("혹시 동아리 활동 중에");
-  });
-
-  it("짧은 감정·행동 묘사 괄호는 남긴다", () => {
-    expect(cleanReply("아 그래요? (웃음)")).toBe("아 그래요? (웃음)");
-  });
-
-  it("인용 기호와 마크다운 강조를 제거한다", () => {
-    expect(cleanReply("> **정말요?** 저도 그래요")).toBe("정말요? 저도 그래요");
   });
 });
 

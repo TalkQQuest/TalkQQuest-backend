@@ -7,7 +7,12 @@
 // 자동으로 커버되어야 하기 때문이다.
 
 import { logger } from "../../../config/logger";
-import { callUpstageChat, UpstageChatMessage } from "../../../shared/llm/upstage";
+import {
+  callUpstageChat,
+  parseLineList,
+  pickRandom,
+  UpstageChatMessage,
+} from "../../../shared/ai";
 
 // 한 미션당 만들어 두는 후보 수. 새로고침할 때마다 다른 문장이 나와야 해서
 // 노출 개수(3)보다 넉넉히 만들어 두고 그중에서 골라 준다.
@@ -64,25 +69,10 @@ const isValidStarter = (line: string): boolean => {
   return true;
 };
 
-// 줄 단위 응답을 문장 배열로 정리. 모델이 번호·따옴표를 붙이는 경우가 있어 함께 걷어낸다.
-const parseStarters = (raw: string): string[] => {
-  const seen = new Set<string>();
-  return raw
-    .split("\n")
-    .map((line) =>
-      line
-        .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
-        .replace(/^["'“”]+|["'“”]+$/g, "")
-        .trim()
-    )
-    .filter((line) => {
-      if (!isValidStarter(line)) return false;
-      if (seen.has(line)) return false;
-      seen.add(line);
-      return true;
-    })
-    .slice(0, STARTER_POOL_SIZE);
-};
+// 줄 단위 파싱·중복 제거·머리기호 정리는 공통 헬퍼가 처리하고, 여기서는 "첫 마디로 쓸 수
+// 있는 형식인지"만 판단한다.
+const parseStarters = (raw: string): string[] =>
+  parseLineList(raw, { limit: STARTER_POOL_SIZE, isValid: isValidStarter });
 
 // 미션별 첫 마디 후보 생성. 실패하거나 결과가 비면 null → 호출부가 폴백을 쓴다.
 export const generateStarters = async (
@@ -104,16 +94,5 @@ export const generateStarters = async (
 
 // 후보 중 화면에 보여줄 만큼 무작위로 고른다.
 // 앱의 새로고침 버튼이 같은 API를 다시 부르는 구조라, 매번 다른 조합이 나가면 그대로 동작한다.
-export const pickRandomStarters = (
-  pool: string[],
-  count = STARTER_DISPLAY_COUNT
-): string[] => {
-  if (pool.length <= count) return [...pool];
-
-  const shuffled = [...pool];
-  for (let i = shuffled.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled.slice(0, count);
-};
+export const pickRandomStarters = (pool: string[], count = STARTER_DISPLAY_COUNT): string[] =>
+  pickRandom(pool, count);

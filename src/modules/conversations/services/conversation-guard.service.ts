@@ -42,6 +42,60 @@ export const buildIdentityResponse = (personaHint: string | null): string => {
   return `${AI_IDENTITY_PHRASE} ${back}`;
 };
 
+// ── 출력 세척 ──
+// 프롬프트로 막아도 새는 서식을 후처리로 걷어낸다. 여기서 지우는 것들은 전부 실제로
+// 사용자 말풍선에 노출된 적이 있는 형태다. (세척으로 못 고치는 위반은 아래 validateReply가 거부한다.)
+
+const QUOTE_CHARS = `"'“”「」『』`;
+
+// 프롬프트로 막아도 새는 경우가 있어 후처리로 한 번 더 걷어낸다.
+// 여기서 지우는 것들은 전부 실제로 사용자 말풍선에 노출된 적이 있는 형태다.
+export const cleanReply = (raw: string): string => {
+  let text = raw.trim();
+
+  // 1) 자기 해설 괄호 제거.
+  //    예: "저는 …예요! (자연스러운 대화를 이어가기 위한 후속 질문을 덧붙여 봤습니다) 혹시 …?"
+  //    감정·행동 묘사((웃음) 등)까지 지우지 않도록, 해설로 보이는 서술형 어미로 끝나는
+  //    긴 괄호만 대상으로 한다.
+  text = text.replace(/\s*[(（][^)）]{10,}?(?:습니다|했어요|봤습니다|입니다)[)）]/g, "");
+
+  // 2) 줄머리 인용 기호와 마크다운 강조 제거.
+  text = text
+    .replace(/^\s*>+\s?/gm, "")
+    .replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "");
+
+  // 3) 답변 전체를 감싼 따옴표 제거.
+  //    이전 구현은 문자열 끝에서만 닫는 따옴표를 찾아, `...하시나요?" 😊`처럼 뒤에 이모지가
+  //    붙으면 못 걷어냈다(실제 발생). 뒤쪽 공백·이모지 등 비따옴표 꼬리를 건너뛰고 검사한다.
+  text = stripWrappingQuotes(text);
+
+  return text.replace(/[ \t]{2,}/g, " ").trim();
+};
+
+// 여는 따옴표가 맨 앞에 있을 때, 뒤쪽 꼬리(이모지·공백 등)를 남기고 감싼 따옴표만 제거한다.
+const stripWrappingQuotes = (text: string): string => {
+  const opensWithQuote = QUOTE_CHARS.includes(text[0] ?? "");
+
+  // 끝에서부터 따옴표가 아닌 꼬리(이모지·공백·문장부호)를 건너뛰어 닫는 따옴표 위치를 찾는다.
+  let end = text.length - 1;
+  while (end >= 0 && !QUOTE_CHARS.includes(text[end])) end -= 1;
+  const closingFound = end > 0;
+
+  if (opensWithQuote && closingFound) {
+    // 정상적으로 감싼 경우: 양쪽 따옴표만 떼고 꼬리는 살린다.
+    return (text.slice(1, end) + text.slice(end + 1)).trim();
+  }
+  if (opensWithQuote) {
+    return text.slice(1).trim();
+  }
+  if (closingFound && !text.slice(0, end).includes('"')) {
+    // 여는 따옴표 없이 닫는 것만 남은 경우(실제 보고된 형태). 짝이 없으므로 그것만 제거한다.
+    return (text.slice(0, end) + text.slice(end + 1)).trim();
+  }
+  return text;
+};
+
 // ── 출력 검증 ──
 
 export type ReplyRejectionReason =

@@ -3,7 +3,8 @@ import {
   matchesIdentityQuestion,
   validateReply,
 } from "../services/conversation-guard.service";
-import { AI_IDENTITY_PHRASE } from "../dtos/conversation.constants";
+import { cleanReply } from "../services/conversation-guard.service";
+import { AI_IDENTITY_PHRASE, buildOpeningMessage } from "../dtos/conversation.constants";
 
 describe("matchesIdentityQuestion", () => {
   it("실제 보고된 질문을 잡는다", () => {
@@ -80,5 +81,52 @@ describe("validateReply", () => {
 
   it("빈 문자열은 거부한다", () => {
     expect(validateReply("   ")).toBe("empty");
+  });
+});
+
+describe("buildOpeningMessage", () => {
+  it("파트너임을 밝히고 현재 배역을 안내한다(B안)", () => {
+    const opening = buildOpeningMessage("카페 점원에게 인사하기");
+    expect(opening).toContain(AI_IDENTITY_PHRASE);
+    expect(opening).toContain("카페 점원에게 인사하기");
+  });
+});
+
+describe("cleanReply", () => {
+  it("답변 끝에 이모지가 붙어 있어도 닫는 따옴표를 걷어낸다", () => {
+    // 실제 보고된 형태 — 여는 따옴표 없이 닫는 것만 남아 말풍선에 노출됐다.
+    expect(cleanReply('그러면 보통 어떤 방식으로 교환하시나요?" 😊')).toBe(
+      "그러면 보통 어떤 방식으로 교환하시나요? 😊"
+    );
+  });
+
+  it("답변 전체를 감싼 따옴표는 꼬리 이모지를 남기고 벗겨낸다", () => {
+    expect(cleanReply('"오늘 날씨 좋네요!" 😊')).toBe("오늘 날씨 좋네요! 😊");
+  });
+
+  it("따옴표로만 감싼 일반 답변도 벗겨낸다", () => {
+    expect(cleanReply('"안녕하세요, 반가워요."')).toBe("안녕하세요, 반가워요.");
+  });
+
+  it("문장 중간의 따옴표(인용)는 건드리지 않는다", () => {
+    const text = '친구가 "고마워"라고 하더라고요.';
+    expect(cleanReply(text)).toBe(text);
+  });
+
+  it("자기 해설 괄호를 제거한다", () => {
+    // 실제 보고된 형태
+    const raw =
+      "저는 AI 도우미예요! 취미 물어보기는 어땠나요? (자연스러운 대화를 이어가기 위한 후속 질문을 덧붙여 봤습니다) 혹시 동아리 활동 중에 해보고 싶은 게 있으신가요?";
+    const cleaned = cleanReply(raw);
+    expect(cleaned).not.toContain("후속 질문을 덧붙여");
+    expect(cleaned).toContain("혹시 동아리 활동 중에");
+  });
+
+  it("짧은 감정·행동 묘사 괄호는 남긴다", () => {
+    expect(cleanReply("아 그래요? (웃음)")).toBe("아 그래요? (웃음)");
+  });
+
+  it("인용 기호와 마크다운 강조를 제거한다", () => {
+    expect(cleanReply("> **정말요?** 저도 그래요")).toBe("정말요? 저도 그래요");
   });
 });

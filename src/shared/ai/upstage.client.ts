@@ -79,3 +79,65 @@ export const callUpstageChat = async (
 
 // 호출부에서 로깅/모델명 표기에 쓰도록 현재 모델명을 노출한다.
 export const upstageModel = (): string => env.UPSTAGE_MODEL;
+
+// ── 임베딩 ──
+// 미리 정의한 상황 규칙과 사용자 발화를 의미로 대조하기 위해 쓴다(정규식으로는 표현이 조금만
+// 달라져도 놓치기 때문).
+//
+// Upstage 임베딩은 비대칭 검색용으로 두 모델이 나뉘어 있다.
+//  - passage: 저장해 둘 문서(여기서는 규칙의 "when" 조건)
+//  - query:   찾을 때 쓰는 질의(여기서는 사용자의 최신 발화)
+// 양쪽을 같은 모델로 임베딩하면 유사도가 제대로 나오지 않으므로 용도에 맞게 골라 써야 한다.
+export type EmbeddingPurpose = "passage" | "query";
+
+export type UpstageEmbeddingResult =
+  | { ok: true; embeddings: number[][] }
+  | { ok: false; reason: "no_api_key" | "timeout" | "network_error" | "empty_response" }
+  | { ok: false; reason: "http_error"; status: number };
+
+export const callUpstageEmbedding = async (
+  inputs: string[],
+  purpose: EmbeddingPurpose
+): Promise<UpstageEmbeddingResult> => {
+  if (!env.UPSTAGE_API_KEY) {
+    return { ok: false, reason: "no_api_key" };
+  }
+  if (inputs.length === 0) {
+    return { ok: true, embeddings: [] };
+  }
+
+  try {
+    const res = await fetchWithTimeout(`${env.UPSTAGE_BASE_URL}/embeddings`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.UPSTAGE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: purpose === "query" ? env.UPSTAGE_EMBEDDING_QUERY_MODEL : env.UPSTAGE_EMBEDDING_PASSAGE_MODEL,
+        input: inputs,
+      }),
+    });
+
+    if (!res.ok) {
+      return { ok: false, reason: "http_error", status: res.status };
+    }
+
+    // 응답 순서가 요청 순서와 다를 수 있어 index로 정렬한다(OpenAI 호환 규격).
+    const body = (await res.json()) as { data?: { index?: number; embedding?: number[] }[] };
+    const rows = body.data ?? [];
+    const embeddings = rows
+      .slice()
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+      .map((row) => row.embedding ?? []);
+
+    if (embeddings.length !== inputs.length || embeddings.some((e) => e.length === 0)) {
+      return { ok: false, reason: "empty_response" };
+    }
+    return { ok: true, embeddings };
+  } catch (error) {
+    const isTimeout = error instanceof Error && error.name === "AbortError";
+    logger.warn({ err: error }, "Upstage 임베딩 호출 실패");
+    return { ok: false, reason: isTimeout ? "timeout" : "network_error" };
+  }
+};

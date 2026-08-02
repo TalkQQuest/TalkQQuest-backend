@@ -30,10 +30,43 @@ export interface MatchOptions {
 }
 
 /**
- * 질의 문장과 의미가 가까운 후보를 유사도 내림차순으로 고른다.
+ * 질의 문장을 query 모델로 임베딩한다. 실패하면 null.
  *
- * 저장된 후보는 passage 모델로, 질의는 query 모델로 임베딩해야 한다(Upstage는 비대칭 검색).
- * 이 함수는 질의 임베딩만 담당하므로, 후보의 embedding은 passage로 만들어 둔 값이어야 한다.
+ * 한 턴에 여러 대상을 매칭할 때는 이 함수로 **벡터를 한 번만 만들어 재사용**한다.
+ * (대화 한 턴에서 상황 규칙 매칭과 흐름 단계 판정을 모두 하는데, 각자 임베딩하면
+ *  같은 문장에 대해 API를 두 번 부르게 된다.)
+ */
+export const embedQuery = async (query: string, label: string): Promise<number[] | null> => {
+  const embedded = await callUpstageEmbedding([query], "query");
+  if (!embedded.ok) {
+    logger.warn({ label, reason: embedded.reason }, "질의 임베딩 실패");
+    return null;
+  }
+  return embedded.embeddings[0];
+};
+
+/** 코사인 유사도. 차원이 다르면 라이브러리가 null을 돌려주므로 0으로 본다. */
+export const cosine = (a: number[], b: number[]): number => similarity(a, b) ?? 0;
+
+/**
+ * 이미 만들어 둔 질의 벡터로 후보를 추려 유사도 내림차순으로 돌려준다.
+ *
+ * 저장된 후보는 passage 모델로 임베딩해 둔 값이어야 한다(Upstage는 비대칭 검색).
+ */
+export const rankByVector = <T extends EmbeddedCandidate>(
+  candidates: T[],
+  queryVector: number[],
+  options: Omit<MatchOptions, "label">
+): ScoredCandidate<T>[] =>
+  candidates
+    .map((candidate) => ({ ...candidate, score: cosine(queryVector, candidate.embedding) }))
+    .filter((candidate) => candidate.score >= options.threshold)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, options.limit);
+
+/**
+ * 임베딩 + 매칭을 한 번에 하는 편의 함수. 한 턴에 한 대상만 매칭할 때 쓴다.
+ * 여러 대상을 매칭한다면 embedQuery + rankByVector로 나눠 벡터를 재사용할 것.
  *
  * 임베딩 호출이 실패하면 빈 배열 — 매칭을 건너뛸 뿐 호출부의 기능 자체는 계속 동작해야 한다.
  */
@@ -44,20 +77,8 @@ export const matchByEmbedding = async <T extends EmbeddedCandidate>(
 ): Promise<ScoredCandidate<T>[]> => {
   if (candidates.length === 0) return [];
 
-  const embedded = await callUpstageEmbedding([query], "query");
-  if (!embedded.ok) {
-    logger.warn({ label: options.label, reason: embedded.reason }, "질의 임베딩 실패 — 매칭 생략");
-    return [];
-  }
-  const queryVector = embedded.embeddings[0];
+  const queryVector = await embedQuery(query, options.label);
+  if (!queryVector) return [];
 
-  return candidates
-    .map((candidate) => ({
-      ...candidate,
-      // 차원이 다르면 라이브러리가 null을 돌려준다(모델 교체 후 옛 임베딩이 남은 경우 등).
-      score: similarity(queryVector, candidate.embedding) ?? 0,
-    }))
-    .filter((candidate) => candidate.score >= options.threshold)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, options.limit);
+  return rankByVector(candidates, queryVector, options);
 };

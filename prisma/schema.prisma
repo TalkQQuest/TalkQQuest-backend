@@ -365,6 +365,10 @@ model Conversations {
   // 과제를 먼저 수행해버렸다. 그래서 "사용자의 몫"을 별도로 뽑아 저장하고, 매 턴
   // "이 행동은 당신이 하지 않는다"는 금지 규칙으로 주입한다.
   user_task      String?            @db.VarChar(255)
+  // 지금 진행 중인 대화 흐름 단계(Missions.dialogue_playbook.flow의 인덱스).
+  // 턴 수로 넘기면 사용자가 아직 그 단계를 해내지 못했는데도 다음으로 가버려서,
+  // 사용자 발화가 단계의 통과 조건(advanceWhen)과 의미상 맞을 때만 올린다.
+  flow_step      Int                @default(0)
   status         ConversationStatus @default(in_progress)
   started_at     DateTime           @default(now())
   finished_at    DateTime?

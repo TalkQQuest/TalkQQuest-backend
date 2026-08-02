@@ -65,6 +65,14 @@ export class ConversationRepository {
         });
     }
 
+    // 대화 흐름 단계가 올라갔을 때만 저장한다(매 턴 UPDATE를 피하기 위해 호출부가 판단).
+    async updateFlowStep(conversationId: string, flowStep: number) {
+        return this.prisma.conversations.update({
+        where: { id: conversationId },
+        data: { flow_step: flowStep },
+        });
+    }
+
     // 미션당 1회 생성한 플레이북을 캐시한다. 이후 모든 사용자가 재사용한다.
     async saveMissionPlaybook(missionId: string, playbook: unknown) {
         return this.prisma.missions.update({

@@ -28,8 +28,12 @@ export interface GuideReplyContext {
    * 금지 규칙으로 주입한다. 예전 대화는 null일 수 있다.
    */
   userTask: string | null;
-  /** 이 미션의 대화 흐름 단계(Missions.dialogue_playbook.flow). 없으면 흐름 지침 없이 진행한다. */
-  flow: string[];
+  /**
+   * 지금 진행 중인 대화 흐름 단계 하나. 플레이북이 없으면 null.
+   * 단계를 여러 개 주면 모델이 한 턴에 다 하려 하거나 "어느 단계인지"를 스스로 설명하기
+   * 시작하므로(실측 거부율 30%), 어느 단계인지는 서버가 정해 하나만 넘긴다.
+   */
+  flowStep: string | null;
   /**
    * 이번 사용자 발화와 의미가 가까워 선별된 상황 규칙. 전부 넣으면 토큰이 커지고 대화가
    * 대본처럼 굳으므로 매 턴 관련 있는 것만 골라 넣는다.
@@ -81,9 +85,9 @@ const buildSystemPrompt = (ctx: GuideReplyContext): string => {
 
   // 대화 흐름 지침. "하면 안 되는 것"만으로는 AI가 직전 발화에만 반응해 겉돌기 때문에,
   // 대화가 어디로 가야 하는지도 함께 준다.
-  if (ctx.flow.length > 0) {
-    lines.push("", "대화 흐름 (순서대로 진행하되, 사용자 속도에 맞춥니다):");
-    lines.push(...ctx.flow.map((step, i) => `${i + 1}. ${step}`));
+  // 단계 판정·진행은 서버(playbook.service의 advanceFlow)가 하고, 여기서는 정해진 단계 하나만 넣는다.
+  if (ctx.flowStep) {
+    lines.push("", `지금 대화 단계: ${ctx.flowStep}`);
   }
 
   // 이번 발화와 관련 있는 상황 규칙만 골라 들어온다(임베딩 유사도로 선별).

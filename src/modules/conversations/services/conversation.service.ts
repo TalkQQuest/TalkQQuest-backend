@@ -20,10 +20,12 @@ import {
     matchesIdentityQuestion,
 } from "./conversation-guard.service";
 import {
+    advanceFlow,
     generatePlaybook,
     matchResponseRules,
     parseStoredPlaybook,
 } from "../../mission/services/playbook.service";
+import { embedQuery } from "../../../shared/ai";
 import { durationMinutes } from "../../../shared/utils/date";
 
 // LLM이 실패(키 없음/오류/재시도까지 실패)했을 때 대화가 끊기지 않도록 쓰는 템플릿 폴백 (Requirement 5.5).
@@ -180,14 +182,21 @@ const MOCK_GUIDE_RESPONSES = [
         await this.conversationRepository.saveMissionPlaybook(mission.id, playbook);
     }
 
+    // 이 대화에서 지금까지 오간 사용자 발화 수. advanceFlow가 단계별 턴 상한을 계산하는 데 쓴다.
+    private countUserTurns(history: { role: string; content: string }[]): number {
+        return history.filter((m) => m.role === "user").length;
+    }
+
     // 이번 턴의 상대 답변을 정한다.
     //  1) 정체 질문이면 LLM을 거치지 않고 고정 문구로 답한다(가드레일).
     //  2) 그 외에는 LLM 생성 → 규칙 검증 통과분만 사용.
     //  3) 생성·검증이 모두 실패하면 대화가 끊기지 않도록 템플릿으로 폴백한다(5.5).
     private async buildGuideContent(
         conversation: {
+            id: string;
             persona: string | null;
             user_task: string | null;
+            flow_step: number;
             mission: { title: string; description: string | null; dialogue_playbook?: unknown };
         },
         profile: { personality_type: string | null; preferred_style: string | null } | null,
@@ -200,18 +209,28 @@ const MOCK_GUIDE_RESPONSES = [
         return buildIdentityResponse(conversation.persona);
         }
 
-        // 흐름 지침은 항상, 상황 규칙은 이번 발화와 관련 있는 것만 골라 넣는다.
         const playbook = parseStoredPlaybook(conversation.mission.dialogue_playbook);
-        const matchedRules = playbook
-        ? await matchResponseRules(playbook, latestUserMessage)
-        : [];
+
+        // 사용자 발화를 **한 번만** 임베딩해 상황 규칙 매칭과 흐름 단계 판정에 함께 쓴다.
+        // 각자 임베딩하면 같은 문장으로 API를 두 번 부르게 된다.
+        const queryVector = playbook ? await embedQuery(latestUserMessage, "대화 플레이북") : null;
+
+        // 상황 규칙은 이번 발화와 관련 있는 것만 골라 넣는다.
+        const matchedRules = playbook && queryVector ? matchResponseRules(playbook, queryVector) : [];
+
+        // 흐름은 사용자가 현재 단계의 통과 조건을 충족했을 때만 다음으로 넘어간다.
+        const totalUserTurns = this.countUserTurns(history);
+        const progress = advanceFlow(playbook, conversation.flow_step, totalUserTurns, queryVector);
+        if (progress.advanced) {
+        await this.conversationRepository.updateFlowStep(conversation.id, progress.stepIndex);
+        }
 
         const llmReply = await generateGuideReply({
         missionTitle: conversation.mission.title,
         missionDescription: conversation.mission.description,
         persona: conversation.persona,
         userTask: conversation.user_task,
-        flow: playbook?.flow ?? [],
+        flowStep: progress.step,
         matchedRules,
         personality: profile?.personality_type ?? null,
         preferredStyle: profile?.preferred_style ?? null,

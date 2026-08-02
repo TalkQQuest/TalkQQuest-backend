@@ -70,6 +70,12 @@ export const cleanReply = (raw: string): string => {
   //    붙으면 못 걷어냈다(실제 발생). 뒤쪽 공백·이모지 등 비따옴표 꼬리를 건너뛰고 검사한다.
   text = stripWrappingQuotes(text);
 
+  // 4) 줄바꿈을 공백으로 합친다.
+  //    답변은 말풍선 하나에 그대로 들어가는데, 모델이 한 마디 안에서 줄을 나눠 보내는 경우가
+  //    있어("여기 커피 괜찮은데 \n우리 스터디 자료는…") 그대로 두면 말풍선이 어색하게 쪼개진다.
+  //    2)에서 줄머리 기호를 지운 뒤에 합쳐야 기호가 문장 중간에 남지 않는다.
+  text = text.replace(/\s*[\r\n]+\s*/g, " ");
+
   return text.replace(/[ \t]{2,}/g, " ").trim();
 };
 

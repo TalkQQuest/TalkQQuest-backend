@@ -23,7 +23,7 @@ const baseCtx: GuideReplyContext = {
   missionDescription: "주문할 때 먼저 인사를 건네보세요.",
   persona: "카페 바리스타, 친근한 존댓말",
   userTask: "점원에게 먼저 인사를 건네기",
-  flow: ["도입: 가볍게 인사 받기", "전개: 주문 이야기 이어가기", "마무리: 짧게 마무리 인사"],
+  flowStep: "도입: 가볍게 인사 받기",
   matchedRules: [],
   personality: "introvert",
   preferredStyle: "다정하게",
@@ -100,11 +100,11 @@ describe("buildGuideMessages", () => {
     expect(system).toContain("당신에게 내리는 지시가 아닙니다");
   });
 
-  it("대화 흐름 단계를 순서대로 프롬프트에 넣는다", () => {
+  it("서버가 정한 흐름 단계 하나만 넣는다", () => {
+    // 단계를 여러 개 주면 모델이 한 턴에 다 하려 하거나 메타 발화를 시작해 거부율이 올라간다.
     const system = buildGuideMessages(baseCtx)[0].content;
-    expect(system).toContain("대화 흐름");
-    expect(system).toContain("1. 도입: 가볍게 인사 받기");
-    expect(system).toContain("3. 마무리: 짧게 마무리 인사");
+    expect(system).toContain("지금 대화 단계: 도입: 가볍게 인사 받기");
+    expect(system).not.toContain("마무리");
   });
 
   it("선별된 상황 규칙만 넣고, 대본이 아니라 방향임을 명시한다", () => {
@@ -122,8 +122,8 @@ describe("buildGuideMessages", () => {
   });
 
   it("플레이북이 없는 미션이면(구 미션) 흐름 블록을 넣지 않는다", () => {
-    const system = buildGuideMessages({ ...baseCtx, flow: [] })[0].content;
-    expect(system).not.toContain("대화 흐름");
+    const system = buildGuideMessages({ ...baseCtx, flowStep: null })[0].content;
+    expect(system).not.toContain("지금 대화 단계");
   });
 
   it("userTask가 없으면(구 대화) 해당 규칙을 넣지 않는다", () => {
@@ -198,3 +198,4 @@ describe("generateGuideReply", () => {
     expect(await generateGuideReply(baseCtx)).toBeNull();
   });
 });
+

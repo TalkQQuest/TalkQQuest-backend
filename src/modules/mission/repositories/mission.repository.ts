@@ -123,6 +123,27 @@ export const createPrepItems = (
     })),
   });
 
+// ── 대화 플레이북 (Mission_Playbooks) ──
+// 임베딩 때문에 1MB를 넘길 수 있어 Missions와 분리된 테이블이다. 여기서만 다룬다.
+
+export const findPlaybookByMissionId = (missionId: string) =>
+  prisma.mission_Playbooks.findUnique({
+    where: { mission_id: missionId },
+    select: { data: true, updated_at: true },
+  });
+
+// 같은 미션으로 동시에 대화를 시작하면 둘 다 생성할 수 있어 upsert로 받는다.
+export const upsertPlaybook = (missionId: string, data: unknown) =>
+  prisma.mission_Playbooks.upsert({
+    where: { mission_id: missionId },
+    create: { mission_id: missionId, data: data as never },
+    update: { data: data as never },
+  });
+
+// 삭제해도 다음 대화 시작 시 자동 재생성된다(ensureMissionPlaybook).
+export const deletePlaybook = (missionId: string) =>
+  prisma.mission_Playbooks.deleteMany({ where: { mission_id: missionId } });
+
 // ── AI 미션 추천 파이프라인용 조회 (recommendation/difficulty/template.service) ──
 
 export const findUserProfileByUserId = (userId: string) =>

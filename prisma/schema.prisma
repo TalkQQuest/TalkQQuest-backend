@@ -296,12 +296,6 @@ model Missions {
   reward_xp         Int      @default(0)
   category          String   @db.VarChar(100)
   is_template       Boolean  @default(false)
-  // 이 미션의 대화 진행 지침(flow + responseRules). 미션당 1회 생성해 캐시하고 모든 사용자가
-  // 재사용한다 — 흐름은 미션의 속성이라 세션마다 달라질 이유가 없고, LLM 비용도 세션 수가
-  // 아니라 미션 수에 비례하게 된다(Mission_Prep_Items 첫 마디 캐시와 같은 방식).
-  // responseRules의 각 항목은 "when" 조건의 임베딩을 함께 들고 있어, 사용자 발화와 의미로
-  // 대조해 관련 있는 규칙만 골라 프롬프트에 넣는다(전부 넣으면 매 턴 토큰이 커진다).
-  dialogue_playbook Json?
   created_at        DateTime @default(now())
 
   // Relations
@@ -309,6 +303,9 @@ model Missions {
   saves           Mission_Saves[]
   conversations   Conversations[]
   mission_records Mission_Records[]
+  // 대화 진행 지침. 임베딩 때문에 1MB를 넘길 수 있어 별도 테이블로 뺐다 —
+  // 필요한 곳에서만 명시적으로 join할 것(Missions를 select 없이 조회하면 딸려오지 않는다).
+  playbook        Mission_Playbooks?
 
   @@map("Missions")
 }
@@ -316,6 +313,28 @@ model Missions {
 // ----------------------------
 // Mission_Prep_Items
 // ----------------------------
+// ----------------------------
+// Mission_Playbooks
+// 미션별 대화 진행 지침(flow + responseRules)과 그 임베딩.
+//
+// Missions에 JSON 컬럼으로 두었더니 미션 1건이 1.1MB까지 커졌다(임베딩 4096차원 × 10개를
+// JSON 텍스트로 저장). select 없이 Missions를 조회하는 모든 쿼리가 이걸 통째로 끌고 왔고,
+// ORDER BY가 걸리면 MySQL sort_buffer_size(256KB)를 넘겨 `GET /missions`가 500으로 죽었다.
+// 별도 테이블로 빼서 **필요한 곳에서만 명시적으로 join**하게 한다.
+// ----------------------------
+model Mission_Playbooks {
+  id         String   @id @default(uuid()) @db.Char(36)
+  mission_id String   @unique @db.Char(36)
+  // { flow: [{step, advanceExamples, advanceEmbeddings}], responseRules: [{when, then, whenEmbedding}] }
+  data       Json
+  created_at DateTime @default(now())
+  updated_at DateTime @default(dbgenerated("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")) @db.Timestamp(0)
+
+  mission Missions @relation(fields: [mission_id], references: [id], onDelete: Cascade)
+
+  @@map("Mission_Playbooks")
+}
+
 model Mission_Prep_Items {
   id          String       @id @default(uuid()) @db.Char(36)
   mission_id  String       @db.Char(36)

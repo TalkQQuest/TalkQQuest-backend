@@ -25,6 +25,8 @@ import {
     matchResponseRules,
     parseStoredPlaybook,
 } from "../../mission/services/playbook.service";
+// 플레이북 저장은 미션 소유 데이터라 미션 리포지토리를 쓴다.
+import { upsertPlaybook } from "../../mission/repositories/mission.repository";
 import { embedQuery } from "../../../shared/ai";
 import { durationMinutes } from "../../../shared/utils/date";
 
@@ -172,14 +174,14 @@ const MOCK_GUIDE_RESPONSES = [
         id: string;
         title: string;
         description: string | null;
-        dialogue_playbook: unknown;
+        playbook: { data: unknown } | null;
     }): Promise<void> {
-        if (parseStoredPlaybook(mission.dialogue_playbook)) return;
+        if (parseStoredPlaybook(mission.playbook?.data)) return;
 
         const playbook = await generatePlaybook(mission.title, mission.description);
         if (!playbook) return;
 
-        await this.conversationRepository.saveMissionPlaybook(mission.id, playbook);
+        await upsertPlaybook(mission.id, playbook);
     }
 
     // 이 대화에서 지금까지 오간 사용자 발화 수. advanceFlow가 단계별 턴 상한을 계산하는 데 쓴다.
@@ -197,7 +199,7 @@ const MOCK_GUIDE_RESPONSES = [
             persona: string | null;
             user_task: string | null;
             flow_step: number;
-            mission: { title: string; description: string | null; dialogue_playbook?: unknown };
+            mission: { title: string; description: string | null; playbook?: { data: unknown } | null };
         },
         profile: { personality_type: string | null; preferred_style: string | null } | null,
         history: { role: string; content: string }[],
@@ -209,7 +211,7 @@ const MOCK_GUIDE_RESPONSES = [
         return buildIdentityResponse(conversation.persona);
         }
 
-        const playbook = parseStoredPlaybook(conversation.mission.dialogue_playbook);
+        const playbook = parseStoredPlaybook(conversation.mission.playbook?.data);
 
         // 사용자 발화를 **한 번만** 임베딩해 상황 규칙 매칭과 흐름 단계 판정에 함께 쓴다.
         // 각자 임베딩하면 같은 문장으로 API를 두 번 부르게 된다.

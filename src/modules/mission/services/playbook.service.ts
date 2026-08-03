@@ -166,7 +166,17 @@ export const generatePlaybook = async (
   const parsed = parseJsonResponse(result.content, generatedPlaybookSchema, "대화 플레이북");
   if (!parsed) return null;
 
-  // 규칙의 when과 단계의 advanceWhen을 미리 임베딩해 함께 저장한다.
+  return embedPlaybook(parsed);
+};
+
+// LLM이 만든(또는 사람이 손으로 고친) 텍스트 플레이북에 임베딩을 붙여 저장 형태로 만든다.
+//
+// **텍스트를 고쳤으면 반드시 여기를 다시 거쳐야 한다.** 임베딩만 옛 텍스트로 남으면
+// 매칭이 조용히 어긋난다 — 겉으로는 정상이라 알아채기 어렵다.
+export const embedPlaybook = async (
+  parsed: z.infer<typeof generatedPlaybookSchema>
+): Promise<DialoguePlaybook> => {
+  // 규칙의 when과 단계의 예시 발화를 미리 임베딩해 함께 저장한다.
   // 매 턴 다시 임베딩하면 비용·지연이 생기고, 두 종류를 한 번의 호출로 묶어 왕복도 줄인다.
   // 임베딩이 실패해도 플레이북 자체는 쓸모가 있으므로(단계는 턴 수로도 넘어간다) 그대로 저장한다.
   const ruleConditions = parsed.responseRules.map((rule) => rule.when);
@@ -294,3 +304,27 @@ export const advanceFlow = (
     advanced: nextIndex !== currentStep,
   };
 };
+
+// ── CRUD (운영/튜닝용) ──
+// 플레이북은 자동 생성되지만, 품질이 나쁘게 나오면 눈으로 보고 손봐야 한다.
+// 아래 함수들이 GET/PUT/POST regenerate/DELETE의 실제 동작을 담당한다.
+
+/** 응답용 형태 — 임베딩은 뺀다(4096차원 × 10개라 1MB가 넘고, 사람이 볼 값이 아니다). */
+export interface PlaybookView {
+  flow: { step: string; advanceExamples: string[] }[];
+  responseRules: { when: string; then: string }[];
+  /** 임베딩이 붙어 있는지. false면 단계 진행이 턴 상한으로만 동작한다. */
+  hasEmbeddings: boolean;
+}
+
+export const toPlaybookView = (playbook: DialoguePlaybook): PlaybookView => ({
+  flow: playbook.flow.map(({ step, advanceExamples }) => ({ step, advanceExamples })),
+  responseRules: playbook.responseRules.map(({ when, then }) => ({ when, then })),
+  hasEmbeddings:
+    playbook.flow.some((s) => (s.advanceEmbeddings?.length ?? 0) > 0) ||
+    playbook.responseRules.some((r) => (r.whenEmbedding?.length ?? 0) > 0),
+});
+
+/** 사람이 보내는 수정 요청. 임베딩은 받지 않는다 — 서버가 다시 계산한다. */
+export const playbookInputSchema = generatedPlaybookSchema;
+export type PlaybookInput = z.infer<typeof playbookInputSchema>;

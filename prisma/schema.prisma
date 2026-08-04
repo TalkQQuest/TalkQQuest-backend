@@ -304,6 +304,9 @@ model Missions {
   saves           Mission_Saves[]
   conversations   Conversations[]
   mission_records Mission_Records[]
+  // 대화 진행 지침. 임베딩 때문에 1MB를 넘길 수 있어 별도 테이블로 뺐다 —
+  // 필요한 곳에서만 명시적으로 join할 것(Missions를 select 없이 조회하면 딸려오지 않는다).
+  playbook        Mission_Playbooks?
 
   @@map("Missions")
 }
@@ -311,6 +314,28 @@ model Missions {
 // ----------------------------
 // Mission_Prep_Items
 // ----------------------------
+// ----------------------------
+// Mission_Playbooks
+// 미션별 대화 진행 지침(flow + responseRules)과 그 임베딩.
+//
+// Missions에 JSON 컬럼으로 두었더니 미션 1건이 1.1MB까지 커졌다(임베딩 4096차원 × 10개를
+// JSON 텍스트로 저장). select 없이 Missions를 조회하는 모든 쿼리가 이걸 통째로 끌고 왔고,
+// ORDER BY가 걸리면 MySQL sort_buffer_size(256KB)를 넘겨 `GET /missions`가 500으로 죽었다.
+// 별도 테이블로 빼서 **필요한 곳에서만 명시적으로 join**하게 한다.
+// ----------------------------
+model Mission_Playbooks {
+  id         String   @id @default(uuid()) @db.Char(36)
+  mission_id String   @unique @db.Char(36)
+  // { flow: [{step, advanceExamples, advanceEmbeddings}], responseRules: [{when, then, whenEmbedding}] }
+  data       Json
+  created_at DateTime @default(now())
+  updated_at DateTime @default(dbgenerated("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")) @db.Timestamp(0)
+
+  mission Missions @relation(fields: [mission_id], references: [id], onDelete: Cascade)
+
+  @@map("Mission_Playbooks")
+}
+
 model Mission_Prep_Items {
   id          String       @id @default(uuid()) @db.Char(36)
   mission_id  String       @db.Char(36)
@@ -350,6 +375,20 @@ model Conversations {
   mission_id     String             @db.Char(36)
   mode           String?            @db.VarChar(50)
   selected_topic String?            @db.VarChar(255)
+  // 이 대화에서 AI가 맡은 배역(예: "동아리 1년차 선배, 친근한 존댓말").
+  // 세션 생성 시 한 번 정해 저장하고 매 턴 시스템 프롬프트에 주입한다.
+  // 저장하지 않으면 배역이 메시지 이력에만 남아, 이력 상한(최근 10개)을 넘기는 순간
+  // 설정이 사라지고 AI가 도우미 말투로 돌아가는 문제가 생긴다.
+  persona        String?            @db.VarChar(255)
+  // 사용자가 이 대화에서 해내야 할 행동 한 줄(예: "자기가 본 영화의 인상 깊은 장면을 설명하기").
+  // Missions.description은 "~해 보세요"처럼 사용자에게 하는 명령문이라 AI가 자기 지시로 읽고
+  // 과제를 먼저 수행해버렸다. 그래서 "사용자의 몫"을 별도로 뽑아 저장하고, 매 턴
+  // "이 행동은 당신이 하지 않는다"는 금지 규칙으로 주입한다.
+  user_task      String?            @db.VarChar(255)
+  // 지금 진행 중인 대화 흐름 단계(Missions.dialogue_playbook.flow의 인덱스).
+  // 턴 수로 넘기면 사용자가 아직 그 단계를 해내지 못했는데도 다음으로 가버려서,
+  // 사용자 발화가 단계의 통과 조건(advanceWhen)과 의미상 맞을 때만 올린다.
+  flow_step      Int                @default(0)
   status         ConversationStatus @default(in_progress)
   started_at     DateTime           @default(now())
   finished_at    DateTime?

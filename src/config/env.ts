@@ -21,6 +21,10 @@ const envSchema = z.object({
   UPSTAGE_API_KEY: z.string().optional(),
   UPSTAGE_BASE_URL: z.string().default("https://api.upstage.ai/v1"),
   UPSTAGE_MODEL: z.string().default("solar-pro"),
+  // 임베딩(대화 상황 규칙 매칭용)은 비대칭 검색이라 저장용/질의용 모델이 나뉜다.
+  // 같은 모델로 양쪽을 임베딩하면 유사도가 제대로 나오지 않는다.
+  UPSTAGE_EMBEDDING_PASSAGE_MODEL: z.string().default("embedding-passage"),
+  UPSTAGE_EMBEDDING_QUERY_MODEL: z.string().default("embedding-query"),
 });
 
 const parsed = envSchema.safeParse(process.env);

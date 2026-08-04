@@ -1,12 +1,12 @@
 jest.mock("../../../config/logger", () => ({
   logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
-jest.mock("../../../shared/llm/upstage", () => ({
-  ...jest.requireActual("../../../shared/llm/upstage"),
+jest.mock("../../../shared/ai/upstage.client", () => ({
+  ...jest.requireActual("../../../shared/ai/upstage.client"),
   callUpstageChat: jest.fn(),
 }));
 
-import { callUpstageChat } from "../../../shared/llm/upstage";
+import { callUpstageChat } from "../../../shared/ai/upstage.client";
 import {
   buildFeedbackMessages,
   generateFeedbackWithLlm,
@@ -20,22 +20,23 @@ const transcript = [
   { role: "user" as const, content: "혹시 이 근처 자주 오세요?" },
 ];
 
+// transcript의 사용자 발화는 2건이므로 유효한 번호는 1, 2뿐이다.
 const validMetric = {
   score: 90,
   strengths: ["존중하는 표현을 썼어요"],
   improvements: ["조금 더 구체적으로 칭찬해보세요"],
-  bestSentence: "안녕하세요! 오늘 날씨가 좋네요",
+  bestSentenceIndex: 1,
 };
 
 const validResponse = JSON.stringify({
   kindness: validMetric,
   initiative: validMetric,
   empathy: validMetric,
-  questionLink: validMetric,
+  questionLink: { ...validMetric, bestSentenceIndex: 2 },
   missionSummary: ["장소 경험을 공유했어요"],
   summaryChips: ["자기성장", "첫 만남", "스몰토크"],
   conversationSummary: "카페에서 처음 만난 사람에게 먼저 인사를 건네고 날씨와 동네 이야기를 나눴습니다.",
-  savedPhrase: "오늘 날씨가 정말 좋네요.",
+  savedPhraseIndex: 1,
 });
 
 beforeEach(() => jest.clearAllMocks());
@@ -75,8 +76,73 @@ describe("generateFeedbackWithLlm", () => {
     expect(result?.missionSummary).toEqual(["장소 경험을 공유했어요"]);
     expect(result?.summaryChips).toEqual(["자기성장", "첫 만남", "스몰토크"]);
     expect(result?.conversationSummary).toContain("카페에서 처음 만난 사람");
-    expect(result?.savedPhrase).toBe("오늘 날씨가 정말 좋네요.");
     expect(mockedCall).toHaveBeenCalledTimes(1);
+  });
+
+  it("번호를 실제 사용자 발화 원문으로 되돌려준다", async () => {
+    mockedCall.mockResolvedValue({ ok: true, content: validResponse });
+
+    const result = await generateFeedbackWithLlm(transcript, "인사 연습", null);
+
+    // 1번 = 첫 번째 사용자 발화, 2번 = 두 번째 사용자 발화 (guide 발화는 번호에서 제외된다)
+    expect(result?.metrics.kindness.bestSentence).toBe("안녕하세요! 오늘 날씨가 좋네요");
+    expect(result?.metrics.questionLink.bestSentence).toBe("혹시 이 근처 자주 오세요?");
+    expect(result?.savedPhrase).toBe("안녕하세요! 오늘 날씨가 좋네요");
+  });
+
+  it("사용자 발화 범위를 벗어난 번호를 고르면 null을 반환한다(하지 않은 말 방지)", async () => {
+    // 사용자 발화는 2건인데 3번을 고른 경우 = 지어낸 문장
+    mockedCall.mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({
+        kindness: validMetric,
+        initiative: validMetric,
+        empathy: validMetric,
+        questionLink: { ...validMetric, bestSentenceIndex: 3 },
+        missionSummary: ["요약"],
+        summaryChips: ["자기성장", "첫 만남", "스몰토크"],
+        conversationSummary: "요약 문장입니다.",
+        savedPhraseIndex: 1,
+      }),
+    });
+
+    expect(await generateFeedbackWithLlm(transcript, "인사 연습", null)).toBeNull();
+  });
+
+  it("savedPhraseIndex가 범위를 벗어나도 null을 반환한다", async () => {
+    mockedCall.mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({
+        kindness: validMetric,
+        initiative: validMetric,
+        empathy: validMetric,
+        questionLink: validMetric,
+        missionSummary: ["요약"],
+        summaryChips: ["자기성장", "첫 만남", "스몰토크"],
+        conversationSummary: "요약 문장입니다.",
+        savedPhraseIndex: 99,
+      }),
+    });
+
+    expect(await generateFeedbackWithLlm(transcript, "인사 연습", null)).toBeNull();
+  });
+
+  it("문장을 직접 써서 보내면(구 형식) 스키마 검증에서 걸러진다", async () => {
+    mockedCall.mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({
+        kindness: { ...validMetric, bestSentenceIndex: undefined, bestSentence: "오늘 어떤 음료가 인기 있어요?" },
+        initiative: validMetric,
+        empathy: validMetric,
+        questionLink: validMetric,
+        missionSummary: ["요약"],
+        summaryChips: ["자기성장", "첫 만남", "스몰토크"],
+        conversationSummary: "요약 문장입니다.",
+        savedPhraseIndex: 1,
+      }),
+    });
+
+    expect(await generateFeedbackWithLlm(transcript, "인사 연습", null)).toBeNull();
   });
 
   it("1차 실패 후 재시도가 성공하면 그 결과를 쓴다", async () => {
@@ -125,7 +191,7 @@ describe("generateFeedbackWithLlm", () => {
         missionSummary: ["요약"],
         summaryChips: ["자기성장", "첫 만남", "스몰토크"],
         conversationSummary: "요약 문장입니다.",
-        savedPhrase: "문장",
+        savedPhraseIndex: 1,
       }),
     });
 
@@ -144,7 +210,7 @@ describe("generateFeedbackWithLlm", () => {
         missionSummary: ["요약"],
         summaryChips: ["자기성장", "첫 만남"],
         conversationSummary: "요약 문장입니다.",
-        savedPhrase: "문장",
+        savedPhraseIndex: 1,
       }),
     });
     expect(await generateFeedbackWithLlm(transcript, "인사 연습", null)).toBeNull();
@@ -160,7 +226,7 @@ describe("generateFeedbackWithLlm", () => {
         missionSummary: ["요약"],
         summaryChips: ["자기성장", "첫 만남", "오늘 처음 만난 사람과 즐겁게 대화했어요"],
         conversationSummary: "요약 문장입니다.",
-        savedPhrase: "문장",
+        savedPhraseIndex: 1,
       }),
     });
     expect(await generateFeedbackWithLlm(transcript, "인사 연습", null)).toBeNull();

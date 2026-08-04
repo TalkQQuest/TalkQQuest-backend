@@ -20,3 +20,17 @@ export class MissionProfileNotFoundError extends AppError {
     super("MISSION_PROFILE_NOT_FOUND", 404, message);
   }
 }
+// GET/PUT/DELETE /missions/{missionId}/playbook — 아직 생성되지 않은 미션.
+// 플레이북은 첫 대화 시작 시 자동 생성되므로, 대화가 한 번도 없던 미션이면 이 상태가 정상이다.
+export class PlaybookNotFoundError extends AppError {
+  constructor(message = "이 미션에는 아직 대화 플레이북이 없습니다.") {
+    super("PLAYBOOK_NOT_FOUND", 404, message);
+  }
+}
+
+// POST /missions/{missionId}/playbook/regenerate — LLM 생성이 실패한 경우.
+export class PlaybookGenerationFailedError extends AppError {
+  constructor(message = "대화 플레이북 생성에 실패했습니다. 잠시 후 다시 시도해주세요.") {
+    super("PLAYBOOK_GENERATION_FAILED", 503, message);
+  }
+}

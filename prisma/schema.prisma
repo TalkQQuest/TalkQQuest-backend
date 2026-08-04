@@ -316,6 +316,8 @@ model Missions {
   // 필요한 곳에서만 명시적으로 join할 것(Missions를 select 없이 조회하면 딸려오지 않는다).
   playbook        Mission_Playbooks?
   created_by      Users?             @relation("MissionCreatedBy", fields: [created_by_user_id], references: [id], onDelete: SetNull)
+  // 이 미션을 만들어낸 추천 로그들(백링크의 반대편).
+  created_recommendation_logs Recommendation_Logs[] @relation("RecommendationLogCreatedMission")
 
   @@index([created_by_user_id])
   // 미션 목록 조회의 주 필터(템플릿 여부 + 유사 성향)를 한 인덱스로 커버한다.
@@ -545,6 +547,12 @@ model Recommendation_Logs {
   recommended_mission Json?
   fallback_reason     String?              @db.VarChar(100)
   created_mission_id  String?              @db.Char(36) // llm/fallback 추천을 실제 Missions로 저장했을 때 그 id (재요청 시 중복 생성 방지용 백링크)
+  // 그날 이 사용자의 몇 번째 추천인지(0 = 첫 추천, 1..N = 새로고침). LLM을 부르기 전에
+  // 이 값으로 행을 먼저 만들어 슬롯을 선점한다 — 아래 @@unique가 동시 요청 중 하나만
+  // 통과시키므로, count를 읽고 판단하는 방식과 달리 병렬 새로고침이 한도를 넘지 못한다.
+  // 이 컬럼 도입 이전 로그는 null이고, MySQL은 unique 인덱스에서 null을 서로 다르게 보므로
+  // 과거 데이터끼리 충돌하지 않는다.
+  refresh_index       Int?
   // 이 추천이 속한 "하루"(클라이언트 로컬 날짜 기준, YYYY-MM-DD). 오늘의 미션 캐시와
   // 새로고침 횟수 집계의 버킷 키다. created_at(타임스탬프)로 범위를 계산하지 않고 별도
   // DATE 컬럼을 두는 이유는 사용자 시간대에 따라 "하루"의 경계가 달라지기 때문이다.
@@ -553,9 +561,15 @@ model Recommendation_Logs {
   created_at          DateTime             @default(now())
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  // 백링크를 실제 관계로 건다. 문자열 컬럼만 두면 미션이 지워졌을 때 없는 id가 남고,
+  // 다음 조회가 그 고아 백링크를 재사용해 미션을 복구하지 못한 채 응답한다.
+  // 미션이 사라지면 null로 떨어뜨려(SetNull) 재생성 경로를 타게 한다.
+  created_mission Missions? @relation("RecommendationLogCreatedMission", fields: [created_mission_id], references: [id], onDelete: SetNull)
 
+  @@unique([user_id, recommended_date, refresh_index])
   @@index([user_id])
   @@index([user_id, recommended_date])
+  @@index([created_mission_id])
   @@map("Recommendation_Logs")
 }
 

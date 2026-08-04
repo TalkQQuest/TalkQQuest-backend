@@ -16,7 +16,8 @@ const mockedRepo = jest.mocked(repository);
 const mockedLlm = jest.mocked(llmService);
 
 // 추천이 속한 하루 버킷(Recommendation_Logs.recommended_date)에 그대로 기록되는 값.
-const RECOMMENDED_DATE = new Date("2026-07-27T00:00:00.000Z");
+// 호출부(getTodayMission)가 LLM 호출 전에 선점해 둔 로그 행의 id.
+const RESERVED_LOG_ID = "log1";
 
 // Prisma 반환 형태를 흉내 낸 최소 팩토리 (테스트에 필요한 필드만).
 const buildProfile = (overrides: Record<string, unknown> = {}) =>
@@ -56,7 +57,7 @@ beforeEach(() => {
   mockedRepo.findActiveGoalsByUserId.mockResolvedValue([] as never);
   mockedRepo.findRecentMissionRecords.mockResolvedValue([] as never);
   mockedRepo.findTemplateMissionsExcluding.mockResolvedValue([] as never);
-  mockedRepo.createRecommendationLog.mockResolvedValue({ id: "log1" } as never);
+  mockedRepo.updateRecommendationLog.mockResolvedValue({ id: "log1" } as never);
   // 기본값: LLM 실패 → 템플릿/폴백 경로. 특정 테스트에서만 성공값으로 덮어쓴다.
   mockedLlm.generateMissionWithLlm.mockResolvedValue(llmFailure());
 });
@@ -194,7 +195,7 @@ describe("recommendMission (1→2→3→4 통합)", () => {
       },
     ] as never);
 
-    const result = await recommendMission("u1", RECOMMENDED_DATE);
+    const result = await recommendMission("u1", RESERVED_LOG_ID);
 
     expect(result.source).toBe("template");
     expect(result.missionId).toBe("t1");
@@ -204,7 +205,7 @@ describe("recommendMission (1→2→3→4 통합)", () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     // findTemplateMissionsExcluding는 beforeEach에서 빈 배열로 mock됨
 
-    const result = await recommendMission("u1", RECOMMENDED_DATE);
+    const result = await recommendMission("u1", RESERVED_LOG_ID);
 
     expect(result.source).toBe("fallback");
   });
@@ -213,47 +214,47 @@ describe("recommendMission (1→2→3→4 통합)", () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
 
-    const result = await recommendMission("u1", RECOMMENDED_DATE);
+    const result = await recommendMission("u1", RESERVED_LOG_ID);
 
     expect(result.source).toBe("llm");
     expect(result.title).toBe("LLM 생성 미션");
     expect(mockedRepo.findTemplateMissionsExcluding).not.toHaveBeenCalled();
   });
 
-  it("추천 결과를 Recommendation_Logs에 기록한다", async () => {
+  it("추천 결과를 예약된 Recommendation_Logs 행에 기록한다", async () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
 
-    await recommendMission("u1", RECOMMENDED_DATE);
+    await recommendMission("u1", RESERVED_LOG_ID);
 
-    expect(mockedRepo.createRecommendationLog).toHaveBeenCalledTimes(1);
-    const logged = mockedRepo.createRecommendationLog.mock.calls[0][0];
+    // 로그를 새로 만들지 않고 선점해 둔 행을 채운다 — 그 행이 곧 오늘의 미션 캐시 키다.
+    expect(mockedRepo.updateRecommendationLog).toHaveBeenCalledTimes(1);
+    const [logId, logged] = mockedRepo.updateRecommendationLog.mock.calls[0];
+    expect(logId).toBe(RESERVED_LOG_ID);
     expect(logged).toMatchObject({
-      userId: "u1",
       source: "llm",
       parseSuccess: true,
       fallbackReason: null,
-      recommendedDate: RECOMMENDED_DATE, // 오늘의 미션 캐시·새로고침 집계의 버킷 키
     });
   });
 
-  it("로그 저장이 실패해도 추천은 정상 반환한다", async () => {
+  it("로그 기록이 실패해도 추천은 정상 반환한다", async () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
-    mockedRepo.createRecommendationLog.mockRejectedValue(new Error("db down"));
+    mockedRepo.updateRecommendationLog.mockRejectedValue(new Error("db down"));
 
-    const result = await recommendMission("u1", RECOMMENDED_DATE);
+    const result = await recommendMission("u1", RESERVED_LOG_ID);
 
-    expect(result.source).toBe("llm"); // 로깅 실패가 추천을 막지 않음
-    expect(result.recommendationLogId).toBeNull(); // 원본을 식별할 로그가 없으므로 저장 기능은 못 씀
+    expect(result.source).toBe("llm"); // 기록 실패가 추천을 막지 않음
+    // 예약 행은 이미 있으므로 원본 식별은 계속 가능하다(예전처럼 null로 떨어지지 않는다).
+    expect(result.recommendationLogId).toBe(RESERVED_LOG_ID);
   });
 
-  it("생성된 Recommendation_Logs의 id를 recommendationLogId로 돌려준다", async () => {
+  it("예약된 로그 id를 recommendationLogId로 그대로 돌려준다", async () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     mockedLlm.generateMissionWithLlm.mockResolvedValue(llmSuccess());
-    mockedRepo.createRecommendationLog.mockResolvedValue({ id: "log-abc" } as never);
 
-    const result = await recommendMission("u1", RECOMMENDED_DATE);
+    const result = await recommendMission("u1", "log-abc");
 
     expect(result.recommendationLogId).toBe("log-abc");
   });

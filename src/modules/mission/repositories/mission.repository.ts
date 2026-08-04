@@ -231,24 +231,46 @@ export const findTemplateMissionsExcluding = (excludedCategories: string[]) =>
     orderBy: { created_at: "asc" },
   });
 
-// 추천 호출 1건을 Recommendation_Logs에 기록 (품질 개선·오류 추적용).
-// Json 컬럼 중 null이 될 수 있는 prompt_input만 DbNull로 변환한다.
-export const createRecommendationLog = (data: {
-  userId: string;
-  source: RecommendationSource;
-  llmModel: string | null;
-  targetDifficulty: number | null;
-  avoidedCategories: string[];
-  promptInput: unknown | null;
-  rawResponse: string | null;
-  parseSuccess: boolean;
-  recommendedMission: unknown;
-  fallbackReason: string | null;
-  recommendedDate: Date;
-}) =>
+// 새로고침 슬롯 선점. LLM을 부르기 전에 (user, 날짜, 순번)으로 빈 로그 행을 만든다.
+// 같은 순번을 노린 동시 요청은 unique 제약에 걸려 P2002로 떨어지므로, count를 읽고
+// 판단하는 방식과 달리 병렬 요청이 하루 한도를 함께 통과하지 못한다.
+// 추천 결과는 이후 updateRecommendationLog로 이 행에 채운다.
+export const reserveRecommendationLogSlot = (
+  userId: string,
+  recommendedDate: Date,
+  refreshIndex: number
+) =>
   prisma.recommendation_Logs.create({
     data: {
-      user_id: data.userId,
+      user_id: userId,
+      // 실제 출처는 추천이 끝난 뒤 갱신된다. 예약 단계에서는 아직 알 수 없다.
+      source: "fallback",
+      parse_success: false,
+      recommended_date: recommendedDate,
+      refresh_index: refreshIndex,
+    },
+    select: { id: true },
+  });
+
+// 예약해 둔 로그 행에 추천 결과를 채운다 (품질 개선·오류 추적용).
+// Json 컬럼 중 null이 될 수 있는 prompt_input만 DbNull로 변환한다.
+export const updateRecommendationLog = (
+  logId: string,
+  data: {
+    source: RecommendationSource;
+    llmModel: string | null;
+    targetDifficulty: number | null;
+    avoidedCategories: string[];
+    promptInput: unknown | null;
+    rawResponse: string | null;
+    parseSuccess: boolean;
+    recommendedMission: unknown;
+    fallbackReason: string | null;
+  }
+) =>
+  prisma.recommendation_Logs.update({
+    where: { id: logId },
+    data: {
       source: data.source,
       llm_model: data.llmModel,
       target_difficulty: data.targetDifficulty,
@@ -259,16 +281,17 @@ export const createRecommendationLog = (data: {
       parse_success: data.parseSuccess,
       recommended_mission: data.recommendedMission as Prisma.InputJsonValue,
       fallback_reason: data.fallbackReason,
-      recommended_date: data.recommendedDate,
     },
   });
 
 // 오늘의 미션 캐시용 — 해당 날짜에 마지막으로 뽑은 추천 1건.
 // 새로고침하면 로그가 여러 건 쌓이므로 가장 최근 것이 "현재 오늘의 미션"이다.
+// refresh_index를 우선 기준으로 삼는다. 예약과 결과 갱신이 나뉘어 있어 created_at만으로는
+// 동시 요청 시 순서가 뒤집힐 수 있고, 이 컬럼 이전 로그(null)는 뒤로 밀려야 하기 때문이다.
 export const findLatestRecommendationLogByDate = (userId: string, recommendedDate: Date) =>
   prisma.recommendation_Logs.findFirst({
     where: { user_id: userId, recommended_date: recommendedDate },
-    orderBy: { created_at: "desc" },
+    orderBy: [{ refresh_index: "desc" }, { created_at: "desc" }],
   });
 
 // 해당 날짜에 뽑은 추천 건수. 첫 생성 1건을 뺀 나머지가 사용한 새로고침 횟수다.

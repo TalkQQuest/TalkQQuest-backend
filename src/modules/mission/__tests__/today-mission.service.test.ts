@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import {
   InvalidMissionDateError,
   MissionRefreshLimitExceededError,
@@ -48,6 +49,7 @@ beforeEach(() => {
   mockedRepo.findSavedMission.mockResolvedValue(null as never);
   mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(null as never);
   mockedRepo.countRecommendationLogsByDate.mockResolvedValue(0);
+  mockedRepo.reserveRecommendationLogSlot.mockResolvedValue({ id: "log1" } as never);
   mockedRepo.createMissionFromRecommendation.mockResolvedValue({ id: "m-new" } as never);
   mockedRepo.markRecommendationLogMissionCreated.mockResolvedValue({} as never);
   mockedRecommend.recommendMission.mockResolvedValue(recommended());
@@ -93,6 +95,23 @@ describe("getTodayMission — 일일 캐시", () => {
     expect(result.missionId).toBe("m-template");
   });
 
+  it("캐시된 추천에 실제 미션이 없으면 LLM 없이 그 자리에서 만들어 백링크한다", async () => {
+    // 이 기능 이전에 쌓인 로그, 또는 미션 저장이 중간에 끊긴 경우.
+    // 여기서 복구하지 않으면 홈 카드가 하루 종일 비고 대화도 시작할 수 없다.
+    mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(
+      buildLog({ created_mission_id: null })
+    );
+    mockedRepo.countRecommendationLogsByDate.mockResolvedValue(1);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    expect(mockedRecommend.recommendMission).not.toHaveBeenCalled(); // 추천을 다시 뽑지는 않는다
+    expect(mockedRepo.createMissionFromRecommendation).toHaveBeenCalledTimes(1);
+    expect(mockedRepo.markRecommendationLogMissionCreated).toHaveBeenCalledWith("log1", "m-new");
+    expect(result.missionId).toBe("m-new");
+    expect(result.isNew).toBe(false); // 새 추천이 아니라 기존 추천의 복구다
+  });
+
   it("캐시된 로그의 JSON이 깨져 있으면 캐시를 포기하고 새로 뽑는다", async () => {
     mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(
       buildLog({ recommended_mission: { unexpected: "shape" } })
@@ -129,6 +148,60 @@ describe("getTodayMission — 새로고침 제한", () => {
     mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(buildLog());
     // 첫 생성 1건 + 새로고침 3건 = 4건이면 한도 소진
     mockedRepo.countRecommendationLogsByDate.mockResolvedValue(1 + MISSION_REFRESH_LIMIT);
+
+    await expect(getTodayMission("u1", { date: TODAY, refresh: true })).rejects.toBeInstanceOf(
+      MissionRefreshLimitExceededError
+    );
+    expect(mockedRecommend.recommendMission).not.toHaveBeenCalled();
+  });
+
+  it("LLM을 부르기 전에 슬롯을 먼저 선점한다", async () => {
+    mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(buildLog());
+    mockedRepo.countRecommendationLogsByDate.mockResolvedValue(1);
+
+    await getTodayMission("u1", { date: TODAY, refresh: true });
+
+    // 예약 순번은 현재 로그 건수(=다음 슬롯). 이 행의 id가 그대로 추천에 넘어간다.
+    expect(mockedRepo.reserveRecommendationLogSlot).toHaveBeenCalledWith("u1", expect.any(Date), 1);
+    expect(mockedRecommend.recommendMission).toHaveBeenCalledWith("u1", "log1");
+  });
+
+  it("동시 요청이 같은 슬롯을 가져가면(P2002) 다음 순번으로 다시 잡는다", async () => {
+    mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(buildLog());
+    mockedRepo.countRecommendationLogsByDate
+      .mockResolvedValueOnce(1) // 최초 판단 시점
+      .mockResolvedValue(2); // 경합에서 진 뒤 다시 읽은 건수
+    mockedRepo.reserveRecommendationLogSlot
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError("unique", {
+          code: "P2002",
+          clientVersion: "5.22.0",
+        })
+      )
+      .mockResolvedValue({ id: "log2" } as never);
+
+    const result = await getTodayMission("u1", { date: TODAY, refresh: true });
+
+    expect(mockedRepo.reserveRecommendationLogSlot).toHaveBeenNthCalledWith(
+      2,
+      "u1",
+      expect.any(Date),
+      2
+    );
+    expect(result.isNew).toBe(true);
+  });
+
+  it("경합에 밀려 순번이 한도를 넘으면 LLM을 부르지 않고 429를 던진다", async () => {
+    mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(buildLog());
+    mockedRepo.countRecommendationLogsByDate
+      .mockResolvedValueOnce(1)
+      .mockResolvedValue(1 + MISSION_REFRESH_LIMIT); // 그 사이 다른 요청들이 한도를 채움
+    mockedRepo.reserveRecommendationLogSlot.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("unique", {
+        code: "P2002",
+        clientVersion: "5.22.0",
+      })
+    );
 
     await expect(getTodayMission("u1", { date: TODAY, refresh: true })).rejects.toBeInstanceOf(
       MissionRefreshLimitExceededError

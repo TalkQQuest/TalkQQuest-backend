@@ -1,5 +1,5 @@
 // modules/mission/services/mission.service.ts
-import { PersonalityType } from "@prisma/client";
+import { PersonalityType, Prisma } from "@prisma/client";
 import { z } from "zod";
 import * as missionRepository from "../repositories/mission.repository";
 import { DuplicatedError } from "../../../shared/errors/common.error";
@@ -186,7 +186,19 @@ export const getTodayMission = async (
   if (existingLog && !query.refresh) {
     const cached = persistedRecommendedMissionSchema.safeParse(existingLog.recommended_mission);
     if (cached.success) {
-      const missionId = existingLog.created_mission_id ?? cached.data.missionId;
+      let missionId = existingLog.created_mission_id ?? cached.data.missionId;
+      // 아직 실제 Missions 행이 없는 캐시(이 기능 이전 로그, 또는 저장이 중간에 끊긴 경우)는
+      // 여기서 만들어 백링크한다. 그냥 null로 내보내면 홈 카드가 하루 종일 비고
+      // 대화도 시작할 수 없는데, 캐시는 살아 있어 그날 안에는 회복되지 않는다.
+      if (!missionId) {
+        const personalityType = await missionRepository.findUserPersonalityType(userId);
+        missionId = await materializeRecommendedMission(
+          userId,
+          cached.data,
+          personalityType,
+          existingLog.id
+        );
+      }
       return buildTodayMissionResponse({
         userId,
         recommended: cached.data,
@@ -199,29 +211,65 @@ export const getTodayMission = async (
     }
   }
 
-  if (query.refresh && usedRefreshCount(logCount) >= MISSION_REFRESH_LIMIT) {
-    throw new MissionRefreshLimitExceededError();
-  }
+  // LLM을 부르기 전에 슬롯을 선점한다. 여기서 얻은 로그 id가 오늘의 미션 캐시 키가 되므로,
+  // 추천 후 로그를 만들다 실패해 캐시가 비는 경우(=매 요청이 LLM 재호출)가 생기지 않는다.
+  const reservedLogId = await reserveRefreshSlot(userId, dateOnly, logCount);
 
   const personalityType = await missionRepository.findUserPersonalityType(userId);
-  const recommended = await recommendMission(userId, dateOnly);
+  const recommended = await recommendMission(userId, reservedLogId);
   const missionId = await materializeRecommendedMission(
     userId,
     recommended,
     personalityType,
-    recommended.recommendationLogId
+    reservedLogId
   );
 
   return buildTodayMissionResponse({
     userId,
     recommended,
     missionId,
-    recommendationLogId: recommended.recommendationLogId,
+    recommendationLogId: reservedLogId,
     date,
-    // 방금 만든 로그 1건을 더한 기준으로 남은 횟수를 계산한다.
+    // 방금 선점한 슬롯 1건을 더한 기준으로 남은 횟수를 계산한다.
     refreshCount: usedRefreshCount(logCount + 1),
     isNew: true,
   });
+};
+
+// 그날의 다음 추천 슬롯을 선점하고 로그 id를 돌려준다.
+// 한도 검사와 예약이 따로 놀면 병렬 요청이 같은 잔여 횟수를 읽고 함께 통과해 한도를 넘긴다.
+// 그래서 (user, 날짜, 순번) unique 제약으로 승자를 하나만 남기고, 진 요청은 갱신된 순번으로
+// 다시 시도한다. 재시도 횟수는 한도+1로 묶어 경합이 길어져도 유한하게 끝난다.
+const reserveRefreshSlot = async (
+  userId: string,
+  dateOnly: Date,
+  knownLogCount: number
+): Promise<string> => {
+  let slotIndex = knownLogCount;
+
+  for (let attempt = 0; attempt <= MISSION_REFRESH_LIMIT + 1; attempt += 1) {
+    // 슬롯 0은 그날의 첫 추천이라 새로고침으로 세지 않는다.
+    if (usedRefreshCount(slotIndex + 1) > MISSION_REFRESH_LIMIT) {
+      throw new MissionRefreshLimitExceededError();
+    }
+    try {
+      const reserved = await missionRepository.reserveRecommendationLogSlot(
+        userId,
+        dateOnly,
+        slotIndex
+      );
+      return reserved.id;
+    } catch (error) {
+      // P2002 = unique 위반. 동시 요청이 이 순번을 먼저 가져갔다는 뜻이므로 다음 순번으로 넘어간다.
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+        throw error;
+      }
+      slotIndex = await missionRepository.countRecommendationLogsByDate(userId, dateOnly);
+    }
+  }
+
+  // 한도 안에서 계속 경합에 진 경우. 재시도로 풀릴 상태이므로 한도 초과와 같게 안내한다.
+  throw new MissionRefreshLimitExceededError();
 };
 
 const buildTodayMissionResponse = async (params: {

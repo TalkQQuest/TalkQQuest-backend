@@ -63,4 +63,4 @@ export const createNotification = (
         reference_id: referenceId ?? null,
         reference_type: referenceType ?? null,
         },
-    });
+});

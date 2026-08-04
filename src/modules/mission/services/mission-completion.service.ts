@@ -7,6 +7,7 @@ import {
   CompleteMissionRequestDto,
   CompleteMissionResponseDto,
 } from "../dtos/mission-completion.dto";
+import { createNotification } from "../../notification/repositories/notification.repository";
 // 레벨 공식은 xp 모듈이 소유한다 — GET /xp/summary의 nextLevelXp와 반드시 같은 값을 써야 하므로
 // 여기서 따로 정의하지 않고 import한다 (xp/services/level.service.ts).
 import { calculateNextLevelXp } from "../../xp/services/level.service";
@@ -92,6 +93,15 @@ export const completeMission = async (
     // GET /badges/me 조회 시점에 별도로 잡힌다 (badge.service.ts 참고).
     const newlyEarnedBadges = await checkAndAwardBadges(tx, userId);
 
+    await createNotification(
+      userId,
+      "mission_completed",
+      "미션을 완료했어요! 🎉",
+      `${mission.title} 미션을 완료했습니다.`,
+      record.id,
+      "mission_record"
+    );
+    
     return {
       missionRecordId: record.id,
       status: "completed",

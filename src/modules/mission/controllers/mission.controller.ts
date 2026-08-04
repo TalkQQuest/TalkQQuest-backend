@@ -159,8 +159,11 @@ public async unsaveMission(
   @Middlewares(authorizeUser())
   @Response(401, "UNAUTHORIZED")
   @Response(404, "MISSION_NOT_FOUND")
-  public async getMissionPrep(@Path() missionId: string): Promise<ApiResponse<MissionPrepResponseDto>> {
-    const result = await missionService.getMissionPrep(missionId);
+  public async getMissionPrep(
+    @Request() req: ExpressRequest,
+    @Path() missionId: string
+  ): Promise<ApiResponse<MissionPrepResponseDto>> {
+    const result = await missionService.getMissionPrep(req.user!.id, missionId);
     return success(result);
   }
 }

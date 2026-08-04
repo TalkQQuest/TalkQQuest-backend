@@ -72,6 +72,14 @@ export const countMissions = (params: {
 export const findMissionById = (missionId: string) =>
   prisma.missions.findUnique({ where: { id: missionId } });
 
+// 단건 조회에도 목록과 같은 공개 범위를 적용한다.
+// id만으로 찾으면 범위 밖(남이 만든, 아직 수행된 적 없는 AI 미션)의 내용을 그대로 읽을 수 있고,
+// prep의 경우 LLM 생성까지 유발한다. 범위 밖이면 null → 호출부가 404로 응답한다.
+export const findVisibleMissionById = (missionId: string, visibility: MissionVisibility) =>
+  prisma.missions.findFirst({
+    where: { id: missionId, ...buildVisibilityWhere(visibility) },
+  });
+
 export const findSavedMissionIds = (userId: string, missionIds: string[]) =>
   prisma.mission_Saves.findMany({
     where: { user_id: userId, mission_id: { in: missionIds } },

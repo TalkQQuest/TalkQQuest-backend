@@ -358,7 +358,11 @@ export const getMissionDetail = async (
   userId: string,
   missionId: string
 ): Promise<MissionDetailResponseDto> => {
-  const mission = await missionRepository.findMissionById(missionId);
+  const personalityType = await missionRepository.findUserPersonalityType(userId);
+  const mission = await missionRepository.findVisibleMissionById(missionId, {
+    userId,
+    personalityType,
+  });
   if (!mission) throw new MissionNotFoundError();
 
   const saved = await missionRepository.findSavedMission(userId, missionId);
@@ -405,8 +409,17 @@ export const unsaveMission = async (
 // GET /missions/{missionId}/prep — "바로 쓰는 첫 마디".
 // 미션별 후보를 한 번 생성해 캐시하고, 호출마다 그중 일부만 무작위로 돌려준다.
 // 앱의 새로고침 버튼이 같은 API를 다시 부르는 구조라 이것만으로 매번 다른 문장이 나온다.
-export const getMissionPrep = async (missionId: string): Promise<MissionPrepResponseDto> => {
-  const mission = await missionRepository.findMissionById(missionId);
+// 목록과 같은 공개 범위를 적용한다. id만으로 찾으면 범위 밖 미션의 준비 문장을 읽을 수 있고,
+// 아직 후보가 없는 미션이면 LLM 생성까지 유발한다(호출자가 비용을 발생시킬 수 있다).
+export const getMissionPrep = async (
+  userId: string,
+  missionId: string
+): Promise<MissionPrepResponseDto> => {
+  const personalityType = await missionRepository.findUserPersonalityType(userId);
+  const mission = await missionRepository.findVisibleMissionById(missionId, {
+    userId,
+    personalityType,
+  });
   if (!mission) throw new MissionNotFoundError();
 
   let pool = await missionRepository.findPrepItemsByType(missionId, "starter");

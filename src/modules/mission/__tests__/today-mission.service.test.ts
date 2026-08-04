@@ -16,7 +16,17 @@ jest.mock("../services/recommendation.service");
 const mockedRepo = jest.mocked(repository);
 const mockedRecommend = jest.mocked(recommendationService);
 
-const TODAY = todayInKst();
+// 시각을 고정한다. 고정하지 않으면 TODAY는 모듈 로드 시점의 KST 날짜인데
+// getTodayMission 내부는 실행 시점에 todayInKst()를 다시 부른다 — 그 사이 KST 자정을
+// 넘기면 date를 생략한 테스트가 하루 어긋나 간헐적으로 실패한다.
+const FIXED_NOW = new Date("2026-08-04T03:00:00.000Z"); // KST 정오 — 자정 경계에서 멀다
+const TODAY = todayInKst(FIXED_NOW);
+
+beforeAll(() => {
+  jest.useFakeTimers({ doNotFake: ["nextTick", "queueMicrotask", "setImmediate"] });
+  jest.setSystemTime(FIXED_NOW);
+});
+afterAll(() => jest.useRealTimers());
 
 const recommended = (overrides: Record<string, unknown> = {}) => ({
   missionId: null,
@@ -51,6 +61,7 @@ beforeEach(() => {
   mockedRepo.countRecommendationLogsByDate.mockResolvedValue(0);
   mockedRepo.reserveRecommendationLogSlot.mockResolvedValue({ id: "log1" } as never);
   mockedRepo.createMissionFromRecommendation.mockResolvedValue({ id: "m-new" } as never);
+  mockedRepo.createMissionForRecommendationLog.mockResolvedValue("m-new");
   mockedRepo.markRecommendationLogMissionCreated.mockResolvedValue({} as never);
   mockedRecommend.recommendMission.mockResolvedValue(recommended());
 });
@@ -60,16 +71,21 @@ describe("getTodayMission — 일일 캐시", () => {
     const result = await getTodayMission("u1", { date: TODAY });
 
     expect(mockedRecommend.recommendMission).toHaveBeenCalledTimes(1);
-    expect(mockedRepo.createMissionFromRecommendation).toHaveBeenCalledTimes(1);
+    expect(mockedRepo.createMissionForRecommendationLog).toHaveBeenCalledTimes(1);
     // 추천 시점에 저장하므로 missionId가 null로 나가지 않는다.
     expect(result.missionId).toBe("m-new");
     expect(result.isNew).toBe(true);
   });
 
-  it("생성한 미션을 추천 로그에 백링크해 중복 생성을 막는다", async () => {
+  it("미션 생성과 백링크를 예약 로그 기준으로 한 번에 처리한다", async () => {
+    // 생성과 백링크가 나뉘어 있으면 병렬 요청이 각자 미션을 만들고 백링크를 덮어써,
+    // 아무도 가리키지 않는 미션이 목록에 쌓인다. 로그 id를 넘겨 원자적으로 처리한다.
     await getTodayMission("u1", { date: TODAY });
 
-    expect(mockedRepo.markRecommendationLogMissionCreated).toHaveBeenCalledWith("log1", "m-new");
+    expect(mockedRepo.createMissionForRecommendationLog).toHaveBeenCalledWith(
+      "log1",
+      expect.objectContaining({ createdByUserId: "u1", creatorPersonalityType: "introvert" })
+    );
   });
 
   it("오늘 추천이 이미 있으면 LLM을 다시 부르지 않고 그대로 돌려준다", async () => {
@@ -79,7 +95,7 @@ describe("getTodayMission — 일일 캐시", () => {
     const result = await getTodayMission("u1", { date: TODAY });
 
     expect(mockedRecommend.recommendMission).not.toHaveBeenCalled();
-    expect(mockedRepo.createMissionFromRecommendation).not.toHaveBeenCalled();
+    expect(mockedRepo.createMissionForRecommendationLog).not.toHaveBeenCalled();
     expect(result.missionId).toBe("m-existing");
     expect(result.isNew).toBe(false);
   });
@@ -91,7 +107,9 @@ describe("getTodayMission — 일일 캐시", () => {
 
     const result = await getTodayMission("u1", { date: TODAY });
 
-    expect(mockedRepo.createMissionFromRecommendation).not.toHaveBeenCalled();
+    expect(mockedRepo.createMissionForRecommendationLog).not.toHaveBeenCalled();
+    // template 추천은 이미 실제 미션이므로 백링크만 남긴다.
+    expect(mockedRepo.markRecommendationLogMissionCreated).toHaveBeenCalledWith("log1", "m-template");
     expect(result.missionId).toBe("m-template");
   });
 
@@ -106,8 +124,10 @@ describe("getTodayMission — 일일 캐시", () => {
     const result = await getTodayMission("u1", { date: TODAY });
 
     expect(mockedRecommend.recommendMission).not.toHaveBeenCalled(); // 추천을 다시 뽑지는 않는다
-    expect(mockedRepo.createMissionFromRecommendation).toHaveBeenCalledTimes(1);
-    expect(mockedRepo.markRecommendationLogMissionCreated).toHaveBeenCalledWith("log1", "m-new");
+    expect(mockedRepo.createMissionForRecommendationLog).toHaveBeenCalledWith(
+      "log1",
+      expect.objectContaining({ createdByUserId: "u1" })
+    );
     expect(result.missionId).toBe("m-new");
     expect(result.isNew).toBe(false); // 새 추천이 아니라 기존 추천의 복구다
   });

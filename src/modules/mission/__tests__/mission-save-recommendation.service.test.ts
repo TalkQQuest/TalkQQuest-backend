@@ -67,17 +67,18 @@ describe("saveRecommendedMission", () => {
     const result = await saveRecommendedMission("u1", "log1");
 
     expect(result).toEqual({ missionId: "m-template" });
-    expect(mockedRepo.createMissionFromRecommendation).not.toHaveBeenCalled();
+    expect(mockedRepo.createMissionForRecommendationLog).not.toHaveBeenCalled();
     expect(mockedRepo.markRecommendationLogMissionCreated).toHaveBeenCalledWith("log1", "m-template");
   });
 
   it("llm/fallback 추천(missionId=null)은 새 Missions 행을 만들고 백링크한다", async () => {
     mockedRepo.findRecommendationLogByIdAndUser.mockResolvedValue(buildLog());
-    mockedRepo.createMissionFromRecommendation.mockResolvedValue({ id: "m-new" } as never);
+    mockedRepo.createMissionForRecommendationLog.mockResolvedValue("m-new");
 
     const result = await saveRecommendedMission("u1", "log1");
 
-    expect(mockedRepo.createMissionFromRecommendation).toHaveBeenCalledWith({
+    // 생성과 백링크는 한 트랜잭션에서 처리된다 — 병렬 저장이 미션을 두 번 만들지 않도록.
+    expect(mockedRepo.createMissionForRecommendationLog).toHaveBeenCalledWith("log1", {
       title: "카페에서 음료 추천 물어보기",
       description: "설명",
       difficulty: 2,
@@ -88,7 +89,6 @@ describe("saveRecommendedMission", () => {
       createdByUserId: "u1",
       creatorPersonalityType: "introvert",
     });
-    expect(mockedRepo.markRecommendationLogMissionCreated).toHaveBeenCalledWith("log1", "m-new");
     expect(result).toEqual({ missionId: "m-new" });
   });
 

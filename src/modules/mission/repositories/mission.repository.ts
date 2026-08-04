@@ -299,7 +299,9 @@ export const updateRecommendationLog = (
 export const findLatestRecommendationLogByDate = (userId: string, recommendedDate: Date) =>
   prisma.recommendation_Logs.findFirst({
     where: { user_id: userId, recommended_date: recommendedDate },
-    orderBy: [{ refresh_index: "desc" }, { created_at: "desc" }],
+    // id까지 보는 이유: refresh_index가 null인 과거 로그끼리는 위 두 기준이 모두 같을 수 있고
+    // (created_at은 밀리초 정밀도), 그러면 어느 행이 나올지 보장되지 않는다.
+    orderBy: [{ refresh_index: "desc" }, { created_at: "desc" }, { id: "desc" }],
   });
 
 // 해당 날짜에 뽑은 추천 건수. 첫 생성 1건을 뺀 나머지가 사용한 새로고침 횟수다.
@@ -344,4 +346,63 @@ export const markRecommendationLogMissionCreated = (logId: string, missionId: st
   prisma.recommendation_Logs.update({
     where: { id: logId },
     data: { created_mission_id: missionId },
+  });
+
+// 추천 로그 1건에 대해 실제 Missions 행을 "정확히 하나만" 만든다.
+//
+// 백링크를 읽고 → 미션을 만들고 → 백링크를 쓰는 순서로는, 병렬 요청이 모두 null을 읽고
+// 각자 미션을 만든 뒤 같은 로그를 덮어쓴다. 마지막 쓰기만 남으므로 나머지 미션은 아무도
+// 가리키지 않는 채 목록에만 쌓인다(재시도·중복 탭이면 그대로 재현된다).
+//
+// 그래서 백링크 쓰기를 "아직 비어 있을 때만" 성공하는 조건부 갱신으로 만들고, 그 결과로
+// 승자를 가린다. updateMany의 WHERE가 행 잠금 아래에서 평가되므로 승자는 하나뿐이다.
+// 진 요청은 방금 만든 미션을 지우고 승자의 미션 id를 쓴다.
+export const createMissionForRecommendationLog = (
+  logId: string,
+  data: {
+    title: string;
+    description: string;
+    difficulty: number;
+    estimatedMinutes: number;
+    rewardXp: number;
+    category: string;
+    createdByUserId: string;
+    creatorPersonalityType: PersonalityType | null;
+  }
+) =>
+  prisma.$transaction(async (tx) => {
+    const existing = await tx.recommendation_Logs.findUnique({
+      where: { id: logId },
+      select: { created_mission_id: true },
+    });
+    if (existing?.created_mission_id) return existing.created_mission_id;
+
+    const mission = await tx.missions.create({
+      data: {
+        title: data.title,
+        description: data.description,
+        difficulty: data.difficulty,
+        estimated_minutes: data.estimatedMinutes,
+        reward_xp: data.rewardXp,
+        category: data.category,
+        is_template: false,
+        created_by_user_id: data.createdByUserId,
+        creator_personality_type: data.creatorPersonalityType,
+      },
+      select: { id: true },
+    });
+
+    const claimed = await tx.recommendation_Logs.updateMany({
+      where: { id: logId, created_mission_id: null },
+      data: { created_mission_id: mission.id },
+    });
+    if (claimed.count === 1) return mission.id;
+
+    // 경합에서 졌다. 내가 만든 미션은 아무도 가리키지 않으므로 되돌린다.
+    await tx.missions.delete({ where: { id: mission.id } });
+    const winner = await tx.recommendation_Logs.findUnique({
+      where: { id: logId },
+      select: { created_mission_id: true },
+    });
+    return winner!.created_mission_id!;
   });

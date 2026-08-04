@@ -143,25 +143,34 @@ const materializeRecommendedMission = async (
   personalityType: PersonalityType | null,
   recommendationLogId: string | null
 ): Promise<string> => {
-  const missionId =
-    recommended.missionId ??
-    (
-      await missionRepository.createMissionFromRecommendation({
-        title: recommended.title,
-        description: recommended.description,
-        difficulty: recommended.difficulty,
-        estimatedMinutes: recommended.estimatedMinutes,
-        rewardXp: recommended.rewardXp,
-        category: recommended.category,
-        createdByUserId: userId,
-        creatorPersonalityType: personalityType,
-      })
-    ).id;
-
-  if (recommendationLogId) {
-    await missionRepository.markRecommendationLogMissionCreated(recommendationLogId, missionId);
+  // template 추천은 이미 실제 미션이라 만들 것이 없다. 백링크만 남긴다.
+  if (recommended.missionId) {
+    if (recommendationLogId) {
+      await missionRepository.markRecommendationLogMissionCreated(
+        recommendationLogId,
+        recommended.missionId
+      );
+    }
+    return recommended.missionId;
   }
-  return missionId;
+
+  const missionData = {
+    title: recommended.title,
+    description: recommended.description,
+    difficulty: recommended.difficulty,
+    estimatedMinutes: recommended.estimatedMinutes,
+    rewardXp: recommended.rewardXp,
+    category: recommended.category,
+    createdByUserId: userId,
+    creatorPersonalityType: personalityType,
+  };
+
+  // 로그가 있으면 그 로그를 기준으로 "정확히 하나"만 만든다(병렬 요청이 각자 미션을 만들고
+  // 백링크를 덮어써 아무도 가리키지 않는 미션이 쌓이던 문제).
+  if (recommendationLogId) {
+    return missionRepository.createMissionForRecommendationLog(recommendationLogId, missionData);
+  }
+  return (await missionRepository.createMissionFromRecommendation(missionData)).id;
 };
 
 // 오늘의 미션.

@@ -89,7 +89,10 @@ export const generateStarters = async (
   }
 
   const starters = parseStarters(result.content);
-  return starters.length > 0 ? starters : null;
+  // 화면에 보여줄 개수를 못 채우면 캐시하지 않고 폴백으로 넘긴다.
+  // 미션당 1회만 생성해 그대로 굳기 때문에, 1~2개만 살아남은 결과를 저장하면
+  // 그 미션은 계속 3개 미만으로 노출된다(새로고침해도 늘 같은 문장).
+  return starters.length >= STARTER_DISPLAY_COUNT ? starters : null;
 };
 
 // 후보 중 화면에 보여줄 만큼 무작위로 고른다.

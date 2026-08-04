@@ -24,5 +24,6 @@ export interface DashboardResponseDto {
     xp: number;
     badges: BadgeItem[];
     weeklyMissionStatus: WeeklyMissionStatus;
+    weeklyDays: boolean[];
     recentMissionSummary: RecentMissionItem[];
 }

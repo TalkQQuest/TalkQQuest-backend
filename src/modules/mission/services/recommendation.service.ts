@@ -7,7 +7,7 @@ import {
 } from "../dtos/recommendation.dto";
 import { MissionProfileNotFoundError } from "../errors/mission.error";
 import {
-  createRecommendationLog,
+  updateRecommendationLog,
   findActiveGoalsByUserId,
   findRecentMissionRecords,
   findUserProfileByUserId,
@@ -88,26 +88,35 @@ export const buildRecommendationInput = async (
 
 // 추천 진입점 (1→2→3→4단계). GET /missions/today 등이 이 함수를 쓴다.
 // 4단계 LLM 생성을 먼저 시도하고, 실패하거나 키가 없으면 3단계 템플릿으로 폴백한다.
-// 매 호출을 Recommendation_Logs에 기록한다(품질 개선·오류 추적).
-export const recommendMission = async (userId: string): Promise<RecommendedMission> => {
+// 매 호출을 Recommendation_Logs에 기록한다(품질 개선·오류 추적 + missionId가 null인
+// llm/fallback 추천을 나중에 실제 Missions로 저장할 때 원본을 식별하는 용도).
+//
+// reservedLogId는 호출부가 LLM 호출 전에 선점해 둔 로그 행이다. 로그를 여기서 새로 만들지
+// 않고 그 행을 채우는 이유는, 로그가 곧 오늘의 미션 캐시이자 새로고침 카운터이기 때문이다.
+// 사후에 만들다 실패하면 캐시가 비어 다음 요청이 LLM을 다시 부르고 한도도 세지 못한다.
+export const recommendMission = async (
+  userId: string,
+  reservedLogId: string
+): Promise<RecommendedMission> => {
   const { context, criteria } = await buildRecommendationInput(userId);
   const attempt = await generateMissionWithLlm(context, criteria);
   const mission = attempt.mission ?? (await recommendFromTemplate(criteria));
 
-  await logRecommendationSafe(userId, criteria, attempt, mission);
-  return mission;
+  await writeRecommendationLogSafe(reservedLogId, criteria, attempt, mission);
+  return { ...mission, recommendationLogId: reservedLogId };
 };
 
-// 추천 결과 로깅. 로깅 실패가 추천 응답을 막지 않도록 예외를 흡수한다.
-const logRecommendationSafe = async (
-  userId: string,
+// 예약 행에 추천 결과를 기록한다. 실패해도 추천 응답 자체는 막지 않는다 —
+// 예약 행은 이미 있으므로 슬롯 계산은 어긋나지 않고, 비어 있는 캐시는 다음 조회에서
+// 파싱 실패로 걸러져 새 추천으로 넘어간다.
+const writeRecommendationLogSafe = async (
+  logId: string,
   criteria: RecommendationCriteria,
   attempt: LlmGenerationResult,
   mission: RecommendedMission
 ): Promise<void> => {
   try {
-    await createRecommendationLog({
-      userId,
+    await updateRecommendationLog(logId, {
       source: mission.source, // llm / template / fallback
       llmModel: attempt.llmModel,
       targetDifficulty: criteria.targetDifficulty,
@@ -119,6 +128,6 @@ const logRecommendationSafe = async (
       fallbackReason: attempt.fallbackReason,
     });
   } catch (error) {
-    logger.warn({ err: error }, "추천 로그 저장 실패 (추천 자체는 정상 반환)");
+    logger.warn({ err: error }, "추천 로그 기록 실패 (추천 자체는 정상 반환)");
   }
 };

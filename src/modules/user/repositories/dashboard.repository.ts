@@ -5,7 +5,7 @@ export const findDashboardData = async (userId: string) => {
     startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
 
-    const [user, profile, badges, weeklyCompleted, recentRecords, goal] = await Promise.all([
+    const [user, profile, badges, weeklyCompleted, weeklyRecords, recentRecords, goal] = await Promise.all([
         // 유저 + 이메일
         prisma.users.findUnique({
         where: { id: userId },
@@ -43,6 +43,16 @@ export const findDashboardData = async (userId: string) => {
             completed_at: { gte: startOfWeek },
         },
         }),
+        // 이번 주 완료 미션 날짜 목록
+        prisma.mission_Records.findMany({
+        where: {
+            user_id: userId,
+            status: "completed",
+            completed_at: { gte: startOfWeek },
+        },
+        select: { completed_at: true },
+        orderBy: { completed_at: "asc" },
+        }),
         // 최근 미션 3개
         prisma.mission_Records.findMany({
         where: { user_id: userId, status: "completed" },
@@ -59,5 +69,5 @@ export const findDashboardData = async (userId: string) => {
         }),
     ]);
 
-    return { user, profile, badges, weeklyCompleted, recentRecords, goal };
+    return { user, profile, badges, weeklyCompleted, weeklyRecords, recentRecords, goal };
 };

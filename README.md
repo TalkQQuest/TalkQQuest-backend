@@ -127,8 +127,11 @@ npm run dev
 ### 4. 테스트
 
 ```bash
-npm test
+npm test              # 유닛 테스트 (리포지토리 계층을 목킹, DB/Redis 불필요)
+npm run test:integration   # 통합 테스트 (실제 MySQL 필요, *.integration.test.ts)
 ```
+
+동시성 처리처럼 실제 DB 락/유니크 제약이 걸려야 검증되는 로직은 통합 테스트로 작성합니다. 목킹만으로는 이런 경우를 재현할 수 없습니다.
 
 ---
 

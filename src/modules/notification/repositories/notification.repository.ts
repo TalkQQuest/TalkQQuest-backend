@@ -45,3 +45,22 @@ export const updateNotificationSettings = (
         where: { user_id: userId },
         data,
     });
+
+export const createNotification = (
+    userId: string,
+    type: string,
+    title: string,
+    body?: string,
+    referenceId?: string,
+    referenceType?: string
+    ) =>
+    prisma.notifications.create({
+        data: {
+        user_id: userId,
+        type,
+        title,
+        body: body ?? null,
+        reference_id: referenceId ?? null,
+        reference_type: referenceType ?? null,
+        },
+});

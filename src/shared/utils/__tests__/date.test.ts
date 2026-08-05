@@ -1,4 +1,4 @@
-import { durationMinutes } from "../date";
+import { daysBetween, durationMinutes, fromDateOnly, toDateOnly, todayInKst } from "../date";
 
 describe("durationMinutes", () => {
   it("종료 시각이 없으면 null (진행 중 대화)", () => {
@@ -15,5 +15,37 @@ describe("durationMinutes", () => {
   it("음수(비정상 순서)는 0으로 막는다", () => {
     const start = new Date("2026-07-25T10:05:00Z");
     expect(durationMinutes(start, new Date("2026-07-25T10:00:00Z"))).toBe(0);
+  });
+});
+
+describe("todayInKst", () => {
+  it("UTC 자정 직후는 이미 KST로 같은 날 오전 9시라 날짜가 같다", () => {
+    expect(todayInKst(new Date("2026-07-27T00:30:00Z"))).toBe("2026-07-27");
+  });
+
+  it("UTC 기준 전날 늦은 밤은 KST로는 다음 날이다", () => {
+    // UTC 7/26 15:00 = KST 7/27 00:00 → 서버가 UTC여도 사용자 기준 하루는 7/27
+    expect(todayInKst(new Date("2026-07-26T15:00:00Z"))).toBe("2026-07-27");
+    expect(todayInKst(new Date("2026-07-26T14:59:59Z"))).toBe("2026-07-26");
+  });
+});
+
+describe("toDateOnly / fromDateOnly", () => {
+  it("YYYY-MM-DD ↔ UTC 자정 Date로 서로 되돌릴 수 있다", () => {
+    expect(toDateOnly("2026-07-27").toISOString()).toBe("2026-07-27T00:00:00.000Z");
+    expect(fromDateOnly(new Date("2026-07-27T00:00:00.000Z"))).toBe("2026-07-27");
+  });
+});
+
+describe("daysBetween", () => {
+  it("같은 날은 0, 다음 날은 1, 전날은 -1", () => {
+    expect(daysBetween("2026-07-27", "2026-07-27")).toBe(0);
+    expect(daysBetween("2026-07-28", "2026-07-27")).toBe(1);
+    expect(daysBetween("2026-07-26", "2026-07-27")).toBe(-1);
+  });
+
+  it("월·연 경계를 넘어도 일수로 계산한다", () => {
+    expect(daysBetween("2026-08-01", "2026-07-31")).toBe(1);
+    expect(daysBetween("2027-01-01", "2026-12-31")).toBe(1);
   });
 });

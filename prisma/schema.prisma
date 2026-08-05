@@ -179,6 +179,7 @@ model Users {
   community_join_requests Community_Join_Requests[]
   community_memberships   Community_Members[]
   community_bookmarks     Community_Bookmarks[]
+  created_missions        Missions[]                @relation("MissionCreatedBy")
 
   @@map("Users")
 }
@@ -297,6 +298,13 @@ model Missions {
   reward_xp         Int      @default(0)
   category          String   @db.VarChar(100)
   is_template       Boolean  @default(false)
+  // AI 추천으로 생성된 미션의 생성자. 관리자 템플릿(is_template=true)과 이 컬럼 도입 이전에
+  // 만들어진 미션은 null이다.
+  created_by_user_id String? @db.Char(36)
+  // 생성 당시 생성자의 성향. 생성자가 나중에 온보딩 성향을 바꿔도 "이 미션이 어떤 성향을 위해
+  // 만들어졌는지"는 변하면 안 되므로 Users→User_Profiles 조인 대신 비정규화해 저장한다.
+  // 미션 목록의 유사 성향 필터가 이 값을 그대로 쓴다.
+  creator_personality_type PersonalityType?
   created_at        DateTime @default(now())
 
   // Relations
@@ -304,13 +312,44 @@ model Missions {
   saves           Mission_Saves[]
   conversations   Conversations[]
   mission_records Mission_Records[]
+  // 대화 진행 지침. 임베딩 때문에 1MB를 넘길 수 있어 별도 테이블로 뺐다 —
+  // 필요한 곳에서만 명시적으로 join할 것(Missions를 select 없이 조회하면 딸려오지 않는다).
+  playbook        Mission_Playbooks?
+  created_by      Users?             @relation("MissionCreatedBy", fields: [created_by_user_id], references: [id], onDelete: SetNull)
+  // 이 미션을 만들어낸 추천 로그들(백링크의 반대편).
+  created_recommendation_logs Recommendation_Logs[] @relation("RecommendationLogCreatedMission")
 
+  @@index([created_by_user_id])
+  // 미션 목록 조회의 주 필터(템플릿 여부 + 유사 성향)를 한 인덱스로 커버한다.
+  @@index([is_template, creator_personality_type])
   @@map("Missions")
 }
 
 // ----------------------------
 // Mission_Prep_Items
 // ----------------------------
+// ----------------------------
+// Mission_Playbooks
+// 미션별 대화 진행 지침(flow + responseRules)과 그 임베딩.
+//
+// Missions에 JSON 컬럼으로 두었더니 미션 1건이 1.1MB까지 커졌다(임베딩 4096차원 × 10개를
+// JSON 텍스트로 저장). select 없이 Missions를 조회하는 모든 쿼리가 이걸 통째로 끌고 왔고,
+// ORDER BY가 걸리면 MySQL sort_buffer_size(256KB)를 넘겨 `GET /missions`가 500으로 죽었다.
+// 별도 테이블로 빼서 **필요한 곳에서만 명시적으로 join**하게 한다.
+// ----------------------------
+model Mission_Playbooks {
+  id         String   @id @default(uuid()) @db.Char(36)
+  mission_id String   @unique @db.Char(36)
+  // { flow: [{step, advanceExamples, advanceEmbeddings}], responseRules: [{when, then, whenEmbedding}] }
+  data       Json
+  created_at DateTime @default(now())
+  updated_at DateTime @default(dbgenerated("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")) @db.Timestamp(0)
+
+  mission Missions @relation(fields: [mission_id], references: [id], onDelete: Cascade)
+
+  @@map("Mission_Playbooks")
+}
+
 model Mission_Prep_Items {
   id          String       @id @default(uuid()) @db.Char(36)
   mission_id  String       @db.Char(36)
@@ -321,6 +360,10 @@ model Mission_Prep_Items {
 
   mission Missions @relation(fields: [mission_id], references: [id], onDelete: Cascade)
 
+  // 첫 마디 후보는 캐시가 비었을 때 생성되는데, 조회와 삽입 사이에 잠금이 없어
+  // 동시 요청이 모두 빈 캐시를 읽으면 같은 미션에 후보가 두 벌 쌓인다.
+  // 이 제약이 있으면 뒤늦은 삽입이 skipDuplicates로 조용히 버려진다.
+  @@unique([mission_id, type, order_index])
   @@map("Mission_Prep_Items")
 }
 
@@ -350,6 +393,20 @@ model Conversations {
   mission_id     String             @db.Char(36)
   mode           String?            @db.VarChar(50)
   selected_topic String?            @db.VarChar(255)
+  // 이 대화에서 AI가 맡은 배역(예: "동아리 1년차 선배, 친근한 존댓말").
+  // 세션 생성 시 한 번 정해 저장하고 매 턴 시스템 프롬프트에 주입한다.
+  // 저장하지 않으면 배역이 메시지 이력에만 남아, 이력 상한(최근 10개)을 넘기는 순간
+  // 설정이 사라지고 AI가 도우미 말투로 돌아가는 문제가 생긴다.
+  persona        String?            @db.VarChar(255)
+  // 사용자가 이 대화에서 해내야 할 행동 한 줄(예: "자기가 본 영화의 인상 깊은 장면을 설명하기").
+  // Missions.description은 "~해 보세요"처럼 사용자에게 하는 명령문이라 AI가 자기 지시로 읽고
+  // 과제를 먼저 수행해버렸다. 그래서 "사용자의 몫"을 별도로 뽑아 저장하고, 매 턴
+  // "이 행동은 당신이 하지 않는다"는 금지 규칙으로 주입한다.
+  user_task      String?            @db.VarChar(255)
+  // 지금 진행 중인 대화 흐름 단계(Missions.dialogue_playbook.flow의 인덱스).
+  // 턴 수로 넘기면 사용자가 아직 그 단계를 해내지 못했는데도 다음으로 가버려서,
+  // 사용자 발화가 단계의 통과 조건(advanceWhen)과 의미상 맞을 때만 올린다.
+  flow_step      Int                @default(0)
   status         ConversationStatus @default(in_progress)
   started_at     DateTime           @default(now())
   finished_at    DateTime?
@@ -484,20 +541,39 @@ model Saved_Phrases {
 model Recommendation_Logs {
   id                  String               @id @default(uuid()) @db.Char(36)
   user_id             String               @db.Char(36)
-  source              RecommendationSource
-  llm_model           String?              @db.VarChar(50)
-  target_difficulty   Int?
-  avoided_categories  Json?
-  prompt_input        Json?
-  raw_response        String?              @db.Text
-  parse_success       Boolean              @default(false)
+  source              RecommendationSource 
+  llm_model           String?              @db.VarChar(50) 
+  target_difficulty   Int?                 
+  avoided_categories  Json?                
+  prompt_input        Json?                
+  raw_response        String?              @db.Text 
+  parse_success       Boolean              @default(false) 
   recommended_mission Json?
   fallback_reason     String?              @db.VarChar(100)
+  created_mission_id  String?              @db.Char(36) // llm/fallback 추천을 실제 Missions로 저장했을 때 그 id (재요청 시 중복 생성 방지용 백링크)
+  // 그날 이 사용자의 몇 번째 추천인지(0 = 첫 추천, 1..N = 새로고침). LLM을 부르기 전에
+  // 이 값으로 행을 먼저 만들어 슬롯을 선점한다 — 아래 @@unique가 동시 요청 중 하나만
+  // 통과시키므로, count를 읽고 판단하는 방식과 달리 병렬 새로고침이 한도를 넘지 못한다.
+  // 이 컬럼 도입 이전 로그는 null이고, MySQL은 unique 인덱스에서 null을 서로 다르게 보므로
+  // 과거 데이터끼리 충돌하지 않는다.
+  refresh_index       Int?
+  // 이 추천이 속한 "하루"(클라이언트 로컬 날짜 기준, YYYY-MM-DD). 오늘의 미션 캐시와
+  // 새로고침 횟수 집계의 버킷 키다. created_at(타임스탬프)로 범위를 계산하지 않고 별도
+  // DATE 컬럼을 두는 이유는 사용자 시간대에 따라 "하루"의 경계가 달라지기 때문이다.
+  // 이 컬럼 도입 이전 로그는 null이라 어느 날짜 버킷에도 잡히지 않는다.
+  recommended_date    DateTime?            @db.Date
   created_at          DateTime             @default(now())
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  // 백링크를 실제 관계로 건다. 문자열 컬럼만 두면 미션이 지워졌을 때 없는 id가 남고,
+  // 다음 조회가 그 고아 백링크를 재사용해 미션을 복구하지 못한 채 응답한다.
+  // 미션이 사라지면 null로 떨어뜨려(SetNull) 재생성 경로를 타게 한다.
+  created_mission Missions? @relation("RecommendationLogCreatedMission", fields: [created_mission_id], references: [id], onDelete: SetNull)
 
+  @@unique([user_id, recommended_date, refresh_index])
   @@index([user_id])
+  @@index([user_id, recommended_date])
+  @@index([created_mission_id])
   @@map("Recommendation_Logs")
 }
 

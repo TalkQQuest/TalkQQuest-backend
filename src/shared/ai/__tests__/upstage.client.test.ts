@@ -10,7 +10,7 @@ jest.mock("../../../config/env", () => ({
 }));
 
 import { env } from "../../../config/env";
-import { callUpstageChat } from "../upstage";
+import { callUpstageChat } from "../upstage.client";
 
 const messages = [{ role: "user" as const, content: "안녕" }];
 

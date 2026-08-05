@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { logger } from "../../../config/logger";
-import { callUpstageChat, UpstageChatMessage } from "../../../shared/llm/upstage";
+import {
+  callUpstageChat,
+  generateWithRetry,
+  parseJsonResponse,
+  UpstageChatMessage,
+} from "../../../shared/ai";
 import { FEEDBACK_METRIC_KEYS, FeedbackMetricKey } from "../dtos/feedback.constants";
 
 // 대화 기반 피드백(E101) 생성 — POST /feedback.
@@ -18,11 +23,20 @@ export interface FeedbackTranscriptMessage {
   content: string;
 }
 
+// bestSentence/savedPhrase를 문장 그대로 쓰게 했더니 사용자가 하지 않은 말이 올라왔다:
+// 미션 설명의 예시 문장("오늘 어떤 음료가 인기 있어요?")이나 상대(AI) 발화가 그대로 잡혔다.
+// 베스트 문장은 문장 저장에도 쓰여서 신뢰 문제로 직결되므로, 프롬프트 지시로 막는 대신
+// **번호로만 고르게** 해서 사용자 발화 밖의 문장이 나올 수 없도록 구조적으로 차단한다.
+// (번호는 프롬프트에 [1], [2] … 로 매긴 사용자 발화 목록의 1-based 인덱스)
+const userUtteranceIndexSchema = z.number().int().positive();
+
 const metricSchema = z.object({
   score: z.number().int().min(0).max(100),
-  strengths: z.array(z.string().min(1)).min(1).max(5),
-  improvements: z.array(z.string().min(1)).min(1).max(5),
-  bestSentence: z.string().min(1),
+  // 프롬프트가 1~3개를 요구한다. 상한을 느슨하게 두면 4~5개를 받아도 검증이 통과해
+  // 재시도가 걸리지 않고, 화면이 감당하지 못하는 길이가 그대로 나간다.
+  strengths: z.array(z.string().min(1)).min(1).max(3),
+  improvements: z.array(z.string().min(1)).min(1).max(3),
+  bestSentenceIndex: userUtteranceIndexSchema,
 });
 
 // 요약 칩은 문장이 아니라 단어/짧은 키워드여야 한다(예: "자기성장", "첫 만남", "스몰토크").
@@ -38,10 +52,18 @@ const feedbackLlmSchema = z.object({
   summaryChips: summaryChipSchema,
   // 대화 전체를 2~3문장으로 요약한 텍스트(칩과 달리 문장형).
   conversationSummary: z.string().min(1).max(500),
-  savedPhrase: z.string().min(1),
+  savedPhraseIndex: userUtteranceIndexSchema,
 });
 
-export type FeedbackLlmMetrics = Record<FeedbackMetricKey, z.infer<typeof metricSchema>>;
+// LLM이 고른 번호를 실제 발화 문자열로 바꾼 뒤의 형태. 호출부는 여전히 문장만 다룬다.
+export interface FeedbackLlmMetric {
+  score: number;
+  strengths: string[];
+  improvements: string[];
+  bestSentence: string;
+}
+
+export type FeedbackLlmMetrics = Record<FeedbackMetricKey, FeedbackLlmMetric>;
 
 export interface FeedbackLlmResult {
   metrics: FeedbackLlmMetrics;
@@ -50,6 +72,31 @@ export interface FeedbackLlmResult {
   conversationSummary: string;
   savedPhrase: string;
 }
+
+// 프롬프트에 넣을 대화 기록의 표준형.
+//
+// 대화 기록과 "사용자 발화 목록"은 **같은 목록에 같은 번호**를 매겨야 한다. 예전에는
+// 대화 기록이 내용 없는 사용자 발화까지 세고 후보 목록은 그걸 걸러내서, 앞이나 중간에
+// 공백 발화가 하나라도 있으면 이후 번호가 통째로 한 칸씩 밀렸다. 모델이 대화 기록 기준으로
+// 번호를 고르면 서버는 다른 문장을 bestSentence/savedPhrase로 저장한다 —
+// 번호로만 고르게 해서 날조를 막아 놓고, 정작 엉뚱한 발화를 사용자 말로 되돌려주는 셈이다.
+//
+// 그래서 여기서 한 번 걸러 두 곳이 모두 이 결과만 쓰게 한다.
+const normalizeTranscript = (
+  transcript: FeedbackTranscriptMessage[]
+): FeedbackTranscriptMessage[] =>
+  transcript
+    .map((m) => (m.role === "user" ? { ...m, content: m.content.trim() } : m))
+    .filter((m) => m.role !== "user" || m.content.length > 0)
+    // 상한은 걸러낸 뒤에 적용한다. 먼저 자르면 끝쪽에 몰린 공백 발화가 상한을 차지해
+    // 그 앞의 유효한 발화가 통째로 밀려나고, 후보 목록이 비어 피드백 생성이 실패한다.
+    .slice(-MAX_TRANSCRIPT_MESSAGES);
+
+// 번호를 매길 사용자 발화만 추려낸다(순서 = 번호).
+const collectUserUtterances = (transcript: FeedbackTranscriptMessage[]): string[] =>
+  normalizeTranscript(transcript)
+    .filter((m) => m.role === "user")
+    .map((m) => m.content);
 
 const SYSTEM_PROMPT = `당신은 사용자의 실제 대화 연습을 분석하는 코치입니다.
 아래 대화 기록을 바탕으로 사용자(user)의 발화만 평가합니다. guide/system 메시지는 상대방 또는 안내이므로 평가 대상이 아닙니다.
@@ -61,22 +108,23 @@ const SYSTEM_PROMPT = `당신은 사용자의 실제 대화 연습을 분석하�
 - questionLink (질문 연결성): 상대의 답변에 이어지는 질문을 했는가
 
 규칙:
-- 각 지표마다 strengths(잘한 점)와 improvements(개선 제안)를 1~3개씩, 그리고 그 지표를 가장 잘 보여주는 사용자 발화 원문 하나를 bestSentence로 뽑습니다.
+- 각 지표마다 strengths(잘한 점)와 improvements(개선 제안)를 1~3개씩 씁니다.
+- bestSentenceIndex: 그 지표를 가장 잘 보여주는 발화를 "사용자 발화 목록"에서 골라 그 **번호만** 적습니다. 문장을 직접 쓰지 말고, 목록에 있는 번호 중 하나를 정수로만 적습니다. 목록에 없는 문장(미션 설명의 예시 문장, 상대 발화 등)은 절대 고르면 안 됩니다.
 - missionSummary: 미션 완료 화면에 보여줄 짧은 요약 태그를 1~3개 생성합니다 (예: "장소 경험을 공유했어요").
 - summaryChips: 이 대화 전체를 대표하는 키워드 칩을 정확히 3개 생성합니다. 반드시 문장이 아니라 단어/짧은 명사구여야 하며(예: "자기성장", "첫 만남", "스몰토크"), 각 칩은 최대 12자, 마침표나 서술형 어미를 쓰지 않습니다.
 - conversationSummary: 이 대화가 어떤 내용이었는지 2~3문장으로 요약합니다. 나중에 대화 기록을 다시 볼 때 한눈에 파악할 수 있도록 무엇에 대해 이야기했는지 중심으로 쓰고, 평가나 점수는 넣지 않습니다.
-- savedPhrase: 사용자가 나중에 다시 쓰기 좋은, 사용자 자신의 발화 중 하나를 그대로 인용합니다.
+- savedPhraseIndex: 사용자가 나중에 다시 쓰기 좋은 발화를 "사용자 발화 목록"에서 골라 그 **번호만** 적습니다. bestSentenceIndex와 같은 규칙입니다.
 - 근거 없이 과장하지 말고, 실제 대화 내용에 기반해 구체적으로 씁니다.
 - 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
 {
-  "kindness": { "score": 0-100 정수, "strengths": ["string"], "improvements": ["string"], "bestSentence": "string" },
+  "kindness": { "score": 0-100 정수, "strengths": ["string"], "improvements": ["string"], "bestSentenceIndex": 정수 },
   "initiative": { ... 위와 동일 구조 ... },
   "empathy": { ... 위와 동일 구조 ... },
   "questionLink": { ... 위와 동일 구조 ... },
   "missionSummary": ["string"],
   "summaryChips": ["단어", "단어", "단어"],
   "conversationSummary": "string",
-  "savedPhrase": "string"
+  "savedPhraseIndex": 정수
 }`;
 
 // 프롬프트는 순수 함수로 만들어 단독 검증이 가능하게 한다.
@@ -85,63 +133,98 @@ export const buildFeedbackMessages = (
   missionTitle: string,
   missionDescription: string | null
 ): UpstageChatMessage[] => {
-  const trimmed = transcript.slice(-MAX_TRANSCRIPT_MESSAGES);
+  // 후보 목록과 같은 정규화를 거친 기록을 쓴다. 번호가 어긋나면 안 되기 때문이다.
+  const trimmed = normalizeTranscript(transcript);
+
+  // 대화 기록에도 사용자 발화에 번호를 붙여, 아래 "사용자 발화 목록"과 같은 번호로 대조하게 한다.
+  let userIndex = 0;
   const transcriptText = trimmed
-    .map((m) => `${m.role === "user" ? "사용자" : "상대"}: ${m.content}`)
+    .map((m) => {
+      if (m.role !== "user") return `상대: ${m.content}`;
+      userIndex += 1;
+      return `사용자[${userIndex}]: ${m.content}`;
+    })
+    .join("\n");
+
+  // 고를 수 있는 후보를 따로 한 번 더 보여준다. 목록 밖 문장을 지어내는 것을 줄이기 위함이고,
+  // 설령 지어내더라도 번호만 받으므로 결과에는 반영되지 않는다.
+  const utteranceList = collectUserUtterances(transcript)
+    .map((content, i) => `[${i + 1}] ${content}`)
     .join("\n");
 
   const contextLines = [`미션: ${missionTitle}`];
   if (missionDescription) {
-    contextLines.push(`미션 설명: ${missionDescription}`);
+    // 미션 설명의 예시 문장이 사용자 발화로 둔갑한 사례가 있어 경계를 명시한다.
+    contextLines.push(`미션 설명(참고용 — 여기 있는 예시 문장은 사용자가 한 말이 아닙니다): ${missionDescription}`);
   }
 
   return [
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
-      content: `${contextLines.join("\n")}\n\n대화 기록:\n${transcriptText}\n\n위 대화를 분석해 JSON으로 피드백을 생성해주세요.`,
+      content: [
+        contextLines.join("\n"),
+        "",
+        "대화 기록:",
+        transcriptText,
+        "",
+        "사용자 발화 목록 (bestSentenceIndex/savedPhraseIndex는 반드시 이 번호 중에서 고릅니다):",
+        utteranceList,
+        "",
+        "위 대화를 분석해 JSON으로 피드백을 생성해주세요.",
+      ].join("\n"),
     },
   ];
 };
 
-const cleanJson = (raw: string): string =>
-  raw
-    .trim()
-    .replace(/^```(?:json)?/i, "")
-    .replace(/```$/, "")
-    .trim();
+const parseFeedbackLlm = (
+  rawContent: string,
+  userUtterances: string[]
+): FeedbackLlmResult | null => {
+  const data = parseJsonResponse(rawContent, feedbackLlmSchema, "피드백");
+  if (!data) return null;
 
-const parseFeedbackLlm = (rawContent: string): FeedbackLlmResult | null => {
-  let json: unknown;
-  try {
-    json = JSON.parse(cleanJson(rawContent));
-  } catch {
-    logger.warn("피드백 LLM 응답 JSON 파싱 실패");
+  // 번호를 실제 발화로 되돌린다. 범위를 벗어나면 사용자가 하지 않은 말을 지어낸 것이므로
+  // 응답 전체를 버린다(재시도 → 그래도 실패하면 status=failed). 이 앱은 실패를 감수하더라도
+  // 허위 피드백을 만들지 않는 쪽을 택한다.
+  const resolve = (index: number): string | null => userUtterances[index - 1] ?? null;
+
+  const metrics = {} as FeedbackLlmMetrics;
+  for (const key of FEEDBACK_METRIC_KEYS) {
+    const { bestSentenceIndex, ...rest } = data[key];
+    const bestSentence = resolve(bestSentenceIndex);
+    if (!bestSentence) {
+      logger.warn(
+        { metric: key, bestSentenceIndex, utteranceCount: userUtterances.length },
+        "피드백 LLM이 사용자 발화 범위를 벗어난 번호를 골랐습니다"
+      );
+      return null;
+    }
+    metrics[key] = { ...rest, bestSentence };
+  }
+
+  const savedPhrase = resolve(data.savedPhraseIndex);
+  if (!savedPhrase) {
+    logger.warn(
+      { savedPhraseIndex: data.savedPhraseIndex, utteranceCount: userUtterances.length },
+      "피드백 LLM이 savedPhrase로 사용자 발화 범위를 벗어난 번호를 골랐습니다"
+    );
     return null;
   }
 
-  const parsed = feedbackLlmSchema.safeParse(json);
-  if (!parsed.success) {
-    logger.warn({ issues: parsed.error.issues }, "피드백 LLM 응답 스키마 검증 실패");
-    return null;
-  }
-
-  const data = parsed.data;
   return {
-    metrics: {
-      kindness: data.kindness,
-      initiative: data.initiative,
-      empathy: data.empathy,
-      questionLink: data.questionLink,
-    },
+    metrics,
     missionSummary: data.missionSummary,
     summaryChips: data.summaryChips,
     conversationSummary: data.conversationSummary,
-    savedPhrase: data.savedPhrase,
+    savedPhrase,
   };
 };
 
-const callOnce = async (messages: UpstageChatMessage[]): Promise<FeedbackLlmResult | null> => {
+const callOnce = async (
+  messages: UpstageChatMessage[],
+  userUtterances: string[]
+): Promise<FeedbackLlmResult | null> => {
   const result = await callUpstageChat(messages, {
     temperature: TEMPERATURE,
     maxTokens: MAX_TOKENS,
@@ -151,27 +234,20 @@ const callOnce = async (messages: UpstageChatMessage[]): Promise<FeedbackLlmResu
     logger.warn({ reason: result.reason }, "피드백 LLM 호출 실패");
     return null;
   }
-  return parseFeedbackLlm(result.content);
+  return parseFeedbackLlm(result.content, userUtterances);
 };
 
 // 진입점. 1회 재시도 후에도 실패하면 null — 호출부(feedback.service)가 status=failed로 남긴다.
 // 미션 추천과 달리 실패 시 가짜 분석으로 대체하지 않는다(허위 피드백 방지).
-export const generateFeedbackWithLlm = async (
+export const generateFeedbackWithLlm = (
   transcript: FeedbackTranscriptMessage[],
   missionTitle: string,
   missionDescription: string | null
 ): Promise<FeedbackLlmResult | null> => {
   const messages = buildFeedbackMessages(transcript, missionTitle, missionDescription);
+  const userUtterances = collectUserUtterances(transcript);
 
-  const first = await callOnce(messages);
-  if (first) return first;
-
-  logger.warn("피드백 LLM 1차 실패 — 재시도");
-  const retry = await callOnce(messages);
-  if (retry) return retry;
-
-  logger.warn("피드백 LLM 재시도까지 실패");
-  return null;
+  return generateWithRetry(() => callOnce(messages, userUtterances), { label: "피드백" });
 };
 
 // 서비스 계층에서 지표 순서를 고정해 순회할 때 쓴다.

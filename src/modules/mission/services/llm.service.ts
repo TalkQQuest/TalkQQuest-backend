@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { logger } from "../../../config/logger";
-import { callUpstageChat, upstageModel } from "../../../shared/llm/upstage";
+import { stripCodeFence, callUpstageChat, upstageModel } from "../../../shared/ai";
 import { LlmHealthResponseDto } from "../dtos/mission.dto";
 import {
   RecommendationCriteria,
@@ -148,16 +148,9 @@ export const buildLlmMessages = (
 
 // LLM 원문 응답 → RecommendedMission. 실패 시 사유를 담아 반환 (호출부가 템플릿 폴백 + 로깅).
 export const parseLlmMission = (rawContent: string): ParseResult => {
-  // 모델이 ```json 코드펜스로 감싸는 경우를 벗겨낸다.
-  const cleaned = rawContent
-    .trim()
-    .replace(/^```(?:json)?/i, "")
-    .replace(/```$/, "")
-    .trim();
-
   let json: unknown;
   try {
-    json = JSON.parse(cleaned);
+    json = JSON.parse(stripCodeFence(rawContent));
   } catch {
     logger.warn("LLM 응답 JSON 파싱 실패 — 템플릿으로 폴백");
     return { ok: false, reason: "invalid_json" };
@@ -183,6 +176,7 @@ export const parseLlmMission = (rawContent: string): ParseResult => {
       reason: data.reason,
       expectedEffect: data.expected_effect,
       source: "llm",
+      recommendationLogId: null, // recommendation.service가 로깅 후 채운다
     },
   };
 };

@@ -12,6 +12,8 @@ import {
   SaveReportResponseDto,
   WeeklyCompareReportDto,
 } from "../dtos/report.dto";
+import { createNotification } from "../../notification/repositories/notification.repository";
+import { findNotificationSettings } from "../../notification/repositories/notification.repository";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -76,6 +78,18 @@ export const saveReport = async (userId: string): Promise<SaveReportResponseDto>
   const created = await reportRepository.createReport(userId, period, stored);
   await createArchiveItem({ user: { connect: { id: userId } }, item_type: "report", reference_id: created.id });
 
+    const settings = await findNotificationSettings(userId);
+  if (settings?.report_ready) {
+    await createNotification(
+      userId,
+      "report_ready",
+      "성장 리포트가 도착했어요!",
+      "이번 주 성장 리포트를 확인해보세요.",
+      created.id,
+      "report"
+    );
+  }
+  
   return { reportId: created.id, period, weeklyComparePeriod, createdAt: created.created_at.toISOString() };
 };
 

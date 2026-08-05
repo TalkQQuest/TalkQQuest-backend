@@ -26,7 +26,10 @@ const sentences = (n: number, prefix = "문장") =>
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockedRepo.findMissionById.mockResolvedValue({
+  // getMissionPrep은 목록/상세와 같은 공개 범위 필터를 타므로(findVisibleMissionById),
+  // 옛 findMissionById가 아니라 이 두 함수를 목킹해야 한다.
+  mockedRepo.findUserPersonalityType.mockResolvedValue(null);
+  mockedRepo.findVisibleMissionById.mockResolvedValue({
     id: "m1",
     title: "카페에서 음료 추천 물어보기",
     description: "설명",
@@ -39,7 +42,7 @@ describe("getMissionPrep", () => {
   it("캐시가 충분하면 다시 만들지 않는다", async () => {
     mockedRepo.findPrepItemsByType.mockResolvedValue(items(sentences(STARTER_POOL_SIZE)));
 
-    const result = await getMissionPrep("m1");
+    const result = await getMissionPrep("u1", "m1");
 
     expect(mockedPrep.generateStarters).not.toHaveBeenCalled();
     expect(result.items).toHaveLength(STARTER_DISPLAY_COUNT);
@@ -53,7 +56,7 @@ describe("getMissionPrep", () => {
       .mockResolvedValue(items(sentences(STARTER_POOL_SIZE, "새 문장")));
     mockedPrep.generateStarters.mockResolvedValue(sentences(STARTER_POOL_SIZE, "새 문장"));
 
-    const result = await getMissionPrep("m1");
+    const result = await getMissionPrep("u1", "m1");
 
     expect(mockedPrep.generateStarters).toHaveBeenCalledTimes(1);
     // order_index가 겹치면 unique 제약에 걸리므로 먼저 비워야 한다.
@@ -67,7 +70,7 @@ describe("getMissionPrep", () => {
     mockedRepo.findPrepItemsByType.mockResolvedValue(items(sentences(2)));
     mockedPrep.generateStarters.mockResolvedValue(null);
 
-    const result = await getMissionPrep("m1");
+    const result = await getMissionPrep("u1", "m1");
 
     expect(result.items).toEqual([]);
     expect(result.totalCount).toBe(0);

@@ -86,9 +86,11 @@ const normalizeTranscript = (
   transcript: FeedbackTranscriptMessage[]
 ): FeedbackTranscriptMessage[] =>
   transcript
-    .slice(-MAX_TRANSCRIPT_MESSAGES)
     .map((m) => (m.role === "user" ? { ...m, content: m.content.trim() } : m))
-    .filter((m) => m.role !== "user" || m.content.length > 0);
+    .filter((m) => m.role !== "user" || m.content.length > 0)
+    // 상한은 걸러낸 뒤에 적용한다. 먼저 자르면 끝쪽에 몰린 공백 발화가 상한을 차지해
+    // 그 앞의 유효한 발화가 통째로 밀려나고, 후보 목록이 비어 피드백 생성이 실패한다.
+    .slice(-MAX_TRANSCRIPT_MESSAGES);
 
 // 번호를 매길 사용자 발화만 추려낸다(순서 = 번호).
 const collectUserUtterances = (transcript: FeedbackTranscriptMessage[]): string[] =>

@@ -15,7 +15,7 @@ import {
 } from "../dtos/mission.dto";
 import { DIFFICULTY_TO_INT, DIFFICULTY_TO_LABEL } from "../dtos/mission.constants";
 import { recommendMission } from "./recommendation.service";
-import { generateStarters, pickRandomStarters } from "./prep.service";
+import { generateStarters, pickRandomStarters, STARTER_DISPLAY_COUNT } from "./prep.service";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_SIZE = 10;
@@ -154,10 +154,14 @@ export const getMissionPrep = async (missionId: string): Promise<MissionPrepResp
 
   let pool = await missionRepository.findPrepItemsByType(missionId, "starter");
 
-  // 아직 후보가 없는 미션(기존 미션 전부 + AI로 새로 생성된 미션)은 이 시점에 만들어 캐시한다.
-  if (pool.length === 0) {
+  // 후보가 없는 미션(신규·AI 생성)뿐 아니라, 표시 개수를 못 채우는 캐시도 다시 만든다.
+  // 개수 미달을 허용하던 시절에 1~2개만 저장된 미션이 남아 있는데, 그대로 두면
+  // 재생성 조건에 걸리지 않아 그 미션은 계속 3개 미만으로 노출된다.
+  if (pool.length < STARTER_DISPLAY_COUNT) {
     const generated = await generateStarters(mission.title, mission.description);
     if (generated) {
+      // order_index가 겹치면 unique 제약에 걸리므로 남은 부분 캐시를 먼저 비운다.
+      await missionRepository.deletePrepItemsByType(missionId, "starter");
       await missionRepository.createPrepItems(missionId, "starter", generated);
       pool = await missionRepository.findPrepItemsByType(missionId, "starter");
     }
@@ -165,7 +169,11 @@ export const getMissionPrep = async (missionId: string): Promise<MissionPrepResp
 
   // LLM이 실패하면 빈 배열이 나가고 앱이 기존처럼 자체 문구를 띄운다.
   // 여기서 일반 인사말을 지어내면 "모든 미션이 똑같다"는 원래 문제로 되돌아가므로 채우지 않는다.
-  const picked = pickRandomStarters(pool.map((item) => item.content));
+  // 재생성 후에도 개수를 못 채우면 부분 노출 대신 폴백으로 보낸다.
+  const picked =
+    pool.length >= STARTER_DISPLAY_COUNT
+      ? pickRandomStarters(pool.map((item) => item.content))
+      : [];
   const byContent = new Map(pool.map((item) => [item.content, item]));
 
   return {

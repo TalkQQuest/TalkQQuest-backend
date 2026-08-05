@@ -71,6 +71,16 @@ describe("buildFeedbackMessages", () => {
     expect(content).not.toContain("사용자[3]");
   });
 
+  it("끝쪽에 공백 발화가 몰려 있어도 유효 발화가 밀려나지 않는다", () => {
+    // 상한을 먼저 적용하면 공백 발화가 자리를 차지해 후보 목록이 비고,
+    // LLM이 고른 번호를 해석할 수 없어 피드백 생성이 통째로 실패한다.
+    const blanks = Array.from({ length: 60 }, () => ({ role: "user" as const, content: "  " }));
+    const content = buildFeedbackMessages([...transcript, ...blanks], "인사 연습", null)[1].content;
+
+    expect(content).toContain("[1] 안녕하세요! 오늘 날씨가 좋네요");
+    expect(content).toContain("[2] 혹시 이 근처 자주 오세요?");
+  });
+
   it("system 프롬프트에 4개 지표 정의와 JSON 형식 요구를 담는다", () => {
     const system = buildFeedbackMessages(transcript, "인사 연습", null)[0].content;
     expect(system).toContain("kindness");

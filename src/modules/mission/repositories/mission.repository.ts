@@ -159,6 +159,11 @@ export const findPrepItemsByType = (missionId: string, type: PrepItemType) =>
     orderBy: { order_index: "asc" },
   });
 
+// 표시 개수를 못 채우는 부분 캐시를 다시 만들 때 쓴다.
+// order_index가 겹치면 unique 제약에 걸리므로 새로 넣기 전에 비워야 한다.
+export const deletePrepItemsByType = (missionId: string, type: PrepItemType) =>
+  prisma.mission_Prep_Items.deleteMany({ where: { mission_id: missionId, type } });
+
 // 생성한 첫 마디 후보를 캐시해 둔다. 미션당 1회만 만들고 이후에는 재사용한다.
 export const createPrepItems = (
   missionId: string,
@@ -172,6 +177,10 @@ export const createPrepItems = (
       content,
       order_index: index,
     })),
+    // 동시 요청이 모두 빈 캐시를 읽고 같은 미션에 후보를 두 벌 넣는 것을 막는다.
+    // (mission_id, type, order_index) unique 제약과 짝이다 — 늦은 쪽은 조용히 버려지고,
+    // 호출부가 곧바로 다시 조회하므로 먼저 들어간 한 벌을 그대로 쓴다.
+    skipDuplicates: true,
   });
 
 // ── 대화 플레이북 (Mission_Playbooks) ──

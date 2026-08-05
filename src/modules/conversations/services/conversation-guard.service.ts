@@ -18,18 +18,36 @@ import { AI_IDENTITY_PHRASE } from "../dtos/conversation.constants";
 
 // 사용자가 상대의 정체를 묻는 패턴. 실제 보고된 질문("너 정체가 뭐야? 사람이야 AI야?")과
 // 그 변형을 포괄한다. 2인칭 지칭 + 정체를 묻는 표현이 함께 있을 때만 잡아 오탐을 줄인다.
-const SECOND_PERSON = /(너|넌|니|당신|그쪽|본인|여기)/;
+//
+// 오탐이 나면 역할극 도중 고정 정체 응답이 끼어들고 그게 대화 이력에 저장되므로,
+// 대상이 분명한 발화만 잡는다. 판정 기준은 "지금 말 상대에게 묻고 있는가"다.
+//
+// 2인칭은 어절 경계를 요구한다. 경계 없이 "니"를 찾으면 "그러니까", "재미있으니" 같은
+// 어미에 걸려 평범한 발화가 정체 질문이 된다. 장소를 가리키는 "여기"도 뺐다 —
+// "여기 뭐예요?"는 상대의 정체를 묻는 말이 아니다.
+const SECOND_PERSON = /(?:^|[\s,.!?"'“”])(너|넌|네가|니가|당신|그쪽|본인)(?=$|[\s,.!?은는이가랑도])/;
+// "사람이야"류는 여기서 빼고 아래 HUMAN_PROBE로 따로 본다. 여기 두면 제3자를 가리키는
+// 절("그 사람이야?")과 2인칭이 한 문장에 같이 있을 때 함께 걸려 오탐이 난다.
 const IDENTITY_PROBE =
-  /(정체|누구(야|세요|시죠|신가요)|뭐야|뭐예요|뭐니|사람이(야|에요|예요|세요)|인간이(야|에요)|ai(야|에요|예요|입니까|인가요)?|에이아이|인공지능|챗봇|봇이(야|에요)|로봇|기계)/i;
+  /(정체|누구(야|세요|시죠|신가요)|뭐야|뭐예요|뭐니|인간이(야|에요)|ai(야|에요|예요|입니까|인가요)?|에이아이|인공지능|챗봇|봇이(야|에요)|로봇|기계)/i;
 
-// 2인칭 없이도 명백히 정체를 묻는 표현.
+// 2인칭 없이도 명백히 정체를 묻는 표현. AI·챗봇을 직접 거론하므로 대상이 분명하다.
+// "진짜 사람"은 그 자체로는 정체를 묻는 말이 아니라("여긴 진짜 사람 많아요.") 확인을 구하는
+// 종결형이 붙었을 때만 잡는다.
 const DIRECT_IDENTITY_PROBE =
-  /(사람이야|사람이에요|사람인가요|ai야|ai예요|ai인가요|챗봇이야|챗봇인가요|인공지능이야|인공지능인가요|진짜 사람)/i;
+  /(ai야|ai에요|ai예요|ai인가요|ai입니까|챗봇이야|챗봇이에요|챗봇인가요|인공지능이야|인공지능인가요|진짜\s*사람\s*(?:이야|이에요|이예요|인가요|입니까|맞아|맞아요|맞나요|맞죠|맞습니까))/i;
+
+// "사람이야?"는 대상이 분명하지 않다. 아래처럼 지시어가 붙으면 제3자를 가리키는
+// 역할극 발화("그 사람이야? 네가 말한 선배가?")이므로 정체 질문에서 제외한다.
+const HUMAN_PROBE = /사람이(야|에요|예요|세요)|사람인가요/;
+// "사람이야"와 "사람인가요" 두 형태를 모두 덮어야 한다(앞 음절이 '이'/'인'으로 갈린다).
+const THIRD_PARTY_MODIFIER = /(그|이|저|어떤|무슨|다른|같은)\s*사람(이|인)/;
 
 export const matchesIdentityQuestion = (message: string): boolean => {
   const text = message.trim().toLowerCase();
   if (text.length === 0) return false;
   if (DIRECT_IDENTITY_PROBE.test(text)) return true;
+  if (HUMAN_PROBE.test(text) && !THIRD_PARTY_MODIFIER.test(text)) return true;
   return SECOND_PERSON.test(text) && IDENTITY_PROBE.test(text);
 };
 
@@ -79,23 +97,34 @@ export const cleanReply = (raw: string): string => {
   return text.replace(/[ \t]{2,}/g, " ").trim();
 };
 
-// 여는 따옴표가 맨 앞에 있을 때, 뒤쪽 꼬리(이모지·공백 등)를 남기고 감싼 따옴표만 제거한다.
+// 닫는 따옴표 뒤에 남아도 되는 꼬리: 공백·문장부호·이모지뿐이다.
+// 글자가 남아 있으면 그건 답변을 감싼 따옴표가 아니라 문장 안의 인용이다.
+const isWrapperTail = (tail: string): boolean => /^[\s\p{P}\p{S}]*$/u.test(tail);
+
+const containsQuote = (text: string): boolean =>
+  [...text].some((char) => QUOTE_CHARS.includes(char));
+
+// 답변 전체를 감싼 따옴표만 제거하고, 뒤쪽 꼬리(이모지·공백 등)는 남긴다.
 const stripWrappingQuotes = (text: string): string => {
   const opensWithQuote = QUOTE_CHARS.includes(text[0] ?? "");
 
   // 끝에서부터 따옴표가 아닌 꼬리(이모지·공백·문장부호)를 건너뛰어 닫는 따옴표 위치를 찾는다.
   let end = text.length - 1;
   while (end >= 0 && !QUOTE_CHARS.includes(text[end])) end -= 1;
-  const closingFound = end > 0;
 
-  if (opensWithQuote && closingFound) {
+  // 마지막 따옴표 뒤에 글자가 이어지면 감싼 게 아니다.
+  // 예: `"고마워"라고 먼저 말해봤어요.` — 여기서 떼면 인용부호가 사라져 뜻이 달라진다.
+  // 이 경우 여는 따옴표도 건드리지 않는다(짝이 맞는 정상 인용이므로).
+  const wrapsToEnd = end > 0 && isWrapperTail(text.slice(end + 1));
+
+  if (opensWithQuote && wrapsToEnd) {
+    // 안쪽에 또 다른 따옴표가 있으면 감싼 것으로 보지 않는다.
+    // 예: `"그는 "고마워"라고 말했어요."` — 바깥을 떼면 짝이 어긋나 남은 인용부호가 노출된다.
+    if (containsQuote(text.slice(1, end))) return text;
     // 정상적으로 감싼 경우: 양쪽 따옴표만 떼고 꼬리는 살린다.
     return (text.slice(1, end) + text.slice(end + 1)).trim();
   }
-  if (opensWithQuote) {
-    return text.slice(1).trim();
-  }
-  if (closingFound && !text.slice(0, end).includes('"')) {
+  if (!opensWithQuote && wrapsToEnd && !containsQuote(text.slice(0, end))) {
     // 여는 따옴표 없이 닫는 것만 남은 경우(실제 보고된 형태). 짝이 없으므로 그것만 제거한다.
     return (text.slice(0, end) + text.slice(end + 1)).trim();
   }
@@ -124,9 +153,11 @@ export const validateReply = (reply: string): ReplyRejectionReason | null => {
   const text = reply.trim();
   if (text.length === 0) return "empty";
 
-  // 배역 이탈: AI/도우미를 언급했는데 정해진 고정 문구가 아닌 경우.
-  // (정체 질문은 위에서 인터셉트되므로, 여기 걸리는 건 LLM이 스스로 정체를 꺼낸 경우다.)
-  if (AI_SELF_REFERENCE.test(text) && !text.includes(AI_IDENTITY_PHRASE)) {
+  // 배역 이탈: LLM이 스스로 AI/도우미 정체를 꺼낸 경우.
+  // 정체 질문은 서버가 buildIdentityResponse로 직접 답하고 이 검증을 타지 않는다.
+  // 따라서 여기 도달한 정체 언급은 전부 배역 이탈이다 — 고정 문구 포함 여부로 봐주면
+  // 문구 뒤에 임의의 기능 설명을 덧붙인 답변이 그대로 통과한다.
+  if (AI_SELF_REFERENCE.test(text)) {
     return "identity_drift";
   }
 
@@ -134,6 +165,17 @@ export const validateReply = (reply: string): ReplyRejectionReason | null => {
   if (/[*_`]{1,}[^*_`]+[*_`]{1,}/.test(text)) return "format_leak";
   if (/^\s*[>#-]\s/m.test(text)) return "format_leak";
   if (/[(（][^)）]{10,}(?:습니다|했어요|봤습니다|입니다)[)）]/.test(text)) return "format_leak";
+
+  // 번호·불릿 목록. 위 머리기호 검사는 `- `와 `> `만 잡아 "1. 안녕하세요."가 통과했다.
+  if (/^\s*\d+[.)]\s/m.test(text)) return "format_leak";
+  if (/^\s*[•·▪]\s/m.test(text)) return "format_leak";
+
+  // 답변은 말풍선 하나에 그대로 들어가므로 여러 줄이면 안 된다.
+  // cleanReply가 줄바꿈을 합치지만, 세척을 건너뛴 문자열이 들어와도 걸러지도록 여기서도 본다.
+  if (/[\r\n]/.test(text)) return "format_leak";
+
+  // 프롬프트 형식이 그대로 샌 경우(JSON 객체·배열).
+  if (/^\s*[[{][\s\S]*[\]}]\s*$/.test(text)) return "format_leak";
 
   if (countSentences(text) > MAX_SENTENCES) return "too_long";
 

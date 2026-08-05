@@ -32,8 +32,10 @@ const userUtteranceIndexSchema = z.number().int().positive();
 
 const metricSchema = z.object({
   score: z.number().int().min(0).max(100),
-  strengths: z.array(z.string().min(1)).min(1).max(5),
-  improvements: z.array(z.string().min(1)).min(1).max(5),
+  // 프롬프트가 1~3개를 요구한다. 상한을 느슨하게 두면 4~5개를 받아도 검증이 통과해
+  // 재시도가 걸리지 않고, 화면이 감당하지 못하는 길이가 그대로 나간다.
+  strengths: z.array(z.string().min(1)).min(1).max(3),
+  improvements: z.array(z.string().min(1)).min(1).max(3),
   bestSentenceIndex: userUtteranceIndexSchema,
 });
 
@@ -71,14 +73,30 @@ export interface FeedbackLlmResult {
   savedPhrase: string;
 }
 
-// 프롬프트에 번호를 매겨 넣을 사용자 발화만 추려낸다(순서 = 번호).
-// 프롬프트와 검증이 같은 목록을 봐야 하므로 트리밍 이후 기준으로 뽑는다.
-const collectUserUtterances = (transcript: FeedbackTranscriptMessage[]): string[] =>
+// 프롬프트에 넣을 대화 기록의 표준형.
+//
+// 대화 기록과 "사용자 발화 목록"은 **같은 목록에 같은 번호**를 매겨야 한다. 예전에는
+// 대화 기록이 내용 없는 사용자 발화까지 세고 후보 목록은 그걸 걸러내서, 앞이나 중간에
+// 공백 발화가 하나라도 있으면 이후 번호가 통째로 한 칸씩 밀렸다. 모델이 대화 기록 기준으로
+// 번호를 고르면 서버는 다른 문장을 bestSentence/savedPhrase로 저장한다 —
+// 번호로만 고르게 해서 날조를 막아 놓고, 정작 엉뚱한 발화를 사용자 말로 되돌려주는 셈이다.
+//
+// 그래서 여기서 한 번 걸러 두 곳이 모두 이 결과만 쓰게 한다.
+const normalizeTranscript = (
+  transcript: FeedbackTranscriptMessage[]
+): FeedbackTranscriptMessage[] =>
   transcript
-    .slice(-MAX_TRANSCRIPT_MESSAGES)
+    .map((m) => (m.role === "user" ? { ...m, content: m.content.trim() } : m))
+    .filter((m) => m.role !== "user" || m.content.length > 0)
+    // 상한은 걸러낸 뒤에 적용한다. 먼저 자르면 끝쪽에 몰린 공백 발화가 상한을 차지해
+    // 그 앞의 유효한 발화가 통째로 밀려나고, 후보 목록이 비어 피드백 생성이 실패한다.
+    .slice(-MAX_TRANSCRIPT_MESSAGES);
+
+// 번호를 매길 사용자 발화만 추려낸다(순서 = 번호).
+const collectUserUtterances = (transcript: FeedbackTranscriptMessage[]): string[] =>
+  normalizeTranscript(transcript)
     .filter((m) => m.role === "user")
-    .map((m) => m.content.trim())
-    .filter((content) => content.length > 0);
+    .map((m) => m.content);
 
 const SYSTEM_PROMPT = `당신은 사용자의 실제 대화 연습을 분석하는 코치입니다.
 아래 대화 기록을 바탕으로 사용자(user)의 발화만 평가합니다. guide/system 메시지는 상대방 또는 안내이므로 평가 대상이 아닙니다.
@@ -115,7 +133,8 @@ export const buildFeedbackMessages = (
   missionTitle: string,
   missionDescription: string | null
 ): UpstageChatMessage[] => {
-  const trimmed = transcript.slice(-MAX_TRANSCRIPT_MESSAGES);
+  // 후보 목록과 같은 정규화를 거친 기록을 쓴다. 번호가 어긋나면 안 되기 때문이다.
+  const trimmed = normalizeTranscript(transcript);
 
   // 대화 기록에도 사용자 발화에 번호를 붙여, 아래 "사용자 발화 목록"과 같은 번호로 대조하게 한다.
   let userIndex = 0;

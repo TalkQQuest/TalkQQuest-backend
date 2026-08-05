@@ -168,7 +168,9 @@ const generateOnce = async (messages: UpstageChatMessage[]): Promise<string | nu
 
   const rejection = validateReply(reply);
   if (rejection) {
-    logger.warn({ reason: rejection, reply }, "대화 LLM 응답이 규칙을 위반해 폐기");
+    // 응답 원문은 남기지 않는다 — 사용자 대화 내용이 그대로 로그에 쌓이고,
+    // 현재 로거에는 마스킹 설정이 없다. 사유와 길이만으로 재현·집계가 가능하다.
+    logger.warn({ reason: rejection, replyLength: reply.length }, "대화 LLM 응답이 규칙을 위반해 폐기");
     return null;
   }
   return reply;

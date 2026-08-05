@@ -121,6 +121,10 @@ export const createPrepItems = (
       content,
       order_index: index,
     })),
+    // 동시 요청이 모두 빈 캐시를 읽고 같은 미션에 후보를 두 벌 넣는 것을 막는다.
+    // (mission_id, type, order_index) unique 제약과 짝이다 — 늦은 쪽은 조용히 버려지고,
+    // 호출부가 곧바로 다시 조회하므로 먼저 들어간 한 벌을 그대로 쓴다.
+    skipDuplicates: true,
   });
 
 // ── 대화 플레이북 (Mission_Playbooks) ──

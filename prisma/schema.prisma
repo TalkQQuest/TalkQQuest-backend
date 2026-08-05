@@ -346,6 +346,10 @@ model Mission_Prep_Items {
 
   mission Missions @relation(fields: [mission_id], references: [id], onDelete: Cascade)
 
+  // 첫 마디 후보는 캐시가 비었을 때 생성되는데, 조회와 삽입 사이에 잠금이 없어
+  // 동시 요청이 모두 빈 캐시를 읽으면 같은 미션에 후보가 두 벌 쌓인다.
+  // 이 제약이 있으면 뒤늦은 삽입이 skipDuplicates로 조용히 버려진다.
+  @@unique([mission_id, type, order_index])
   @@map("Mission_Prep_Items")
 }
 

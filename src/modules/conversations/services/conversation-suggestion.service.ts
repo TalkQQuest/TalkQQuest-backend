@@ -84,7 +84,9 @@ export const generateSuggestions = async (ctx: SuggestionContext): Promise<strin
   }
 
   const suggestions = parseSuggestions(result.content);
-  return suggestions.length > 0 ? suggestions : null;
+  // 형식 검증에 걸려 일부만 남으면 화면이 1~2개만 받는다. 그 상태로 내보내면 호출부의
+  // 템플릿 폴백을 건너뛰므로, 개수를 못 채우면 실패로 보고 폴백에 맡긴다.
+  return suggestions.length === SUGGESTION_COUNT ? suggestions : null;
 };
 
 // 호출 1회 + 출력 검증. 규칙을 어긴 답변은 받아들이지 않는다.

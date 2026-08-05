@@ -86,10 +86,11 @@ export const getTodayMissionQuerySchema = z.object({
 
 export interface TodayMissionResponseDto {
   /**
-   * 이 추천에 해당하는 Missions.id. 추천 시점에 실제 미션 행까지 만들어 두므로 항상 값이 있다.
-   * (추천 로그 저장 자체가 실패한 예외적인 경우에만 null — 그때는 대화를 시작할 수 없다.)
+   * 이 추천에 해당하는 Missions.id. 추천과 같은 트랜잭션에서 실제 미션 행까지 만들고
+   * 추천 로그에 백링크하므로 **항상 값이 있다**. 앱은 별도 저장 요청 없이 바로 대화를
+   * 시작할 수 있다.
    */
-  missionId: string | null;
+  missionId: string;
   title: string;
   category: string;
   difficulty: MissionDifficultyLabel;
@@ -100,8 +101,8 @@ export interface TodayMissionResponseDto {
   expectedEffect: string; // 기대 효과 (Requirement 3.2)
   source: "template" | "fallback" | "llm"; // 어느 단계가 만든 추천인지
   isSaved: boolean;
-  // 이 추천을 만든 Recommendation_Logs 행의 id. 로깅이 실패했을 때만 null.
-  recommendationLogId: string | null;
+  /** 이 추천을 만든 Recommendation_Logs 행의 id. LLM 호출 전에 선점하므로 항상 값이 있다. */
+  recommendationLogId: string;
   /** 이 추천이 속한 날짜(YYYY-MM-DD). 요청한 date를 그대로 돌려준다. */
   date: string;
   /** 오늘 이미 사용한 새로고침 횟수. */
@@ -115,8 +116,9 @@ export interface TodayMissionResponseDto {
 }
 
 // POST /missions/from-recommendation
-// GET /missions/today가 llm/fallback으로 추천한 미션(missionId=null)을 실제 Missions로 저장한다.
-// 이미 실제 미션인 템플릿 추천(missionId 있음)은 이 API 없이 바로 대화를 시작할 수 있다.
+// GET /missions/today가 이미 실제 미션까지 만들어 두므로 대화 시작에는 필요하지 않다.
+// 이전 버전 앱 호환과, 추천 로그만 있고 미션이 없는 과거 데이터를 살리기 위한 멱등 API다
+// (이미 백링크가 있으면 그 id를 그대로 돌려준다).
 export interface SaveRecommendedMissionRequestDto {
   recommendationLogId: string;
 }

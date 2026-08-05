@@ -222,7 +222,7 @@ export const getTodayMission = async (
 
   // LLM을 부르기 전에 슬롯을 선점한다. 여기서 얻은 로그 id가 오늘의 미션 캐시 키가 되므로,
   // 추천 후 로그를 만들다 실패해 캐시가 비는 경우(=매 요청이 LLM 재호출)가 생기지 않는다.
-  const reservedLogId = await reserveRefreshSlot(userId, dateOnly, logCount);
+  const { logId: reservedLogId, slotIndex } = await reserveRefreshSlot(userId, dateOnly, logCount);
 
   const personalityType = await missionRepository.findUserPersonalityType(userId);
   const recommended = await recommendMission(userId, reservedLogId);
@@ -239,8 +239,8 @@ export const getTodayMission = async (
     missionId,
     recommendationLogId: reservedLogId,
     date,
-    // 방금 선점한 슬롯 1건을 더한 기준으로 남은 횟수를 계산한다.
-    refreshCount: usedRefreshCount(logCount + 1),
+    // 예약 전 건수가 아니라 실제로 확정된 순번을 기준으로 센다.
+    refreshCount: usedRefreshCount(slotIndex + 1),
     isNew: true,
   });
 };
@@ -253,7 +253,7 @@ const reserveRefreshSlot = async (
   userId: string,
   dateOnly: Date,
   knownLogCount: number
-): Promise<string> => {
+): Promise<{ logId: string; slotIndex: number }> => {
   let slotIndex = knownLogCount;
 
   for (let attempt = 0; attempt <= MISSION_REFRESH_LIMIT + 1; attempt += 1) {
@@ -267,7 +267,9 @@ const reserveRefreshSlot = async (
         dateOnly,
         slotIndex
       );
-      return reserved.id;
+      // 확정된 순번을 함께 돌려준다. 경합에 지면 처음 계산한 값보다 커지므로, 호출부가
+      // 예약 전 건수로 남은 횟수를 계산하면 실제보다 적게 안내하게 된다.
+      return { logId: reserved.id, slotIndex };
     } catch (error) {
       // P2002 = unique 위반. 동시 요청이 이 순번을 먼저 가져갔다는 뜻이므로 다음 순번으로 넘어간다.
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
@@ -284,16 +286,14 @@ const reserveRefreshSlot = async (
 const buildTodayMissionResponse = async (params: {
   userId: string;
   recommended: z.infer<typeof persistedRecommendedMissionSchema>;
-  missionId: string | null;
-  recommendationLogId: string | null;
+  missionId: string;
+  recommendationLogId: string;
   date: string;
   refreshCount: number;
   isNew: boolean;
 }): Promise<TodayMissionResponseDto> => {
   const { recommended } = params;
-  const isSaved = params.missionId
-    ? !!(await missionRepository.findSavedMission(params.userId, params.missionId))
-    : false;
+  const isSaved = !!(await missionRepository.findSavedMission(params.userId, params.missionId));
 
   return {
     missionId: params.missionId,

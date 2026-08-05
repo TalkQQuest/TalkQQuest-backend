@@ -15,6 +15,7 @@ const mockedMission = jest.mocked(missionService);
 
 const todayMission = {
   missionId: "m1",
+  date: "2026-08-03",
   title: "카페에서 음료 추천 물어보기",
   description: "설명",
   category: "짧은 대화",
@@ -82,12 +83,15 @@ describe("getHomeSummary", () => {
     expect(result.nickname).toBe("유경");
   });
 
-  it("실제 미션 행이 없으면 카드를 비운다", async () => {
-    // missionId가 없으면 카드에서 대화를 시작할 수 없다.
-    mockedMission.getTodayMission.mockResolvedValue({ ...todayMission, missionId: null } as never);
+  it("완료 여부를 추천이 속한 날짜 기준으로 조회한다", async () => {
+    // 여기서 오늘 날짜를 다시 계산하면, KST 자정을 걸친 요청에서 추천은 어제 것인데
+    // 완료 여부만 오늘 기준으로 조회돼 어제 완료한 미션이 미완료로 보인다.
+    await getHomeSummary("u1");
 
-    const result = await getHomeSummary("u1");
-
-    expect(result.todayMission).toBeNull();
+    expect(mockedRepo.hasCompletedMissionSince).toHaveBeenCalledWith(
+      "u1",
+      "m1",
+      new Date("2026-08-03T00:00:00+09:00")
+    );
   });
 });

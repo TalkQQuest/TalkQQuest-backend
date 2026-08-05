@@ -398,11 +398,20 @@ export const createMissionForRecommendationLog = (
     });
     if (claimed.count === 1) return mission.id;
 
-    // 경합에서 졌다. 내가 만든 미션은 아무도 가리키지 않으므로 되돌린다.
+    // 여기까지 왔다는 건 경합에서 졌거나(다른 요청이 먼저 백링크를 채움) 로그가 사라졌다는 뜻이다.
+    // 내가 만든 미션은 아무도 가리키지 않으므로 되돌린다.
     await tx.missions.delete({ where: { id: mission.id } });
-    const winner = await tx.recommendation_Logs.findUnique({
-      where: { id: logId },
-      select: { created_mission_id: true },
-    });
-    return winner!.created_mission_id!;
+
+    // 승자 값을 반드시 **잠금 읽기**로 가져온다. REPEATABLE READ에서 일반 조회는 트랜잭션
+    // 시작 시점 스냅샷을 보므로, 위 updateMany가 갱신을 감지했더라도 여기서는 여전히 null이
+    // 보인다. 그대로 반환하면 호출부가 존재하지 않는 미션 id를 받는다.
+    const [winner] = await tx.$queryRaw<{ created_mission_id: string | null }[]>`
+      SELECT created_mission_id FROM Recommendation_Logs WHERE id = ${logId} FOR UPDATE
+    `;
+    if (!winner?.created_mission_id) {
+      // 로그가 없거나(잘못된 logId) 백링크가 비어 있으면 돌려줄 미션이 없다.
+      // 조용히 null을 흘리는 대신 실패로 드러내 재시도할 수 있게 한다.
+      throw new Error(`추천 로그(${logId})에 연결된 미션을 찾지 못했습니다.`);
+    }
+    return winner.created_mission_id;
   });

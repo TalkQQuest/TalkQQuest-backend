@@ -4,7 +4,7 @@ import { NotFoundError } from "../../../shared/errors/common.error";
 import { logger } from "../../../config/logger";
 import { MissionProfileNotFoundError } from "../../mission/errors/mission.error";
 import { getTodayMission } from "../../mission/services/mission.service";
-import { kstDayStart, todayInKst } from "../../../shared/utils/date";
+import { kstDayStart } from "../../../shared/utils/date";
 
 const QUESTION_OF_DAY = "오늘 누군가에게 먼저 말을 걸어본 적 있나요?";
 const XP_PER_LEVEL = 100;
@@ -20,13 +20,13 @@ const resolveTodayMission = async (userId: string): Promise<TodayMissionDto | nu
     try {
         const recommended = await getTodayMission(userId);
 
-        // 실제 미션 행이 없으면 카드에서 대화를 시작할 수 없다.
-        if (!recommended.missionId) return null;
-
+        // 기준일은 추천이 속한 날(recommended.date)이어야 한다. 여기서 todayInKst()를 다시
+        // 부르면 KST 자정 경계를 걸친 요청에서 추천은 어제 것인데 완료 여부만 오늘 기준으로
+        // 조회돼, 어제 완료한 미션이 미완료로 보인다.
         const isCompleted = await hasCompletedMissionSince(
             userId,
             recommended.missionId,
-            kstDayStart(todayInKst())
+            kstDayStart(recommended.date)
         );
 
         return {

@@ -145,6 +145,6 @@ npm test
 
 ## 배포
 
-`main` 브랜치에 push되면 GitHub Actions(`.github/workflows/deploy.yml`)가 테스트 통과 후 EC2에 자동 배포합니다 (`git pull` → `npm ci` → `prisma generate` → `build` → `pm2 restart`).
+`main` 브랜치에 push되면 GitHub Actions(`.github/workflows/deploy.yml`)가 테스트 통과 후 EC2에 자동 배포합니다 (`git pull` → `npm ci` → `prisma migrate deploy` → `prisma generate` → `build` → `pm2 restart`).
 
-> DB 스키마 마이그레이션(`prisma migrate deploy`/`db push`)과 시드는 자동 배포에 포함되지 않으며, 스키마 변경 시 별도로 EC2에 SSH 접속해 수동으로 실행해야 합니다.
+> 시드(`prisma/seed.ts`)는 자동 배포에 포함되지 않으며, 초기 데이터가 필요하면 별도로 EC2에 SSH 접속해 수동으로 실행해야 합니다.

@@ -14,10 +14,20 @@ require("dotenv").config({ path: ".env.test", override: true });
 // "mysql://testuser@prod-host/talkquest_production"처럼 계정명·호스트명에 우연히
 // "test"가 들어간 운영 DB URL도 통과해버려 안전장치가 무력화된다.
 const databaseUrl = process.env.DATABASE_URL ?? "";
+
+// 스킴 자체가 mysql:이 아니면(설정 실수로 완전히 다른 값이 들어간 경우 등) 그 자리에서 바로 거부한다.
+// 이 검사가 없으면 예를 들어 http://prod-host/test 처럼 mysql URL이 아닌 값도 아래 pathname
+// 검사만으로 "test"를 포함한다는 이유로 통과해버릴 수 있다.
+if (!/^mysql:\/\//i.test(databaseUrl)) {
+  throw new Error(
+    `통합 테스트는 mysql:// 형식의 DATABASE_URL이 필요합니다. 현재 값: "${databaseUrl}"`
+  );
+}
+
 let databaseName = "";
 try {
   // mysql:// 는 URL 표준 스킴이 아니라 Node의 WHATWG URL이 바로 못 파싱하므로 http로 바꿔 파싱한다.
-  databaseName = new URL(databaseUrl.replace(/^mysql:/, "http:")).pathname.replace(/^\//, "");
+  databaseName = new URL(databaseUrl.replace(/^mysql:/i, "http:")).pathname.replace(/^\//, "");
 } catch {
   // 파싱 자체가 안 되면 형식이 잘못된 것이므로 아래에서 빈 이름과 동일하게 거부된다.
 }

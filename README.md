@@ -127,8 +127,29 @@ npm run dev
 ### 4. 테스트
 
 ```bash
-npm test
+npm test              # 유닛 테스트 (리포지토리 계층을 목킹, DB/Redis 불필요)
+npm run test:integration   # 통합 테스트 (실제 MySQL 필요, *.integration.test.ts)
 ```
+
+동시성 처리처럼 실제 DB 락/유니크 제약이 걸려야 검증되는 로직은 통합 테스트로 작성합니다. 목킹만으로는 이런 경우를 재현할 수 없습니다.
+
+**통합 테스트는 개발 DB와 분리된 전용 DB가 필요합니다** — 실제로 행을 생성·삭제하므로 개발 데이터와 섞이면 안 됩니다.
+
+```bash
+# 1. 테스트 전용 DB 생성 (개발 DB와 이름이 달라야 함)
+mysql -u root -p -e "CREATE DATABASE talkquest_test;"
+
+# 2. .env.test 준비
+cp .env.test.example .env.test   # 필요하면 DATABASE_URL 등 값 수정
+
+# 3. 테스트 DB에 스키마 반영
+DATABASE_URL="mysql://root:password@localhost:3306/talkquest_test" npx prisma migrate deploy
+
+# 4. 통합 테스트 실행
+npm run test:integration
+```
+
+`DATABASE_URL`에 `test`라는 단어가 없으면 안전장치가 실행 자체를 막습니다(`jest.integration.setup.js`).
 
 ---
 

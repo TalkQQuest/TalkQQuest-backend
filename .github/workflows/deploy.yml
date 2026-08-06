@@ -10,6 +10,34 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    # 실제 MySQL/Redis 없이 DATABASE_URL/REDIS_URL만 localhost로 지정해뒀던 예전 설정은,
+    # 두 클라이언트가 모두 지연 연결(lazyConnect)이고 유닛 테스트가 리포지토리 계층을 전부
+    # jest.mock으로 목킹해서 실제 연결을 한 번도 안 열었기 때문에 아무 문제 없이 통과해왔다.
+    # 그 말은 곧 Repository/트랜잭션 쿼리가 실제 DB 위에서 한 번도 검증된 적이 없었다는 뜻이라,
+    # 여기서 진짜 MySQL/Redis를 띄우고 통합 테스트(test:integration)로 그 갭을 메운다.
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -ppassword"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,7 +54,12 @@ jobs:
       - name: Generate tsoa routes
         run: npx tsoa spec-and-routes -c tsoa.config.json
 
-      - name: Run tests
+      - name: Apply schema to CI database
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: "mysql://root:password@localhost:3306/test"
+
+      - name: Run unit tests
         run: npm test
         env:
           DATABASE_URL: "mysql://root:password@localhost:3306/test"
@@ -34,8 +67,18 @@ jobs:
           JWT_ACCESS_SECRET: "ci-test-access-secret"
           JWT_REFRESH_SECRET: "ci-test-refresh-secret"
 
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          DATABASE_URL: "mysql://root:password@localhost:3306/test"
+          REDIS_URL: "redis://localhost:6379"
+          JWT_ACCESS_SECRET: "ci-test-access-secret"
+          JWT_REFRESH_SECRET: "ci-test-refresh-secret"
+
+      # tsoa 생성은 위에서 이미 했고 build 스크립트가 내부적으로 다시 돌리면 같은 걸
+      # 두 번 생성하게 되므로, 여기서는 생성 없이 컴파일만 한다(npm run build 대신 tsc 직접 호출).
       - name: Build
-        run: npm run build
+        run: npx tsc
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1

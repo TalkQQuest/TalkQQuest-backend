@@ -208,8 +208,11 @@ export const createFeedback = async (
   // 여기서 놓쳐도(예: 재시도 백그라운드 완료 시점) 다음 조회에서 채워진다.
   const newlyEarnedBadges = await checkAndAwardBadges(prisma, userId);
 
+  // 밀린 주차가 많으면 순차 조회 비용이 커질 수 있어(주차마다 DB round-trip) 응답을 막지 않는다.
+  // retryFeedback의 재생성과 동일하게 fire-and-forget으로 처리한다(전용 워커/큐가 없음).
+  // 실패해도 다음 피드백 생성 시점에 재시도되므로 유실되지 않는다.
   if (saved?.status === "ready") {
-    await triggerWeeklyCompareGeneration(userId);
+    void triggerWeeklyCompareGeneration(userId);
   }
 
   return toResponseDto(saved!, saved!.conversation.selected_topic, newlyEarnedBadges);

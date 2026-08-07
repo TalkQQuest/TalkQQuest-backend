@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { ArchiveItemType, Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
 
 export const countConversations = (userId: string) =>
@@ -7,14 +7,18 @@ export const countConversations = (userId: string) =>
 export const countSavedPhrases = (userId: string) =>
     prisma.archive_Items.count({ where: { user_id: userId, item_type: "phrase" } });
 
+// 아카이브의 "리포트" 항목에는 성장 리포트(report)와 저장된 주간 비교 리포트(weekly_compare)가
+// 함께 묶인다 — 미션이 완료/진행중으로 나뉘어 하나의 type=mission으로 묶이는 것과 같은 방식이다.
+const REPORT_ITEM_TYPES = ["report", "weekly_compare"] as const;
+
 export const countReports = (userId: string) =>
-    prisma.archive_Items.count({ where: { user_id: userId, item_type: "report" } });
+    prisma.archive_Items.count({ where: { user_id: userId, item_type: { in: [...REPORT_ITEM_TYPES] } } });
 
 export const findRecentArchiveItems = (userId: string, take: number) =>
     prisma.archive_Items.findMany({
         where: {
             user_id: userId,
-            item_type: { in: ["conversation", "phrase", "report"] },
+            item_type: { in: ["conversation", "phrase", ...REPORT_ITEM_TYPES] },
         },
         orderBy: { created_at: "desc" },
         take,
@@ -73,6 +77,14 @@ export const findRecentStartedMissions = (userId: string, take: number) =>
     });
 
 // 검색/필터 (conversation/phrase/report 전용 - mission은 searchMissionRecords로 분리)
+// type="report"로 조회하면 성장 리포트와 저장된 주간 비교 리포트를 함께 반환한다.
+const itemTypesForSearch = (type?: "conversation" | "phrase" | "report"): ArchiveItemType[] =>
+    type === "report"
+        ? [...REPORT_ITEM_TYPES]
+        : type
+            ? [type]
+            : ["conversation", "phrase", ...REPORT_ITEM_TYPES];
+
 export const searchArchiveItems = (params: {
     userId: string;
     type?: "conversation" | "phrase" | "report";
@@ -85,9 +97,7 @@ export const searchArchiveItems = (params: {
     prisma.archive_Items.findMany({
         where: {
             user_id: params.userId,
-            item_type: params.type
-                ? params.type
-                : { in: ["conversation", "phrase", "report"] },
+            item_type: { in: itemTypesForSearch(params.type) },
             ...(params.folderId && { folder_id: params.folderId }),
             ...(params.startDate || params.endDate
                 ? {
@@ -122,9 +132,7 @@ export const countArchiveItems = (params: {
     prisma.archive_Items.count({
         where: {
             user_id: params.userId,
-            item_type: params.type
-                ? params.type
-                : { in: ["conversation", "phrase", "report"] },
+            item_type: { in: itemTypesForSearch(params.type) },
             ...(params.folderId && { folder_id: params.folderId }),
             ...(params.startDate || params.endDate
                 ? {
@@ -155,6 +163,12 @@ export const findReportData = (reportId: string) =>
     prisma.reports.findUnique({
         where: { id: reportId },
         select: { data: true },
+    });
+
+export const findWeeklyCompareReportWeekIndex = (weeklyCompareReportId: string) =>
+    prisma.weekly_Compare_Reports.findUnique({
+        where: { id: weeklyCompareReportId },
+        select: { week_index: true },
     });
 
 // Saved Phrases

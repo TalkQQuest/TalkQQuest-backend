@@ -44,6 +44,29 @@ const notifyReportReady = async (
   await createNotification(userId, "report_ready", title, body, referenceId, referenceType);
 };
 
+// Archive_Items에는 (user_id, item_type, reference_id) unique 제약이 있다. 이미 있으면
+// 그대로 두고, 없으면 새로 만든다 — 동시 요청이나 이전 실패로 인한 중복 생성을 방지한다.
+const ensureArchived = async (userId: string, itemType: "report" | "weekly_compare", referenceId: string) => {
+  const existing = await findArchiveItemByReference(userId, itemType, referenceId);
+  if (existing) return existing;
+
+  try {
+    return await createArchiveItem({ user: { connect: { id: userId } }, item_type: itemType, reference_id: referenceId });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const winner = await findArchiveItemByReference(userId, itemType, referenceId);
+      if (winner) return winner;
+    }
+    throw error;
+  }
+};
+
+// Reports 행은 있는데 Archive_Items 생성이 이전 요청에서 실패해 누락됐을 수 있다
+// (서로 다른 트랜잭션이라 부분 실패 가능) — 재요청 시점에 복구한다.
+const ensureReportArchived = async (userId: string, reportId: string): Promise<void> => {
+  await ensureArchived(userId, "report", reportId);
+};
+
 // #145 — 성장 리포트는 대화 하나를 기준으로 저장된다. 같은 대화로 재요청하면 이미 저장된
 // 결과를 그대로 돌려준다(멱등) — 새로 계산하거나 에러를 던지지 않는다.
 export const saveReport = async (
@@ -55,6 +78,7 @@ export const saveReport = async (
 
   const existing = await reportRepository.findReportByConversationId(conversationId);
   if (existing) {
+    await ensureReportArchived(userId, existing.id);
     return {
       reportId: existing.id,
       period: existing.period,
@@ -78,13 +102,14 @@ export const saveReport = async (
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const winner = await reportRepository.findReportByConversationId(conversationId);
       if (winner) {
+        await ensureReportArchived(userId, winner.id);
         return { reportId: winner.id, period: winner.period, createdAt: winner.created_at.toISOString() };
       }
     }
     throw error;
   }
 
-  await createArchiveItem({ user: { connect: { id: userId } }, item_type: "report", reference_id: created.id });
+  await ensureReportArchived(userId, created.id);
   await notifyReportReady(
     userId,
     "성장 리포트가 도착했어요!",
@@ -201,22 +226,14 @@ export const saveWeeklyCompareReport = async (
   const row = await reportRepository.findWeeklyCompareReportByIdAndUserId(id, userId);
   if (!row) throw new WeeklyCompareReportNotFoundError();
 
-  const existing = await findArchiveItemByReference(userId, "weekly_compare", id);
-  if (existing) {
-    return { weeklyCompareReportId: id, savedAt: existing.created_at.toISOString() };
-  }
-
-  const archiveItem = await createArchiveItem({
-    user: { connect: { id: userId } },
-    item_type: "weekly_compare",
-    reference_id: id,
-  });
+  const archiveItem = await ensureArchived(userId, "weekly_compare", id);
 
   return { weeklyCompareReportId: id, savedAt: archiveItem.created_at.toISOString() };
 };
 
-// 저장된(Archive에 있는) 주간 리포트만 삭제할 수 있다. Archive 항목과 리포트 데이터를 함께 지운다
-// (성장 리포트의 삭제와 동일한 방식).
+// 주간 비교 리포트는 유저가 만든 게 아니라 완결 주차마다 자동 생성되는 스냅샷이다. "삭제"는
+// Archive 저장 상태만 해제하는 것이지 스냅샷 자체를 지우는 게 아니다 — 원본을 지우면
+// (user_id, week_index) unique 제약 때문에 그 주차는 다시 생성되지도 않아 영구히 사라진다.
 export const deleteWeeklyCompareReport = async (
   userId: string,
   id: string
@@ -227,10 +244,7 @@ export const deleteWeeklyCompareReport = async (
   const archiveItem = await findArchiveItemByReference(userId, "weekly_compare", id);
   if (!archiveItem) throw new WeeklyCompareReportNotFoundError("저장되지 않은 주간 비교 리포트입니다.");
 
-  await prisma.$transaction(async (tx) => {
-    await deleteArchiveItem(archiveItem.id, tx);
-    await reportRepository.deleteWeeklyCompareReport(id, tx);
-  });
+  await deleteArchiveItem(archiveItem.id);
 
   return { weeklyCompareReportId: id, deleted: true };
 };

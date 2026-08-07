@@ -109,6 +109,12 @@ export interface GeneratedWeeklyReport {
   data: WeeklyCompareReportDto;
 }
 
+// 한 번 호출에서 순차로 조회할 주차 수 상한. 오랫동안 미접속했다 돌아온 유저는 밀린 주차가
+// 많을 수 있는데, 주차별 조회가 루프 안에서 순차 실행되므로 상한 없이 전부 처리하면 호출 하나가
+// 매우 오래 걸릴 수 있다. 상한을 넘는 나머지는 이번 호출에서 만들지 않고 다음 트리거(다음 대화
+// 완료) 때 이어서 처리한다 — 건너뛴 빈 주차는 저장되지 않으므로 다시 스캔해도 안전하다(멱등).
+const MAX_WEEKS_PER_CALL = 8;
+
 // 가입 이후 새로 완결된 주차들을 확인해, 활동이 있던 주만 순서대로 리포트를 생성한다.
 // 활동 없는 주는 건너뛰고(리포트 미생성), 다음 활동 있는 주가 나오면 "가장 최근 리포트"와 비교한다.
 export const generateMissingWeeklyReports = async (
@@ -129,8 +135,9 @@ export const generateMissingWeeklyReports = async (
     : ZERO_ACTIVITY;
 
   const created: GeneratedWeeklyReport[] = [];
+  const targetWeek = Math.min(completedWeeks, lastGeneratedWeekIndex + MAX_WEEKS_PER_CALL);
 
-  for (let weekIndex = lastGeneratedWeekIndex + 1; weekIndex <= completedWeeks; weekIndex += 1) {
+  for (let weekIndex = lastGeneratedWeekIndex + 1; weekIndex <= targetWeek; weekIndex += 1) {
     const { start, end } = getSignupWeekRange(signupAt, weekIndex);
     const { activity, hasActivity } = await getWeekActivity(userId, start, end);
 

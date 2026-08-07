@@ -755,6 +755,7 @@ model Archive_Items {
   user   Users            @relation(fields: [user_id], references: [id], onDelete: Cascade)
   folder Archive_Folders? @relation(fields: [folder_id], references: [id], onDelete: SetNull)
 
+  @@unique([user_id, item_type, reference_id])
   @@index([user_id])
   @@index([folder_id])
   @@map("Archive_Items")

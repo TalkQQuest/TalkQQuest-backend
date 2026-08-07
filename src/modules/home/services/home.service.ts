@@ -48,11 +48,24 @@ const resolveTodayMission = async (userId: string): Promise<TodayMissionDto | nu
     }
 };
 
+const ZERO_GROWTH_TOTALS = { kindnessTotal: 0, initiativeTotal: 0, empathyTotal: 0, questionLinkTotal: 0 };
+
+// growthTotals는 레벨 카드 아래 티어 표시용 보조 데이터일 뿐이라, resolveTodayMission과
+// 같은 이유로 실패해도 홈 전체를 죽이지 않고 카드 단위로 비워 둔다.
+const resolveGrowthTotals = async (userId: string) => {
+    try {
+        return await getGrowthMetricTotals(userId);
+    } catch (error) {
+        logger.warn({ err: error, userId }, "홈 성장 누적 지표 조회 실패 (홈은 정상 반환)");
+        return ZERO_GROWTH_TOTALS;
+    }
+};
+
 export const getHomeSummary = async (userId: string): Promise<HomeSummaryResponseDto> => {
     const [{ profile, archiveCount }, todayMission, growthTotals] = await Promise.all([
         findHomeSummaryData(userId),
         resolveTodayMission(userId),
-        getGrowthMetricTotals(userId),
+        resolveGrowthTotals(userId),
     ]);
 
     if (!profile) {

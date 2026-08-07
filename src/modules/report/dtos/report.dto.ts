@@ -72,7 +72,7 @@ export interface WeeklyCompareReportDto {
 }
 
 // #145 — 성장 리포트는 대화 하나를 기준으로 저장된다(conversationId, 같은 대화로 중복 저장 불가).
-// period는 growth 계산 기준 기간(YYYY-MM-DD~YYYY-MM-DD).
+// period(YYYY-MM-DD~YYYY-MM-DD)는 요청 필드가 아니라 저장 시점에 서버가 계산해 응답에 담는다.
 export interface SaveReportRequestDto {
   conversationId: string;
 }

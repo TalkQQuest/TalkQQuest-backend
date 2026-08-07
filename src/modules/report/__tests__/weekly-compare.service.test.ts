@@ -111,6 +111,24 @@ describe("generateMissingWeeklyReports", () => {
     jest.useRealTimers();
   });
 
+  it("한 호출에서 처리하는 주차 수에 상한(8주)을 둬서, 오래 밀린 유저도 한 번에 조회 폭주하지 않는다", async () => {
+    // 20주가 완결된 시점인데 리포트가 하나도 없었던 유저 — 1~8주차까지만 스캔하고,
+    // 나머지(9~20주차)는 이번 호출에서 건드리지 않아야 한다.
+    jest.useFakeTimers().setSystemTime(new Date("2026-12-15T00:00:00.000Z")); // signupAt + 20주 완결
+    mockedRepo.findLatestWeeklyCompareReport.mockResolvedValue(null);
+
+    for (let i = 0; i < 8; i += 1) mockWeekActivity(null); // 1~8주차 전부 활동 없음
+
+    const result = await generateMissingWeeklyReports("u1", signupAt);
+
+    expect(result).toEqual([]);
+    // countCompletedMissionRecordsInRange가 주차 스캔 1회당 정확히 1번 호출되므로,
+    // 호출 횟수로 몇 주차까지 스캔했는지 검증한다.
+    expect(mockedRepo.countCompletedMissionRecordsInRange).toHaveBeenCalledTimes(8);
+
+    jest.useRealTimers();
+  });
+
   it("동시 생성 경합(P2002)이 나면 조용히 건너뛴다", async () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-08-08T00:00:00.000Z"));
     mockedRepo.findLatestWeeklyCompareReport.mockResolvedValue(null);

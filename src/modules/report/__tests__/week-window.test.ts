@@ -4,7 +4,7 @@ describe("getCompletedWeekCount", () => {
   const signupAt = new Date("2026-08-01T00:00:00.000Z");
 
   it("가입 후 7일 미만이면 0 (아직 1주차도 안 끝남)", () => {
-    expect(getCompletedWeekCount(signupAt, new Date("2026-08-06T23:59:59.000Z"))).toBe(0);
+    expect(getCompletedWeekCount(signupAt, new Date("2026-08-07T23:59:59.000Z"))).toBe(0);
   });
 
   it("정확히 7일이 지나면 1주차가 완결된다", () => {

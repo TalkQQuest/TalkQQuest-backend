@@ -36,6 +36,9 @@ ALTER TABLE `Reports` ADD CONSTRAINT `Reports_conversation_id_fkey` FOREIGN KEY 
 -- AddForeignKey
 ALTER TABLE `Weekly_Compare_Reports` ADD CONSTRAINT `Weekly_Compare_Reports_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `Users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- CreateIndex (동시 저장 요청으로 같은 항목이 Archive에 중복 저장되는 것을 DB 레벨에서 방지)
+CREATE UNIQUE INDEX `Archive_Items_user_id_item_type_reference_id_key` ON `Archive_Items`(`user_id`, `item_type`, `reference_id`);
+
 -- 아래는 이번 기능과 무관한 기존 드리프트 정리(baseline 생성 당시 detect된 updated_at 컬럼
 -- DEFAULT/ON UPDATE 절 표기 차이, 동작 변화 없음). 별도 마이그레이션으로 두지 않고 여기 합쳤다.
 ALTER TABLE `Archive_Folders` MODIFY `updated_at` TIMESTAMP(0) NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;

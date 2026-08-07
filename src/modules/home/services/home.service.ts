@@ -4,6 +4,7 @@ import { NotFoundError } from "../../../shared/errors/common.error";
 import { logger } from "../../../config/logger";
 import { MissionProfileNotFoundError } from "../../mission/errors/mission.error";
 import { getTodayMission } from "../../mission/services/mission.service";
+import { getGrowthMetricTotals } from "../../report/services/growth.service";
 import { kstDayStart } from "../../../shared/utils/date";
 
 const QUESTION_OF_DAY = "오늘 누군가에게 먼저 말을 걸어본 적 있나요?";
@@ -47,10 +48,24 @@ const resolveTodayMission = async (userId: string): Promise<TodayMissionDto | nu
     }
 };
 
+const ZERO_GROWTH_TOTALS = { kindnessTotal: 0, initiativeTotal: 0, empathyTotal: 0, questionLinkTotal: 0 };
+
+// growthTotals는 레벨 카드 아래 티어 표시용 보조 데이터일 뿐이라, resolveTodayMission과
+// 같은 이유로 실패해도 홈 전체를 죽이지 않고 카드 단위로 비워 둔다.
+const resolveGrowthTotals = async (userId: string) => {
+    try {
+        return await getGrowthMetricTotals(userId);
+    } catch (error) {
+        logger.warn({ err: error, userId }, "홈 성장 누적 지표 조회 실패 (홈은 정상 반환)");
+        return ZERO_GROWTH_TOTALS;
+    }
+};
+
 export const getHomeSummary = async (userId: string): Promise<HomeSummaryResponseDto> => {
-    const [{ profile, archiveCount }, todayMission] = await Promise.all([
+    const [{ profile, archiveCount }, todayMission, growthTotals] = await Promise.all([
         findHomeSummaryData(userId),
         resolveTodayMission(userId),
+        resolveGrowthTotals(userId),
     ]);
 
     if (!profile) {
@@ -68,5 +83,6 @@ export const getHomeSummary = async (userId: string): Promise<HomeSummaryRespons
         archiveCount,
         communityCount: 0,
         questionOfDay: QUESTION_OF_DAY,
+        growthTotals,
     };
 };

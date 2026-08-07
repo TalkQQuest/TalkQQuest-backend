@@ -1,4 +1,5 @@
 import { MissionDifficultyLabel } from "../../mission/dtos/mission.constants";
+import { GrowthMetricTotalsDto } from "../../report/dtos/report.dto";
 
 export interface TodayMissionDto {
     id: string;
@@ -26,4 +27,9 @@ export interface HomeSummaryResponseDto {
     archiveCount: number;
     communityCount: number;
     questionOfDay: string;
+    /**
+     * 성장 리포트와 동일한 능력별 누적 점수(#145). 홈 화면 레벨 카드 아래 티어 한 줄 표시용.
+     * 티어/별/마름모 계산은 클라이언트가 이 값으로 직접 한다.
+     */
+    growthTotals: GrowthMetricTotalsDto;
 }

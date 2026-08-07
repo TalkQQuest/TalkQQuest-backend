@@ -22,6 +22,8 @@ export interface RecentArchiveItemDto {
     /** 완료된 미션 수행 기록 ID */
     missionRecordId: string | null;
     missionStatus?: "in_progress" | "completed";
+    /** type이 report일 때 성장 리포트/저장된 주간 비교 리포트를 구분한다. */
+    reportType?: "growth" | "weekly_compare";
     category?: string;
     difficulty?: MissionDifficultyLabel;
     estimatedMinutes?: number;
@@ -78,6 +80,8 @@ export interface ArchiveSearchItemDto {
     folderId: string | null;
     isBookmarked: boolean;
     missionStatus?: "in_progress" | "completed" | null;
+    /** type이 report일 때 성장 리포트/저장된 주간 비교 리포트를 구분한다. */
+    reportType?: "growth" | "weekly_compare";
     category?: string;
     difficulty?: MissionDifficultyLabel;
     estimatedMinutes?: number;

@@ -12,3 +12,22 @@ export const getWeekStart = (date: Date): Date => {
   d.setUTCDate(d.getUTCDate() - dayIndex);
   return d;
 };
+
+// ── 가입일 기준 주차 (#145, 주간 비교 리포트 전용) ──
+// 위 getWeekStart(달력 월요일 기준)와는 별개 개념이다. 성장 리포트의 4주 추세는 계속 달력
+// 기준을 쓰고, 주간 비교만 가입일 기준으로 옮긴다 — 둘을 섞으면 안 된다.
+
+// from부터 to까지 꽉 채운 날짜 수(경과일). 예: 정확히 7일 지났으면 7.
+export const daysElapsed = (from: Date, to: Date): number =>
+  Math.floor((to.getTime() - from.getTime()) / MS_PER_DAY);
+
+// 가입 후 지금까지 완전히 끝난 주가 몇 개인지. 7일 미만이면 0(아직 1주차도 안 끝남).
+export const getCompletedWeekCount = (signupAt: Date, now: Date): number =>
+  Math.floor(daysElapsed(signupAt, now) / 7);
+
+// 가입일 기준 weekIndex번째 주(1-based)의 [시작, 끝) 구간.
+// 1주차 = 가입 후 0~6일, 2주차 = 7~13일 ...
+export const getSignupWeekRange = (signupAt: Date, weekIndex: number): { start: Date; end: Date } => {
+  const start = addDays(signupAt, (weekIndex - 1) * 7);
+  return { start, end: addDays(start, 7) };
+};

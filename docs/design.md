@@ -127,9 +127,10 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 | 성장 | `XP_History` | XP 지급/차감 내역 (레벨 시스템의 원장) |
 | 피드백 | `Feedbacks` | AI 피드백 점수(친절함/주도성/공감/질문 연결성) + 지표별 상세(`metrics` Json) + `mission_summary`(Json) |
 | 아카이브 | `Saved_Phrases` | 저장한 문장 |
-| 아카이브 | `Archive_Items` | 아카이브에 노출되는 항목(conversation/phrase/report). 미션은 이 테이블에 저장되지 않고 `Mission_Records`/`Conversations`에서 직접 조회한다 |
+| 아카이브 | `Archive_Items` | 아카이브에 노출되는 항목(conversation/phrase/report/weekly_compare). 미션은 이 테이블에 저장되지 않고 `Mission_Records`/`Conversations`에서 직접 조회한다 |
 | 아카이브 | `Archive_Folders` | 아카이브 폴더 |
-| 리포트 | `Reports` | 성장/주간비교 리포트 스냅샷 저장 (`type`: `growth` \| `weekly_compare`) |
+| 리포트 | `Reports` | 성장 리포트 스냅샷 저장 (`#145` — 대화 단위, `conversation_id` unique로 같은 대화 중복 저장 방지) |
+| 리포트 | `Weekly_Compare_Reports` | 주간 비교 리포트 자동 생성 스냅샷 (`#145` — 가입일 기준 주차 단위, `(user_id, week_index)` unique) |
 | 배지 | `Badges` | 배지 정의. `condition`(Json)에 자동 획득 판정 규칙 저장 |
 | 배지 | `User_Badges` | 유저별 배지 획득 이력 |
 | 알림 | `Notifications` | 인앱 알림 |
@@ -943,7 +944,9 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 **Response (200):** `data` — `totalCount`, `missionRecordCount`, `conversationCount`, `phraseCount`, `reportCount`, `recentItems[]`(최근 10건).
 
-`recentItems[]` 필드: `id`, `referenceId`(상세 API 조회에 사용하는 원본 리소스 ID), `type`(`conversation`\|`phrase`\|`report`\|`mission`), `title`, `isBookmarked`, `missionId`(`string | null`), `conversationId`(`string | null`), `missionRecordId`(`string | null`), `missionStatus?`(`in_progress`\|`completed`, mission 타입만), `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`(마지막 4개는 mission 타입만), `createdAt`.
+`recentItems[]` 필드: `id`, `referenceId`(상세 API 조회에 사용하는 원본 리소스 ID), `type`(`conversation`\|`phrase`\|`report`\|`mission`), `title`, `isBookmarked`, `missionId`(`string | null`), `conversationId`(`string | null`), `missionRecordId`(`string | null`), `missionStatus?`(`in_progress`\|`completed`, mission 타입만), `reportType?`(`growth`\|`weekly_compare`, report 타입만 — 성장 리포트/저장된 주간 비교 리포트 구분), `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`(마지막 4개는 mission 타입만), `createdAt`.
+
+> **`type=report`는 성장 리포트와 저장된 주간 비교 리포트를 함께 담는다.** `Reports`/`Weekly_Compare_Reports`는 별도 테이블이지만 아카이브 화면에서는 하나의 "리포트" 묶음으로 노출되고(`#145`), `reportType`으로 구분한다 — 미션이 `type=mission` 하나에 `missionStatus`로 완료/진행중을 나누는 것과 같은 방식이다. `reportCount`/`totalCount`에도 두 타입 합계가 반영된다.
 
 > **`missionRecordCount`는 필드명과 달리 "완료 기록 수"가 아니라 "북마크한 미션 수"다** (`#86`, 미션 탭이 북마크 기준으로 바뀌면서 메인 화면 카운트도 같은 기준으로 맞춤). `recentItems[]`의 최근 활동 피드는 이 변경과 무관하게 완료/시작 이벤트 기준 그대로다 — 그래서 북마크 안 한 미션이라도 최근 완료했다면 `recentItems`엔 나올 수 있다(카운트에는 안 잡힘).
 
@@ -953,7 +956,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 `type`을 안 주면 conversation/phrase/report + mission을 합쳐서 반환한다.
 
-**Response (200):** `data` — `totalCount`, `items[]`, `pageInfo`. `items[]` 필드는 `archiveItemId`(`string | null`, mission은 null), `referenceId`, `id`, `type`, `title`, `tags[]`, `folderId`(`string | null`), `isBookmarked`, `missionStatus?`, `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`, `missionId`(`string | null`), `missionRecordId`(`string | null`), `createdAt`.
+**Response (200):** `data` — `totalCount`, `items[]`, `pageInfo`. `items[]` 필드는 `archiveItemId`(`string | null`, mission은 null), `referenceId`, `id`, `type`, `title`, `tags[]`, `folderId`(`string | null`), `isBookmarked`, `missionStatus?`, `reportType?`(`growth`\|`weekly_compare`, report 타입만), `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`, `missionId`(`string | null`), `missionRecordId`(`string | null`), `createdAt`.
 
 > **미션 탭 base set은 항상 북마크(`Mission_Saves`)다** (`#86`). 완료 여부와 무관하게 찜한 미션 전체가 노출되고, `missionFilter`로 그 안에서 완료/미완료를 좁힌다. `sort`는 북마크한 시각 기준 정렬이다. 완료했지만 북마크 안 한 미션은 여기 안 나온다 — 위 `missionRecordCount` note 참고.
 
@@ -1036,50 +1039,81 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 ### Report APIs
 
+**(`#145`) `#112`에서 통합했던 성장/주간비교 리포트를 다시 분리했다.** 책임과 생성 방식이
+서로 다르기 때문이다 — 성장 리포트는 "누적 티어 시스템"의 원값을 제공하는 라이브 계산 +
+대화 단위 수동 저장이고, 주간 비교는 가입일 기준 완결된 주끼리 비교하는 자동 생성 스냅샷이다.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | /reports/growth | 성장 리포트 조회 (라이브 계산) |
-| GET | /reports/weekly-compare | 주간 비교 리포트 조회 (라이브 계산) |
-| POST | /reports | 리포트 저장 (스냅샷) |
-| GET | /reports | 리포트 목록 조회 |
-| GET | /reports/{reportId} | 리포트 상세 조회 |
-| DELETE | /reports/{reportId} | 리포트 저장 해제 (`#85`) |
+| POST | /reports | 성장 리포트 저장 (대화 단위 스냅샷) |
+| GET | /reports | 성장 리포트 목록 조회 |
+| GET | /reports/{reportId} | 성장 리포트 상세 조회 |
+| DELETE | /reports/{reportId} | 성장 리포트 저장 해제 (`#85`) |
+| GET | /reports/weekly-compare | 주간 비교 리포트 목록 조회 (자동 생성분) |
+| GET | /reports/weekly-compare/{weeklyCompareReportId} | 주간 비교 리포트 상세 조회 |
+| POST | /reports/weekly-compare/{weeklyCompareReportId}/save | 주간 비교 리포트 저장 (Archive에 추가) |
+| DELETE | /reports/weekly-compare/{weeklyCompareReportId} | 주간 비교 리포트 저장 해제 |
 
 모두 `Authorization: Bearer {accessToken}` 필수.
 
-> `growth`/`weekly-compare` 두 GET은 별도 배치 없이 조회 시점에 `Feedbacks`/`Mission_Records`/`XP_History`를 집계해서 계산한다(lazy). 계산 기준 주는 **호출 시각 기준 rolling이 아니라 달력 주(월요일 시작)**로 고정되어 있어(`report/services/week-window.ts`), 같은 주 안에서는 몇 번을 호출해도 활동이 안 늘면 값이 그대로 유지된다. 이 결과를 그대로 얼려서 보관하고 싶으면 `POST /reports`로 저장한다.
->
-> **(`#112`) growth/weekly_compare는 더 이상 별개 타입이 아니다.** 예전엔 `Reports.type`으로 둘 중 하나만 골라 저장했는데, 이제 `POST /reports`를 호출하면 항상 두 계산을 함께 수행해 하나의 리포트로 저장한다. `Reports.type` 컬럼/enum은 삭제되었다.
-
 #### GET /reports/growth
 
-**Response (200):** `data` — `levelBefore`, `levelAfter`(XP_History를 시간순 재생해 4주 전 레벨을 역산), `weeklyTrend[]`(`{week, score}`, 4주), `trendChangeRate`, `topCategories[]`(`{category, count}`, 상위 3), `missionProgress`(`{completed, total}` — "톡깨 미션" 전체 기준, 특별 미션 개념 아님).
+배치 없이 조회 시점에 `Feedbacks`/`Mission_Records`/`XP_History`를 집계해서 계산한다(lazy). 언제 호출해도 항상 최신 상태를 반환하므로, 성장 리포트 화면뿐 아니라 홈 화면에서도(`GET /home/summary`) 같은 값을 그대로 쓴다.
 
-#### GET /reports/weekly-compare
+**Response (200):** `data` — `levelBefore`, `levelAfter`(XP_History를 시간순 재생해 4주 전 레벨을 역산), `weeklyTrend[]`(`{week, score}`, 4주, **달력 주(월요일 시작) 기준** — 아래 주간 비교의 "가입일 기준 주차"와는 다른 개념이니 섞지 말 것), `trendChangeRate`, `topCategories[]`(`{category, count}`, 상위 3), `missionProgress`(`{completed, total}`), `growthTotals`(`{kindnessTotal, initiativeTotal, empathyTotal, questionLinkTotal}` — `#145`. `Feedbacks`의 4개 지표 점수를 유저 전체 기간에 걸쳐 합산한 원값. 300 단위로 마름모가 차는지/별이 몇 개인지/티어(브론즈~마스터)가 뭔지는 전부 안드로이드가 이 값으로 직접 계산하고, 서버는 계속 늘어나기만 하는 누적 합계만 제공한다).
 
-**Response (200):** `data` — `thisWeek`/`lastWeek`(`{completedMissionCount, xpEarned, metrics}`), `xpChangeRate`, `overallScoreChange`(`{from, to, delta}`), `metricChanges[]`(`{key, label, from, to, delta}`), `highlights[]`(자동 생성 문구, 최대 3개).
+#### POST /reports — 성장 리포트 저장
 
-#### POST /reports
+**(`#145`) 대화 하나를 기준으로 저장한다.** 같은 대화로 재요청하면 새로 계산하지 않고 기존 저장 결과를 그대로 반환한다(멱등) — 삭제하면 같은 대화로 다시 저장할 수 있다.
 
-**Request Body:** 없음 (`#112` — `type` 파라미터 삭제, 항상 growth+weekly_compare 통합 저장)
+**Request Body:** `{ "conversationId": "uuid" }`
 
-**Response (200):** `data` — `reportId`, `period`(growth 계산 기준 기간, `YYYY-MM-DD~YYYY-MM-DD`), `weeklyComparePeriod`(주간 비교 계산 기준 기간, `YYYY-Www`), `createdAt`.
+**Response (200):** `data` — `reportId`, `period`(growth 계산 기준 기간, `YYYY-MM-DD~YYYY-MM-DD`), `createdAt`.
 
-저장 시 위 두 GET이 그 순간 반환하는 라이브 데이터를 그대로 스냅샷으로 얼려 저장하고, 동시에 아카이브에도 노출되도록 `Archive_Items`(`type: "report"`)를 함께 생성한다.
+저장 시 그 순간의 `GET /reports/growth` 라이브 데이터를 스냅샷으로 얼려 저장하고(제목은 저장을 트리거한 대화의 미션 제목), 아카이브에도 노출되도록 `Archive_Items`(`type: "report"`)를 함께 생성한다. `conversationId`가 본인 소유가 아니거나 존재하지 않으면 404 `NOT_FOUND`.
 
-#### GET /reports
+#### GET /reports — 성장 리포트 목록
 
-**Response (200):** `data.reports[]` — `id`, `period`, `weeklyComparePeriod`, `title`(대표 미션 주제, 없으면 "톡깨 리포트"), `createdAt`.
+**Response (200):** `data.reports[]` — `id`, `period`, `title`(저장을 트리거한 대화의 미션 제목), `createdAt`.
 
-#### GET /reports/{reportId}
+#### GET /reports/{reportId} — 성장 리포트 상세
 
-**Response (200):** `data` — `id`, `period`, `weeklyComparePeriod`, `title`, `growth`(항상 값 있음), `weeklyCompare`(항상 값 있음), `createdAt`. `#112`부터는 growth/weeklyCompare 둘 다 항상 채워진다(예전의 discriminated union 방식 폐기). 존재하지 않으면 404 `NOT_FOUND`.
+**Response (200):** `data` — `id`, `period`, `title`, `growth`(저장 시점의 스냅샷), `createdAt`. 존재하지 않으면 404 `NOT_FOUND`.
 
-#### DELETE /reports/{reportId} — 리포트 저장 해제 (`#85`)
+#### DELETE /reports/{reportId} — 성장 리포트 저장 해제 (`#85`)
 
 **Response (200):** `{ "success": true, "message": "리포트 저장이 해제되었습니다.", "data": { "reportId": "uuid", "deleted": true }, "errorCode": null }`
 
-본인 소유가 아니거나 존재하지 않으면 404 `NOT_FOUND`. `POST /reports`가 저장 시 함께 만든 `Archive_Items`(`type: "report"`) row도 트랜잭션으로 같이 삭제한다(둘 다 없으면 정상 진행, 매핑 누락에 대해 방어적으로 처리).
+본인 소유가 아니거나 존재하지 않으면 404 `NOT_FOUND`. `POST /reports`가 저장 시 함께 만든 `Archive_Items`(`type: "report"`) row도 트랜잭션으로 같이 삭제한다. 삭제 후에는 unique(conversation_id) 제약이 풀려 같은 대화로 다시 저장할 수 있다.
+
+#### 주간 비교 리포트 (`#145`)
+
+**"지금 이 순간까지의 이번 주"가 아니라 가입일 기준으로 완전히 끝난 두 주끼리만 비교한다.** 스케줄러 없이, 대화 완료(피드백 생성) 시점마다 지연 계산으로 생성된다 — 활동(대화)이 있던 주만 리포트를 만들고, 비교 대상은 바로 직전 주가 아니라 **가장 최근에 생성된 리포트**다(몇 주를 건너뛰어도 체인이 자연스럽게 이어진다. 예: 1주차 이후 2·3주차에 활동이 없었다면 1주차→4주차로 바로 비교). 가입 후 1주차가 끝나는 시점에 처음 활동이 있었다면 `0 → 1주차 점수`로 첫 리포트가 생긴다.
+
+> 미션 리마인드 기능을 위해 스케줄러 인프라가 생기면, 생성 트리거를 "대화 완료 시점"에서 "스케줄러가 매일 전체 유저를 순회"하는 방식으로 옮기는 것이 맞다. 그때까지는 한동안 대화를 안 한 사용자에게는 리포트/알림이 다음 대화 시점까지 늦게 생성되는 제약이 있다.
+
+자동 생성된 리포트는 목록/상세에서 바로 조회 가능하고, 사용자가 `저장`을 눌러야 Archive에 들어간다(성장 리포트와 동일한 저장/삭제 방식). `저장 데이터 구조`(`WeeklyCompareReportDto`)는 `#112` 이전과 동일하다 — `thisWeek`/`lastWeek`(`{completedMissionCount, xpEarned, metrics}`), `xpChangeRate`, `overallScoreChange`(`{from, to, delta}`), `metricChanges[]`(`{key, label, from, to, delta}`), `highlights[]`(자동 생성 문구, 최대 3개).
+
+#### GET /reports/weekly-compare — 목록
+
+**Response (200):** `data.reports[]` — `id`, `weekIndex`(가입일 기준 몇 번째 주인지), `overallScoreChange`, `isSaved`, `createdAt`.
+
+#### GET /reports/weekly-compare/{weeklyCompareReportId} — 상세
+
+**Response (200):** `data` — `id`, `weekIndex`, `isSaved`, `data`(`WeeklyCompareReportDto` 전체), `createdAt`. 존재하지 않으면 404 `NOT_FOUND`.
+
+#### POST /reports/weekly-compare/{weeklyCompareReportId}/save — 저장
+
+이미 자동 생성되어 있는 리포트를 Archive에 추가한다. 같은 리포트를 다시 저장해도 기존 Archive 항목을 그대로 반환한다(멱등).
+
+**Response (200):** `data` — `weeklyCompareReportId`, `savedAt`.
+
+#### DELETE /reports/weekly-compare/{weeklyCompareReportId} — 저장 해제
+
+**저장된(Archive에 있는) 것만 삭제 가능하다.** Archive 항목과 리포트 데이터를 함께 지운다(성장 리포트의 삭제와 동일한 방식). 저장한 적 없으면 404 `NOT_FOUND`.
+
+**Response (200):** `data` — `weeklyCompareReportId`, `deleted: true`.
 
 ### Home APIs
 
@@ -1089,7 +1123,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 **Header:** `Authorization: Bearer {accessToken}` 필수
 
-**Response (200):** `data` — `nickname`(`string | null`), `level`, `currentXp`, `nextLevelXp`, `todayMission`(`TodayMissionDto | null` — `{id, title, category, difficulty("쉬움"|"보통"|"어려움"), estimatedMinutes, rewardXp, description, isCompleted, isSaved}`), `archiveCount`, `communityCount`, `questionOfDay`.
+**Response (200):** `data` — `nickname`(`string | null`), `level`, `currentXp`, `nextLevelXp`, `todayMission`(`TodayMissionDto | null` — `{id, title, category, difficulty("쉬움"|"보통"|"어려움"), estimatedMinutes, rewardXp, description, isCompleted, isSaved}`), `archiveCount`, `communityCount`, `questionOfDay`, `growthTotals`(`{kindnessTotal, initiativeTotal, empathyTotal, questionLinkTotal}` — `#145`, `GET /reports/growth`와 동일한 값. 레벨 카드 아래 티어 한 줄 표시용, 계산은 클라이언트가 한다).
 
 > `difficulty`는 다른 미션 API와 동일한 한글 라벨이다(예전엔 여기만 DB 정수값 1/2/3이 그대로 나갔다). 앱이 라벨 기준으로 난이도 색상을 구분한다.
 >

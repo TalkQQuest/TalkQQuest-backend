@@ -55,10 +55,9 @@ const paginate = (
     };
 };
 
-const resolveItemTitle = async (
-    itemType: "conversation" | "phrase" | "report",
-    referenceId: string
-): Promise<string> => {
+type ArchiveDbItemType = "conversation" | "phrase" | "report" | "weekly_compare";
+
+const resolveItemTitle = async (itemType: ArchiveDbItemType, referenceId: string): Promise<string> => {
     switch (itemType) {
         case "conversation": {
             const conversation = await archiveRepository.findConversationTitle(referenceId);
@@ -75,8 +74,23 @@ const resolveItemTitle = async (
             const data = report.data as { title?: unknown } | null;
             return typeof data?.title === "string" ? data.title : "제목 없음";
         }
+        case "weekly_compare": {
+            const row = await archiveRepository.findWeeklyCompareReportWeekIndex(referenceId);
+            return row ? `${row.week_index}주차 비교 리포트` : "제목 없음";
+        }
     }
 };
+
+// Archive_Items.item_type("report"/"weekly_compare")을 API 레벨 type("report")과
+// 구분 필드(reportType)로 변환한다 — 미션이 missionStatus로 완료/진행중을 나누는 것과 같은 방식.
+const toApiTypeAndReportType = (
+    dbType: ArchiveDbItemType
+): { type: ArchiveItemType; reportType: "growth" | "weekly_compare" | undefined } =>
+    dbType === "weekly_compare"
+        ? { type: "report", reportType: "weekly_compare" }
+        : dbType === "report"
+            ? { type: "report", reportType: "growth" }
+            : { type: dbType, reportType: undefined };
 
 export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryResponseDto> => {
     const [
@@ -110,17 +124,22 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
     const savedMissionIds = new Set(savedRows.map((s) => s.mission_id));
 
     const archiveItemsResolved = await Promise.all(
-        recentArchiveRows.map(async (row) => ({
-            id: row.id,
-            referenceId: row.reference_id,
-            type: row.item_type as ArchiveItemType,
-            title: await resolveItemTitle(row.item_type as "conversation" | "phrase" | "report", row.reference_id),
-            isBookmarked: true,
-            missionId: null,
-            conversationId: null,
-            missionRecordId: null,
-            createdAt: row.created_at.toISOString(),
-        }))
+        recentArchiveRows.map(async (row) => {
+            const dbType = row.item_type as ArchiveDbItemType;
+            const { type, reportType } = toApiTypeAndReportType(dbType);
+            return {
+                id: row.id,
+                referenceId: row.reference_id,
+                type,
+                reportType,
+                title: await resolveItemTitle(dbType, row.reference_id),
+                isBookmarked: true,
+                missionId: null,
+                conversationId: null,
+                missionRecordId: null,
+                createdAt: row.created_at.toISOString(),
+            };
+        })
     );
 
     const completedMissionItems = recentMissionRows.map((row) => ({
@@ -209,19 +228,24 @@ export const searchArchives = async (
     });
 
     const itemsWithTitle: ArchiveSearchItemDto[] = await Promise.all(
-        rows.map(async (row) => ({
-            id: row.id,
-            archiveItemId: row.id,
-            referenceId: row.reference_id,
-            type: row.item_type as ArchiveItemType,
-            title: await resolveItemTitle(row.item_type as "conversation" | "phrase" | "report", row.reference_id),
-            tags: (row.tags as string[] | null) ?? [],
-            folderId: row.folder_id,
-            isBookmarked: true,
-            missionId: null,
-            missionRecordId: null,
-            createdAt: row.created_at.toISOString(),
-        }))
+        rows.map(async (row) => {
+            const dbType = row.item_type as ArchiveDbItemType;
+            const { type, reportType } = toApiTypeAndReportType(dbType);
+            return {
+                id: row.id,
+                archiveItemId: row.id,
+                referenceId: row.reference_id,
+                type,
+                reportType,
+                title: await resolveItemTitle(dbType, row.reference_id),
+                tags: (row.tags as string[] | null) ?? [],
+                folderId: row.folder_id,
+                isBookmarked: true,
+                missionId: null,
+                missionRecordId: null,
+                createdAt: row.created_at.toISOString(),
+            };
+        })
     );
 
     // keyword 검색: title이 여러 테이블에 흩어져 있어 DB join 불가

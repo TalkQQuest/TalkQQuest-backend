@@ -48,15 +48,23 @@ export const getGrowthReport = async (userId: string): Promise<GrowthReportDto> 
   const currentWeekStart = getWeekStart(now);
   const windowStart = getGrowthWindowStart(now);
 
-  const [profile, xpHistory, feedbackScores, missionCategories, totalMissions, completedMissions] =
-    await Promise.all([
-      reportRepository.findProfileByUserId(userId),
-      reportRepository.findXpHistoryAscByUserId(userId),
-      reportRepository.findFeedbackScoresInRange(userId, windowStart, now),
-      reportRepository.findCompletedMissionCategoriesInRange(userId, windowStart, now),
-      reportRepository.countTotalMissions(),
-      reportRepository.countDistinctCompletedMissions(userId),
-    ]);
+  const [
+    profile,
+    xpHistory,
+    feedbackScores,
+    missionCategories,
+    totalMissions,
+    completedMissions,
+    growthTotals,
+  ] = await Promise.all([
+    reportRepository.findProfileByUserId(userId),
+    reportRepository.findXpHistoryAscByUserId(userId),
+    reportRepository.findFeedbackScoresInRange(userId, windowStart, now),
+    reportRepository.findCompletedMissionCategoriesInRange(userId, windowStart, now),
+    reportRepository.countTotalMissions(),
+    reportRepository.countDistinctCompletedMissions(userId),
+    reportRepository.sumFeedbackMetricTotals(userId),
+  ]);
 
   const levelAfter = profile?.level ?? 1;
   const levelBefore = reconstructLevelAt(xpHistory, windowStart);
@@ -99,5 +107,10 @@ export const getGrowthReport = async (userId: string): Promise<GrowthReportDto> 
     trendChangeRate,
     topCategories,
     missionProgress: { completed: completedMissions, total: totalMissions },
+    growthTotals,
   };
 };
+
+// #145 — 홈 화면 등 성장 리포트 화면 밖에서도 티어 표시를 위해 누적값만 가볍게 필요할 때 쓴다.
+// getGrowthReport 전체를 계산하지 않고 SUM 하나만 돌린다.
+export const getGrowthMetricTotals = (userId: string) => reportRepository.sumFeedbackMetricTotals(userId);

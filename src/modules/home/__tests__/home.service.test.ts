@@ -3,15 +3,18 @@ jest.mock("../../../config/logger", () => ({
 }));
 jest.mock("../repositories/home.repository");
 jest.mock("../../mission/services/mission.service");
+jest.mock("../../report/services/growth.service");
 
 import * as homeRepository from "../repositories/home.repository";
 import * as missionService from "../../mission/services/mission.service";
+import * as growthService from "../../report/services/growth.service";
 import { getHomeSummary } from "../services/home.service";
 import { MissionProfileNotFoundError } from "../../mission/errors/mission.error";
 import { NotFoundError } from "../../../shared/errors/common.error";
 
 const mockedRepo = jest.mocked(homeRepository);
 const mockedMission = jest.mocked(missionService);
+const mockedGrowth = jest.mocked(growthService);
 
 const todayMission = {
   missionId: "m1",
@@ -33,6 +36,12 @@ beforeEach(() => {
   } as never);
   mockedRepo.hasCompletedMissionSince.mockResolvedValue(false);
   mockedMission.getTodayMission.mockResolvedValue(todayMission as never);
+  mockedGrowth.getGrowthMetricTotals.mockResolvedValue({
+    kindnessTotal: 0,
+    initiativeTotal: 0,
+    empathyTotal: 0,
+    questionLinkTotal: 0,
+  } as never);
 });
 
 describe("getHomeSummary", () => {

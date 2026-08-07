@@ -2,6 +2,9 @@
 import { logger } from "../../../config/logger";
 import { prisma } from "../../../config/database";
 import { checkAndAwardBadges } from "../../badge/services/badge.service";
+import { findUserCreatedAt } from "../../user/repositories/user.repository";
+import { generateMissingWeeklyReports } from "../../report/services/weekly-compare.service";
+import { notifyNewWeeklyCompareReports } from "../../report/services/report.service";
 import * as feedbackRepository from "../repositories/feedback.repository";
 import {
   FeedbackConversationNotFoundError,
@@ -138,6 +141,27 @@ const runGeneration = async (
   });
 };
 
+// #145 — 주간 비교 리포트는 스케줄러 없이, "대화 완료 → 피드백 생성" 시점을 트리거로 삼아
+// 지연 계산으로 생성한다. 미션 리마인드용 스케줄러 인프라가 생기면 이 호출부를 스케줄러로
+// 옮기는 것이 맞다(생성 로직 자체는 이미 트리거와 무관한 순수 함수라 호출부만 바꾸면 된다).
+// 실패해도 피드백 생성 자체(사용자가 기다리는 응답)를 막으면 안 되므로 예외를 삼킨다.
+const triggerWeeklyCompareGeneration = async (userId: string): Promise<void> => {
+  try {
+    const signupAt = await findUserCreatedAt(userId);
+    if (!signupAt) return;
+
+    const created = await generateMissingWeeklyReports(userId, signupAt);
+    if (created.length > 0) {
+      await notifyNewWeeklyCompareReports(
+        userId,
+        created.map((r) => r.id)
+      );
+    }
+  } catch (error) {
+    logger.warn({ err: error, userId }, "주간 비교 리포트 생성 실패 (피드백 생성 자체는 정상 처리)");
+  }
+};
+
 // POST /feedback — 대화당 1건(find-or-create). 이미 ready면 그대로 반환(멱등),
 // pending이면 409, failed였다면 같은 행으로 재생성을 시도한다.
 // 생성은 이 요청 안에서 동기로 끝난다(미션 추천과 동일하게 폴링/큐 없이 즉시 응답).
@@ -183,6 +207,14 @@ export const createFeedback = async (
   // 완료 화면에서 바로 축하 모달을 띄울 수 있게 한다. GET /badges/me도 별도로 지연 판정하므로
   // 여기서 놓쳐도(예: 재시도 백그라운드 완료 시점) 다음 조회에서 채워진다.
   const newlyEarnedBadges = await checkAndAwardBadges(prisma, userId);
+
+  // 밀린 주차가 많으면 순차 조회 비용이 커질 수 있어(주차마다 DB round-trip) 응답을 막지 않는다.
+  // retryFeedback의 재생성과 동일하게 fire-and-forget으로 처리한다(전용 워커/큐가 없음).
+  // 실패해도 다음 피드백 생성 시점에 재시도되므로 유실되지 않는다.
+  if (saved?.status === "ready") {
+    void triggerWeeklyCompareGeneration(userId);
+  }
+
   return toResponseDto(saved!, saved!.conversation.selected_topic, newlyEarnedBadges);
 };
 

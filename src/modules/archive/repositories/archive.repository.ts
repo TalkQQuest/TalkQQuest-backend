@@ -210,17 +210,30 @@ export const createArchiveItem = (
 export const findArchiveItemById = (itemId: string, userId: string) =>
     prisma.archive_Items.findFirst({ where: { id: itemId, user_id: userId } });
 
-// 특정 원본 리소스(conversation/phrase/report)를 가리키는 Archive_Items row 조회
+// 특정 원본 리소스(conversation/phrase/report/weekly_compare)를 가리키는 Archive_Items row 조회
 // 예: phrase 상세에서 folderId를 알아내려면 이 함수로 매핑 row를 찾아야 함
 // mission은 Archive_Items를 쓰지 않으므로 itemType에서 제외
 export const findArchiveItemByReference = (
     userId: string,
-    itemType: "conversation" | "phrase" | "report",
+    itemType: "conversation" | "phrase" | "report" | "weekly_compare",
     referenceId: string
 ) =>
     prisma.archive_Items.findFirst({
         where: { user_id: userId, item_type: itemType, reference_id: referenceId },
     });
+
+// 특정 타입의 저장된 reference_id 전체. 목록 화면에서 항목마다 "저장됨" 여부를 표시할 때,
+// 항목 수만큼 개별 조회하는 대신 한 번에 가져와 Set으로 대조한다.
+export const findArchivedReferenceIds = async (
+    userId: string,
+    itemType: "conversation" | "phrase" | "report" | "weekly_compare"
+): Promise<Set<string>> => {
+    const rows = await prisma.archive_Items.findMany({
+        where: { user_id: userId, item_type: itemType },
+        select: { reference_id: true },
+    });
+    return new Set(rows.map((r) => r.reference_id));
+};
 
 export const deleteArchiveItem = (itemId: string, tx?: Prisma.TransactionClient) =>
     (tx ?? prisma).archive_Items.delete({ where: { id: itemId } });

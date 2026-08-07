@@ -4,6 +4,7 @@ import { NotFoundError } from "../../../shared/errors/common.error";
 import { logger } from "../../../config/logger";
 import { MissionProfileNotFoundError } from "../../mission/errors/mission.error";
 import { getTodayMission } from "../../mission/services/mission.service";
+import { getGrowthMetricTotals } from "../../report/services/growth.service";
 import { kstDayStart } from "../../../shared/utils/date";
 
 const QUESTION_OF_DAY = "오늘 누군가에게 먼저 말을 걸어본 적 있나요?";
@@ -48,9 +49,10 @@ const resolveTodayMission = async (userId: string): Promise<TodayMissionDto | nu
 };
 
 export const getHomeSummary = async (userId: string): Promise<HomeSummaryResponseDto> => {
-    const [{ profile, archiveCount }, todayMission] = await Promise.all([
+    const [{ profile, archiveCount }, todayMission, growthTotals] = await Promise.all([
         findHomeSummaryData(userId),
         resolveTodayMission(userId),
+        getGrowthMetricTotals(userId),
     ]);
 
     if (!profile) {
@@ -68,5 +70,6 @@ export const getHomeSummary = async (userId: string): Promise<HomeSummaryRespons
         archiveCount,
         communityCount: 0,
         questionOfDay: QUESTION_OF_DAY,
+        growthTotals,
     };
 };

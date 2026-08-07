@@ -95,6 +95,7 @@ enum ArchiveItemType {
   phrase
   report
   mission
+  weekly_compare
 }
 
 enum DeviceTokenPlatform {
@@ -171,6 +172,7 @@ model Users {
   blocked_me              Blocked_Users[]           @relation("BlockedUsers_BlockedUser")
   device_tokens           Device_Tokens[]
   reports                 Reports[]
+  weekly_compare_reports  Weekly_Compare_Reports[]
   login_history           Login_History[]
   notification_setting    Notification_Settings?
   hosted_communities      Communities[]             @relation("Communities_Host")
@@ -417,6 +419,7 @@ model Conversations {
   mission_records Mission_Records[]
   feedbacks       Feedbacks[]
   saved_phrases   Saved_Phrases[]
+  report          Reports?
 
   @@index([user_id])
   @@index([mission_id])
@@ -806,19 +809,48 @@ model Email_Verifications {
 }
 
 // ----------------------------
-// Reports
+// Reports (성장 리포트 전용, #145)
 // ----------------------------
+// #112에서 growth+weeklyCompare를 하나로 통합했다가, 책임과 생성 방식이 서로 달라져 #145에서
+// 다시 분리했다. 이 테이블은 성장 리포트(사용자가 대화 하나를 마치고 수동으로 저장)만 담당한다.
+// 주간 비교 리포트는 Weekly_Compare_Reports를 따로 쓴다(자동 생성, 저장 단위가 대화가 아니라 주차).
 model Reports {
+  id              String   @id @default(uuid()) @db.Char(36)
+  user_id         String   @db.Char(36)
+  period          String   @db.VarChar(30)
+  // 저장을 트리거한 대화. 같은 대화로 중복 저장하는 것을 막는 기준이 된다(unique).
+  // 이 리포트를 삭제하면 같은 대화로 다시 저장할 수 있다.
+  conversation_id String   @unique @db.Char(36)
+  data            Json?
+  created_at      DateTime @default(now())
+
+  user         Users         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  conversation Conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("Reports")
+}
+
+// ----------------------------
+// Weekly_Compare_Reports (#145)
+// ----------------------------
+// 가입일 기준으로 완결된 주차끼리 비교하는 자동 생성 리포트. 대화 완료(피드백 생성) 시점마다
+// 지연 계산으로 생성된다 — 활동이 있던 주만 만들고, 비교 대상은 "가장 최근에 생성된 리포트"
+// (바로 직전 주가 아닐 수 있음, 몇 주를 건너뛰었을 때도 자연스럽게 이어지도록).
+// week_index는 가입일로부터 몇 번째로 "완결되고 활동이 있었던" 주인지가 아니라,
+// 가입일 기준 달력상 몇 번째 주(1-based)인지를 가리킨다 — 중복 생성 방지 unique 키로 쓰인다.
+model Weekly_Compare_Reports {
   id         String   @id @default(uuid()) @db.Char(36)
   user_id    String   @db.Char(36)
-  period     String   @db.VarChar(30)
-  data       Json?
+  week_index Int
+  data       Json
   created_at DateTime @default(now())
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@unique([user_id, week_index])
   @@index([user_id])
-  @@map("Reports")
+  @@map("Weekly_Compare_Reports")
 }
 
 // ----------------------------

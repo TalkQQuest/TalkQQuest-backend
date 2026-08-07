@@ -134,6 +134,27 @@ describe("saveReport", () => {
       expect.objectContaining({ item_type: "report", reference_id: "r-winner" })
     );
   });
+
+  // ensureArchived 자체의 P2002 경합 경로: Reports 저장은 성공했지만, 그 직후 Archive_Items를
+  // 만드는 시점에 동시 요청과 경합해서 P2002가 나는 경우 — 승자 Archive 항목을 다시 읽어와야 한다.
+  it("Archive 항목 생성이 P2002로 경합하면 승자 항목을 다시 읽어 성공 처리한다", async () => {
+    mockedRepo.findReportByConversationId.mockResolvedValue(null);
+    mockedRepo.createReport.mockResolvedValue({
+      id: "r-new",
+      created_at: new Date("2026-08-05T00:00:00Z"),
+    } as never);
+    mockedArchive.findArchiveItemByReference
+      .mockResolvedValueOnce(null) // ensureArchived 최초 조회 시점엔 아직 없음
+      .mockResolvedValueOnce({ id: "a-winner", created_at: new Date("2026-08-05T00:00:01Z") } as never); // 경합 후 재조회
+    mockedArchive.createArchiveItem.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "5.22.0" })
+    );
+
+    const result = await saveReport("u1", "c1");
+
+    expect(result.reportId).toBe("r-new");
+    expect(mockedArchive.findArchiveItemByReference).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("saveWeeklyCompareReport", () => {
@@ -170,6 +191,21 @@ describe("saveWeeklyCompareReport", () => {
     expect(mockedArchive.createArchiveItem).toHaveBeenCalledWith(
       expect.objectContaining({ item_type: "weekly_compare", reference_id: "w1" })
     );
+  });
+
+  it("Archive 항목 생성이 P2002로 경합하면 승자 항목을 다시 읽어 성공 처리한다", async () => {
+    mockedRepo.findWeeklyCompareReportByIdAndUserId.mockResolvedValue({ id: "w1" } as never);
+    mockedArchive.findArchiveItemByReference
+      .mockResolvedValueOnce(null) // 최초 조회 시점엔 아직 없음
+      .mockResolvedValueOnce({ id: "a-winner", created_at: new Date("2026-08-08T00:00:01Z") } as never); // 경합 후 재조회
+    mockedArchive.createArchiveItem.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "5.22.0" })
+    );
+
+    const result = await saveWeeklyCompareReport("u1", "w1");
+
+    expect(result).toEqual({ weeklyCompareReportId: "w1", savedAt: "2026-08-08T00:00:01.000Z" });
+    expect(mockedArchive.findArchiveItemByReference).toHaveBeenCalledTimes(2);
   });
 });
 

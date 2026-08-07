@@ -34,6 +34,11 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+// 테스트 도중 assertion이 실패해도 fake timer가 다음 테스트로 새지 않도록 afterEach에서 복원한다.
+afterEach(() => {
+  jest.useRealTimers();
+});
+
 describe("generateMissingWeeklyReports", () => {
   const signupAt = new Date("2026-08-01T00:00:00.000Z");
 
@@ -44,8 +49,6 @@ describe("generateMissingWeeklyReports", () => {
 
     expect(result).toEqual([]);
     expect(mockedRepo.createWeeklyCompareReport).not.toHaveBeenCalled();
-
-    jest.useRealTimers();
   });
 
   it("1주차가 막 끝났고 활동이 있었으면 0점 기준으로 첫 리포트를 만든다", async () => {
@@ -60,8 +63,6 @@ describe("generateMissingWeeklyReports", () => {
     expect(result[0].weekIndex).toBe(1);
     const data = result[0].data as WeeklyCompareReportDto;
     expect(data.overallScoreChange).toEqual({ from: 0, to: 23, delta: 23 });
-
-    jest.useRealTimers();
   });
 
   it("이미 최신 주차까지 생성돼 있으면 아무것도 만들지 않는다", async () => {
@@ -75,8 +76,6 @@ describe("generateMissingWeeklyReports", () => {
 
     expect(result).toEqual([]);
     expect(mockedRepo.createWeeklyCompareReport).not.toHaveBeenCalled();
-
-    jest.useRealTimers();
   });
 
   it("몇 주를 건너뛰어도 활동 없는 주는 건너뛰고, 활동 있는 주끼리만 이어서 비교한다", async () => {
@@ -107,8 +106,6 @@ describe("generateMissingWeeklyReports", () => {
     expect(result[0].weekIndex).toBe(4);
     const data = result[0].data as WeeklyCompareReportDto;
     expect(data.overallScoreChange).toEqual({ from: 23, to: 24, delta: 1 });
-
-    jest.useRealTimers();
   });
 
   it("한 호출에서 처리하는 주차 수에 상한(8주)을 둬서, 오래 밀린 유저도 한 번에 조회 폭주하지 않는다", async () => {
@@ -125,8 +122,6 @@ describe("generateMissingWeeklyReports", () => {
     // countCompletedMissionRecordsInRange가 주차 스캔 1회당 정확히 1번 호출되므로,
     // 호출 횟수로 몇 주차까지 스캔했는지 검증한다.
     expect(mockedRepo.countCompletedMissionRecordsInRange).toHaveBeenCalledTimes(8);
-
-    jest.useRealTimers();
   });
 
   it("동시 생성 경합(P2002)이 나면 조용히 건너뛴다", async () => {
@@ -140,8 +135,6 @@ describe("generateMissingWeeklyReports", () => {
     const result = await generateMissingWeeklyReports("u1", signupAt);
 
     expect(result).toEqual([]);
-
-    jest.useRealTimers();
   });
 
   it("한 호출에서 여러 주차를 따라잡는 중 앞 주차가 P2002로 지면, 승자 값으로 다음 주차의 from을 잡는다", async () => {
@@ -180,7 +173,5 @@ describe("generateMissingWeeklyReports", () => {
     const data = result[0].data as WeeklyCompareReportDto;
     // 버그가 있었다면 from이 0(가입 직후 기준값)으로 나왔을 것 — 1주차의 실제 값 23이어야 한다.
     expect(data.overallScoreChange).toEqual({ from: 23, to: 30, delta: 7 });
-
-    jest.useRealTimers();
   });
 });

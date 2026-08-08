@@ -3,6 +3,117 @@ import { z } from "zod";
 import { DATE_ONLY_PATTERN } from "../../../shared/utils/date";
 import { MissionDifficultyLabel, MissionOrigin } from "./mission.constants";
 
+// ── 미션 준비 정보(Mission_Setups) — #152 ──
+// 미션 창에서 사용자가 고르는 6개 축. Missions.setup_guideline(#148-150)의 defaults/disabled와
+// 동일한 값 집합을 쓴다 — 서버가 이 enum 밖의 값을 받으면 안 되므로 zod로 강제한다.
+export type MissionSetupEnvironment = "school" | "workplace" | "daily_place" | "community" | "online";
+export type MissionSetupPartnerRole = "friend" | "senior" | "junior" | "peer" | "other";
+export type MissionSetupPartnerGender = "male" | "female";
+export type MissionSetupPartnerAgeGroup =
+  | "teens"
+  | "twenties"
+  | "thirties"
+  | "forties"
+  | "fifties"
+  | "sixties_plus";
+
+const missionSetupEnvironmentValues = ["school", "workplace", "daily_place", "community", "online"] as const;
+const missionSetupPartnerRoleValues = ["friend", "senior", "junior", "peer", "other"] as const;
+const missionSetupPartnerGenderValues = ["male", "female"] as const;
+const missionSetupPartnerAgeGroupValues = [
+  "teens",
+  "twenties",
+  "thirties",
+  "forties",
+  "fifties",
+  "sixties_plus",
+] as const;
+
+// 관계 친밀도/대화 예절 수준 5단계(1~5). 둘 다 같은 범위라 스키마를 공유한다.
+const levelSchema = z.number().int().min(1).max(5);
+
+// GET /missions/today, GET /missions/{missionId} 응답에 포함되는 미션 창 옵션 가이드라인.
+// Missions.setup_guideline이 없거나(구버전 미션·템플릿·생성 실패) 형식이 깨져 있으면
+// 서버는 null을 그대로 내려준다 — 이때 앱은 6개 축을 전부 활성 상태로, 자체 기본값으로 띄운다.
+export interface SetupGuidelineAxisValues<T> {
+  environment: T;
+  partnerRole: T;
+  intimacyLevel: T;
+  formalityLevel: T;
+  partnerGender: T;
+  partnerAgeGroup: T;
+}
+
+export interface SetupGuidelineDto {
+  defaults: {
+    environment: MissionSetupEnvironment;
+    partnerRole: MissionSetupPartnerRole;
+    intimacyLevel: number;
+    formalityLevel: number;
+    partnerGender: MissionSetupPartnerGender;
+    partnerAgeGroup: MissionSetupPartnerAgeGroup;
+  };
+  disabled: {
+    environment: MissionSetupEnvironment[];
+    partnerRole: MissionSetupPartnerRole[];
+    intimacyLevel: number[];
+    formalityLevel: number[];
+    partnerGender: MissionSetupPartnerGender[];
+    partnerAgeGroup: MissionSetupPartnerAgeGroup[];
+  };
+  note: string | null;
+  recommendedTopics: string[];
+  tags: string[];
+}
+
+// Missions.setup_guideline(Json) 파싱용. LLM이 만든 값이라 형식이 깨질 수 있으므로,
+// 검증에 실패하면 서비스 레이어에서 null로 취급한다(미션 조회 자체는 실패하면 안 된다).
+export const setupGuidelineSchema = z.object({
+  defaults: z.object({
+    environment: z.enum(missionSetupEnvironmentValues),
+    partnerRole: z.enum(missionSetupPartnerRoleValues),
+    intimacyLevel: levelSchema,
+    formalityLevel: levelSchema,
+    partnerGender: z.enum(missionSetupPartnerGenderValues),
+    partnerAgeGroup: z.enum(missionSetupPartnerAgeGroupValues),
+  }),
+  disabled: z.object({
+    environment: z.array(z.enum(missionSetupEnvironmentValues)),
+    partnerRole: z.array(z.enum(missionSetupPartnerRoleValues)),
+    intimacyLevel: z.array(levelSchema),
+    formalityLevel: z.array(levelSchema),
+    partnerGender: z.array(z.enum(missionSetupPartnerGenderValues)),
+    partnerAgeGroup: z.array(z.enum(missionSetupPartnerAgeGroupValues)),
+  }),
+  note: z.string().nullable(),
+  recommendedTopics: z.array(z.string()),
+  tags: z.array(z.string()),
+}) satisfies z.ZodType<SetupGuidelineDto>;
+
+// POST /missions/{missionId}/setups
+export interface CreateMissionSetupRequestDto {
+  environment: MissionSetupEnvironment;
+  partnerRole: MissionSetupPartnerRole;
+  partnerGender: MissionSetupPartnerGender;
+  partnerAgeGroup: MissionSetupPartnerAgeGroup;
+  intimacyLevel: number;
+  formalityLevel: number;
+}
+
+export const createMissionSetupRequestSchema = z.object({
+  environment: z.enum(missionSetupEnvironmentValues),
+  partnerRole: z.enum(missionSetupPartnerRoleValues),
+  partnerGender: z.enum(missionSetupPartnerGenderValues),
+  partnerAgeGroup: z.enum(missionSetupPartnerAgeGroupValues),
+  intimacyLevel: levelSchema,
+  formalityLevel: levelSchema,
+}) satisfies z.ZodType<CreateMissionSetupRequestDto>;
+
+export interface CreateMissionSetupResponseDto {
+  missionSetupId: string;
+  createdAt: string;
+}
+
 export interface MissionListItemDto {
   id: string;
   title: string;
@@ -113,6 +224,8 @@ export interface TodayMissionResponseDto {
   remainingRefreshes: number;
   /** 이번 호출에서 새로 추천을 뽑았는지. false면 오늘 이미 있던 추천을 그대로 돌려준 것. */
   isNew: boolean;
+  /** #152 — 미션 창 옵션 가이드라인. Missions.setup_guideline이 없거나 형식이 깨져 있으면 null. */
+  setupGuideline: SetupGuidelineDto | null;
 }
 
 // POST /missions/from-recommendation
@@ -143,6 +256,8 @@ export interface MissionDetailResponseDto {
   preparationTip: string | null;
   caution: string | null;
   isSaved: boolean;
+  /** #152 — 미션 창 옵션 가이드라인. Missions.setup_guideline이 없거나 형식이 깨져 있으면 null. */
+  setupGuideline: SetupGuidelineDto | null;
 }
 
 // GET /missions/{missionId}/prep

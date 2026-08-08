@@ -529,9 +529,10 @@ model Mission_Setups {
   // 대화 예절 수준 1(반말) ~ 3(보통) ~ 5(매우 격식 있는 존댓말). 위와 같은 이유로 정수.
   formality_level   Int                    @db.TinyInt
 
-  // 이 설정으로 다룰 대화 주제. Conversations.selected_topic을 이쪽으로 확장한 자리다 —
-  // 주제는 대화가 아니라 준비 단계에서 정해지고, 같은 주제로 여러 번 대화할 수 있다.
-  selected_topic String? @db.VarChar(255)
+  // 대화 주제(selected_topic)는 여기에 두지 않는다. Conversations.selected_topic이
+  // 자유 입력으로 존재했지만 어떤 프롬프트에도 들어가지 않는 표시 전용 값이었고,
+  // 이 테이블이 정의하는 것은 "말투와 관계"이지 "소재"가 아니다.
+  // 자리만 옮기면 아무 역할 없는 필드가 그대로 따라오므로 폐기했다.
 
   created_at DateTime @default(now())
 
@@ -557,9 +558,12 @@ model Conversations {
   // 이 컬럼 도입 이전 대화는 null이다(그 경우 예전처럼 미션 정보만으로 배역을 잡는다).
   // 설정 행이 지워져도 대화 기록은 남아야 하므로 SetNull.
   mission_setup_id String?            @db.Char(36)
-  // 이 대화의 주제. 준비 정보가 있으면 Mission_Setups.selected_topic을 복사해 굳힌 값이고,
-  // 없으면 예전처럼 요청 본문으로 직접 받은 값이다. 준비 정보 쪽 주제가 나중에 바뀌어도
-  // 이미 진행된 대화의 주제는 변하면 안 되므로 참조하지 않고 복사해 둔다.
+  // [deprecated] 대화 시작 시 받던 자유 입력 주제.
+  // 어떤 프롬프트에도 주입되지 않아 대화에 아무 영향을 주지 못했고(배역·과제는 미션 제목과
+  // 설명만으로 정해진다), 앱도 값을 보내지 않아 사실상 항상 null이다.
+  // 상황 설정은 Mission_Setups가 구조화된 축으로 대체한다.
+  // 컬럼을 남기는 이유는 기존 대화 데이터와 GET /feedback/{id}의 topic 응답 필드가
+  // 이 값을 읽고 있기 때문이다. 앞으로 새로 쓰이지 않는다.
   selected_topic   String?            @db.VarChar(255)
   // 이 대화에서 AI가 맡은 배역(예: "동아리 1년차 선배, 친근한 존댓말").
   // 세션 생성 시 한 번 정해 저장하고 매 턴 시스템 프롬프트에 주입한다.

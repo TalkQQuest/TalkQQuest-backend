@@ -27,10 +27,10 @@ Missions           "처음 만난 사람에게 자기소개하고 이름 물어�
 
 ```
 [1] 미션 생성
-      └─ Missions.setup_guideline 생성 (기본 추천값 + 비활성 선택지 + 추천 주제/태그)
+      └─ Missions.setup_guideline 생성 (기본 추천값 + 비활성 선택지 + 성격 태그)
             ↓
 [2] 미션 창 진입 — 가이드라인대로 초기화된 상태로 사용자가 상황 설정
-      └─ Mission_Setups 1행 생성 (환경/상대역할/친밀도/예절/성별/나이대 + selectedTopic)
+      └─ Mission_Setups 1행 생성 (환경/상대역할/친밀도/예절/성별/나이대)
             ↓
 [3] 대화 시작
       ├─ Mission_Setups → persona / user_task 생성 → Conversations에 저장
@@ -47,7 +47,7 @@ Missions           "처음 만난 사람에게 자기소개하고 이름 물어�
 | --- | --- | --- |
 | 1 미션 생성 | `User_Profiles`, `User_Growth_Profiles`, 최근 `Mission_Records` | `Missions.setup_guideline` |
 | 2 미션 창 | `Missions.setup_guideline`, 직전 `Mission_Setups`(재진입 시 복원) | `Mission_Setups` 1행 |
-| 3 대화 시작 | `Mission_Setups`, `Missions`, `Mission_Playbooks` | `Conversations`(`mission_setup_id`, `persona`, `user_task`, `selected_topic`), 필요 시 `Mission_Playbooks` |
+| 3 대화 시작 | `Mission_Setups`, `Missions`, `Mission_Playbooks` | `Conversations`(`mission_setup_id`, `persona`, `user_task`), 필요 시 `Mission_Playbooks` |
 | 4 대화 진행 | `Conversations`, `Mission_Playbooks`, 최근 메시지 | `Conversation_Messages`, `Conversations.flow_step` |
 | 5 피드백 | `Conversation_Messages`, `Conversations`(→`Mission_Setups`) | `Feedbacks`, `User_Growth_Profiles` |
 
@@ -107,29 +107,45 @@ model Mission_Playbooks {
 
 ---
 
-## 결정 2 — `selectedTopic`은 `Mission_Setups`로 옮긴다
+## 결정 2 — `selectedTopic`은 폐기한다
 
-### 현재
+### 현재 — 아무 역할도 하지 않는다
 
-`POST /conversations`가 `selectedTopic`을 직접 받아 `Conversations.selected_topic`에 저장합니다.
+`POST /conversations`가 `selectedTopic`을 받아 `Conversations.selected_topic`에 저장합니다.
 
 ```json
 { "missionId": "...", "mode": "text", "selectedTopic": "요즘 본 영화" }
 ```
 
-주제는 대화 중이 아니라 **준비 단계에서 정해지고**, 같은 주제로 여러 번 대화할 수 있습니다. 그리고 이제 주제 후보는 `setup_guideline.recommendedTopics`가 제안합니다 — 제안하는 자리와 저장되는 자리가 갈라져 있습니다.
+코드를 전부 추적한 결과, 이 값은 **저장만 되고 대화에 아무 영향도 주지 못합니다.**
 
-### 결정
+| 지점 | 상태 |
+| --- | --- |
+| 요청 스키마 | `z.string().optional()` — 앱이 보내지 않으면 `null` |
+| 저장 | `conversation.repository.ts` — `dto.selectedTopic ?? null` |
+| **AI 프롬프트 주입** | **없음.** `persona`/`user_task` 생성은 미션 제목·설명만 입력받고, 매 턴 프롬프트에도 들어가지 않습니다 |
+| 플레이북 생성 | 사용하지 않음 |
+| 읽는 곳 | `POST /conversations` 응답, `GET /feedback/{id}`의 `topic` — **표시 전용** |
 
-주제의 **원본**은 `Mission_Setups.selected_topic`으로 옮깁니다.
-`Conversations.selected_topic`은 **지우지 않고 복사본으로 남깁니다** — 준비 정보 쪽 주제가 나중에 바뀌어도 이미 진행된 대화의 주제는 변하면 안 되고, `mission_setup_id`가 `null`인 기존 대화도 그대로 읽혀야 합니다.
+`report.repository.ts`에는 이런 주석까지 있습니다 — `selected_topic은 대화 시작 시 사용자가 입력하는 자유 입력 필드로 미션과 무관하다(#107)`.
 
-```
-Mission_Setups.selected_topic  (원본, 수정 가능)
-        │ 대화 시작 시 복사
-        ↓
-Conversations.selected_topic   (스냅샷, 이후 불변)
-```
+앱이 값을 보내지 않으므로 실제로는 **항상 `null`**이고, 따라서 `GET /feedback/{id}`의 `topic`도 항상 `null`입니다.
+
+### 결정 — `Mission_Setups`로 옮기지 않고 없앤다
+
+처음에는 주제의 원본을 `Mission_Setups.selected_topic`으로 옮기려 했으나, **그러면 아무 역할 없는 필드가 자리만 바꿔 그대로 따라옵니다.** 두 가지 이유로 폐기합니다.
+
+1. **회의에서 정한 축에 주제가 없습니다.** 미션 창의 축은 환경 / 상대 역할 / 관계 친밀도 / 대화 예절 수준 / 성별 / 나이대 **6개뿐**입니다. "`selectedTopic` 확장"은 역할 없는 자유 입력 1개를 구조화된 6축으로 **갈아끼우는 것**으로 읽는 편이 자연스럽습니다.
+2. **계층 원칙과 어긋납니다.** `Mission_Setups`가 정의하는 것은 **말투와 관계**인데, 주제는 말투도 관계도 아닌 **소재**입니다.
+
+| 대상 | 처리 |
+| --- | --- |
+| `Mission_Setups.selected_topic` | **추가하지 않음** |
+| `setup_guideline.recommendedTopics` | **넣지 않음** (`tags`는 유지 — 미션 성격 표시용이라 역할이 다름) |
+| `Conversations.selected_topic` | **유지하되 deprecated** — 기존 대화 데이터와 `GET /feedback/{id}`의 `topic` 응답 필드가 읽고 있어 지우면 깨집니다. 앞으로 항상 `null` |
+| `POST /conversations`의 `selectedTopic` | **deprecated** — 받아서 저장은 하되 새로 쓰지 않음 |
+
+**나중에 주제를 되살린다면** 자리를 옮기는 것만으로는 부족합니다. (1) `generateRoleSetup` 입력에 넣어 `persona`/`user_task`에 반영하고, (2) 매 턴 프롬프트에 주입하며(안 하면 이력 상한에 밀려 사라집니다), (3) 자유 입력이 아니라 가이드라인이 제안하는 **선택형 칩**이어야 합니다. 자유 입력이라 아무도 채우지 않은 것이 지금 상태의 원인입니다.
 
 ### `POST /conversations` 요청 변경
 
@@ -137,12 +153,12 @@ Conversations.selected_topic   (스냅샷, 이후 불변)
 | --- | --- | --- |
 | `missionId` | 유지 | |
 | `mode` | 유지 | |
-| `missionSetupId` | **추가** (선택) | 앞서 만든 `Mission_Setups.id`. 주면 주제·상황이 여기서 결정됨 |
-| `selectedTopic` | **deprecated** (선택) | `missionSetupId`가 없을 때만 사용. 기존 앱 호환용 |
+| `missionSetupId` | **추가** (선택) | 앞서 만든 `Mission_Setups.id`. 주면 말투·관계 설정이 여기서 결정됨 |
+| `selectedTopic` | **deprecated** (선택) | 기존 앱 호환용. 받아서 저장만 하고 대화에는 반영하지 않음 |
 
-- 둘 다 오면 **`missionSetupId`가 이깁니다** (`selectedTopic`은 무시)
-- 둘 다 없으면 지금과 똑같이 동작합니다 (상황 없이 미션 정보만으로 배역 결정)
+- `missionSetupId`가 없으면 지금과 똑같이 동작합니다 (상황 없이 미션 정보만으로 배역 결정)
 - `missionSetupId`가 다른 사용자 것이거나 `missionId`와 짝이 맞지 않으면 **404** — 남의 설정으로 대화를 시작할 수 있으면 안 됩니다
+- 두 필드는 서로 경쟁하지 않습니다. `selectedTopic`은 대화에 영향을 주지 않으므로 우선순위를 따질 필요가 없습니다
 
 응답은 기존 형태를 유지하되 `missionSetupId`를 되돌려주면 앱이 이어지는 화면에서 재조회할 필요가 없습니다.
 
@@ -175,7 +191,6 @@ Mission_Records → Conversations → Mission_Setups
 | 가이드라인 저장 | `Missions.setup_guideline` |
 | 사용자 설정값 저장 | `Mission_Setups` |
 | 대화 ↔ 설정 연결 | `Conversations.mission_setup_id` |
-| 주제 원본 / 스냅샷 | `Mission_Setups.selected_topic` / `Conversations.selected_topic` |
 | 상황을 대화에 반영 | `Conversations.persona`, `user_task` |
 | 피드백 ↔ 설정 연결 | `Feedbacks.conversation_id` 경유 조인 |
 | 설정 재사용(직전 값 복원) | `@@index([user_id, mission_id, created_at])` |
@@ -205,7 +220,7 @@ Mission_Records → Conversations → Mission_Setups
 ## 협의 필요
 
 - [ ] `POST /conversations`를 `missionSetupId` 방식으로 갈지, 설정 본문 인라인 방식으로 갈지 (위 2단계 방식 권장)
-- [ ] `selectedTopic` deprecated 전환 시점 — 앱이 `missionSetupId`로 완전히 넘어오는 버전
+- [ ] `selectedTopic` deprecated 안내 — 앱이 값을 보내고 있지 않아 실질 영향은 없으나, `GET /feedback/{id}`의 `topic`이 항상 `null`인 점은 공유 필요
 - [ ] **기존 미션 데이터 처리** — 계층 원칙 도입 이전에 만들어진 미션 중 문구에 환경·상대가 박힌 것이 있는지 점검.
       있다면 그대로 둘지(설정과 모순될 수 있음), 문구를 다듬을지 결정 필요
 

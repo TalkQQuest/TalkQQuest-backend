@@ -22,7 +22,6 @@ CREATE TABLE `Mission_Setups` (
     `partner_age_group` ENUM('teens', 'twenties', 'thirties', 'forties', 'fifties', 'sixties_plus') NOT NULL,
     `intimacy_level` TINYINT NOT NULL,
     `formality_level` TINYINT NOT NULL,
-    `selected_topic` VARCHAR(255) NULL,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `Mission_Setups_mission_id_idx`(`mission_id`),

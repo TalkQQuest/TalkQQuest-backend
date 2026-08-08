@@ -66,7 +66,6 @@
 | `disabled.partnerGender` | string[] | O | 비활성 처리할 성별 |
 | `disabled.partnerAgeGroup` | string[] | O | 비활성 처리할 나이대 |
 | `note` | string \| null | O | 왜 일부 선택지가 막혔는지 한 줄 안내. 앱에서 안내 문구로 노출해도 됩니다. |
-| `recommendedTopics` | string[] | O | 추천 대화 주제(0~3개). 사용자가 고르면 `selectedTopic`으로 저장됩니다. |
 | `tags` | string[] | O | 미션 성격 태그(0~5개). 예: `첫 만남`, `존댓말`, `가벼운 질문` |
 
 ### 앱 처리 규칙
@@ -100,7 +99,6 @@
     "partnerAgeGroup": []
   },
   "note": "처음 만나는 상황이라 친한 사이·반말 설정은 선택할 수 없어요.",
-  "recommendedTopics": ["여기 자주 오는지 물어보기", "서로 어떻게 알게 됐는지"],
   "tags": ["첫 만남", "자기소개", "이름 묻기"]
 }
 ```
@@ -202,7 +200,6 @@ refresh=true        // 선택. 오늘 추천이 있어도 새로 뽑기 (하루 
         "partnerAgeGroup": []
       },
       "note": "처음 만나는 상황이라 친한 사이·반말 설정은 선택할 수 없어요.",
-      "recommendedTopics": ["여기 자주 오는지 물어보기", "서로 어떻게 알게 됐는지"],
       "tags": ["첫 만남", "자기소개", "이름 묻기"]
     }
   }
@@ -307,7 +304,6 @@ missionId: string (UUID)   // 조회할 미션 id
         "partnerAgeGroup": []
       },
       "note": "처음 만나는 상황이라 친한 사이·반말 설정은 선택할 수 없어요.",
-      "recommendedTopics": ["여기 자주 오는지 물어보기", "서로 어떻게 알게 됐는지"],
       "tags": ["첫 만남", "자기소개", "이름 묻기"]
     }
   }

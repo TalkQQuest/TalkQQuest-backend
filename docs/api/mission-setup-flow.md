@@ -26,28 +26,30 @@ Missions           "처음 만난 사람에게 자기소개하고 이름 물어�
 ## 전체 흐름
 
 ```
-[1] 미션 생성
+[1] 미션 생성  ※ 미구현 (#149)
       └─ Missions.setup_guideline 생성 (기본 추천값 + 비활성 선택지 + 성격 태그)
             ↓
-[2] 미션 창 진입 — 가이드라인대로 초기화된 상태로 사용자가 상황 설정
+[2] 미션 창 진입 — 가이드라인대로 초기화된 상태로 사용자가 상황 설정  ※ 미구현 (#149)
       └─ Mission_Setups 1행 생성 (환경/상대역할/친밀도/예절/성별/나이대)
             ↓
-[3] 대화 시작
+[3] 대화 시작  ※ 미구현 (#149)
       ├─ Mission_Setups → persona / user_task 생성 → Conversations에 저장
       └─ Mission_Playbooks 조회 (없으면 생성) ※ 상황 중립 — 아래 "결정 1" 참고
             ↓
 [4] 대화 진행 — 매 턴 persona + user_task + flow 단계 + 매칭된 responseRules 주입
             ↓
-[5] 피드백 — Feedbacks(conversation_id) → 성장 프로필 갱신 시 setup까지 조인해 집계
+[5] 피드백 — Feedbacks(conversation_id) → 성장 프로필 갱신 시 setup까지 조인해 집계  ※ 미구현 (#150)
 ```
 
 ### 단계별 읽기/쓰기
+
+아래 표에서 *(미구현)* 표시는 이번 PR에 포함되지 않고 후속 이슈에서 구현할 단계입니다.
 
 | 단계 | 읽는 것 | 쓰는 것 |
 | --- | --- | --- |
 | 1 미션 생성 | `User_Profiles`, `User_Growth_Profiles`, 최근 `Mission_Records` | `Missions.setup_guideline` |
 | 2 미션 창 | `Missions.setup_guideline`, 직전 `Mission_Setups`(재진입 시 복원) | `Mission_Setups` 1행 |
-| 3 대화 시작 | `Mission_Setups`, `Missions`, `Mission_Playbooks` | `Conversations`(`mission_setup_id`, `persona`, `user_task`), 필요 시 `Mission_Playbooks` |
+| 3 대화 시작 *(미구현)* | `Mission_Setups`, `Missions`, `Mission_Playbooks` | `Conversations`(`mission_setup_id`, `persona`, `user_task`), 필요 시 `Mission_Playbooks` |
 | 4 대화 진행 | `Conversations`, `Mission_Playbooks`, 최근 메시지 | `Conversation_Messages`, `Conversations.flow_step` |
 | 5 피드백 | `Conversation_Messages`, `Conversations`(→`Mission_Setups`) | `Feedbacks`, `User_Growth_Profiles` |
 
@@ -129,7 +131,9 @@ model Mission_Playbooks {
 
 `report.repository.ts`에는 이런 주석까지 있습니다 — `selected_topic은 대화 시작 시 사용자가 입력하는 자유 입력 필드로 미션과 무관하다(#107)`.
 
-앱이 값을 보내지 않으므로 실제로는 **항상 `null`**이고, 따라서 `GET /feedback/{id}`의 `topic`도 항상 `null`입니다.
+현재 앱이 이 값을 보내지 않으므로 **새로 만들어지는 대화에서는 `null`**이고, 그 대화의 `GET /feedback/{id}` `topic`도 `null`입니다.
+
+다만 **모든 값이 `null`이라는 뜻은 아닙니다.** 과거에 값이 들어간 대화 데이터가 남아 있을 수 있고, 요청 필드를 계속 받아 저장하므로 구버전 클라이언트가 값을 보내면 `null`이 아닌 행이 새로 생길 수 있습니다. 전부 `null`로 만들려면 기존 데이터 정리와 입력값 저장 중단이 함께 필요한데, 표시 전용 값이라 그럴 이유가 없습니다.
 
 ### 결정 — `Mission_Setups`로 옮기지 않고 없앤다
 
@@ -147,7 +151,9 @@ model Mission_Playbooks {
 
 **나중에 주제를 되살린다면** 자리를 옮기는 것만으로는 부족합니다. (1) `generateRoleSetup` 입력에 넣어 `persona`/`user_task`에 반영하고, (2) 매 턴 프롬프트에 주입하며(안 하면 이력 상한에 밀려 사라집니다), (3) 자유 입력이 아니라 가이드라인이 제안하는 **선택형 칩**이어야 합니다. 자유 입력이라 아무도 채우지 않은 것이 지금 상태의 원인입니다.
 
-### `POST /conversations` 요청 변경
+### `POST /conversations` 요청 변경 (설계안 — 아직 미구현)
+
+> **구현 상태**: 아래는 #149에서 구현할 설계안입니다. 현재 코드는 `generateRoleSetup(mission.title, mission.description)`만 호출하며, `missionSetupId`를 받지도 응답하지도 않습니다. 확정된 계약이 아니므로 앱 연동은 구현 완료 후 진행해 주세요.
 
 | 필드 | 변경 | 설명 |
 | --- | --- | --- |
@@ -160,7 +166,7 @@ model Mission_Playbooks {
 - `missionSetupId`가 다른 사용자 것이거나 `missionId`와 짝이 맞지 않으면 **404** — 남의 설정으로 대화를 시작할 수 있으면 안 됩니다
 - 두 필드는 서로 경쟁하지 않습니다. `selectedTopic`은 대화에 영향을 주지 않으므로 우선순위를 따질 필요가 없습니다
 
-응답은 기존 형태를 유지하되 `missionSetupId`를 되돌려주면 앱이 이어지는 화면에서 재조회할 필요가 없습니다.
+응답은 기존 형태를 유지하되 `missionSetupId`를 되돌려주는 안을 제안합니다(앱이 이어지는 화면에서 재조회할 필요가 없어집니다). 이 역시 구현 시 확정합니다.
 
 **설정을 어디서 만드는가** — `POST /missions/{missionId}/setups`(A 담당)로 먼저 만들고 그 id를 넘기는 2단계 방식입니다. `POST /conversations`가 설정 본문을 인라인으로 받는 1단계 방식도 가능하지만, 그러면 "설정만 하고 대화를 시작하지 않은" 상태가 기록되지 않습니다. 어느 조합에서 사용자가 이탈하는지는 가이드라인 품질을 재는 신호라 남기는 편이 낫습니다.
 
@@ -171,12 +177,13 @@ model Mission_Playbooks {
 `Feedbacks.conversation_id` → `Conversations.mission_setup_id` → `Mission_Setups`로 이미 닿습니다.
 
 ```
-Feedbacks → Conversations → Mission_Setups
-                          → Missions
-Mission_Records → Conversations → Mission_Setups
+Feedbacks → Conversations → Mission_Setups   (상황 축)
+                          → Missions          (카테고리)
 ```
 
 성장 프로필의 `struggle_situations`("카페는 괜찮은데 선배 상대만 막힌다")는 이 경로로 집계합니다. 건수가 사용자당 수십 건 수준이라 3단 조인이어도 부담이 없고, 비정규화 컬럼을 `Mission_Records`에 추가하면 `Mission_Setups`가 수정될 때 두 곳이 어긋납니다.
+
+**집계 기점은 `Mission_Records`가 아니라 `Feedbacks`입니다.** `Feedbacks.conversation_id`는 필수(unique)라 모든 피드백이 반드시 대화에 닿지만, `Mission_Records.conversation_id`는 nullable입니다. `Mission_Records`를 기점으로 잡으면 완료 기록이 없거나 `conversation_id`가 비어 있는 대화의 피드백이 통째로 빠집니다.
 
 **피드백 채점에 상황을 반영할지**(예: `격식 존댓말` 설정인데 반말을 썼으면 감점)는 B 담당 영역입니다. 조인으로 접근 가능하므로 ERD 준비는 끝나 있습니다.
 

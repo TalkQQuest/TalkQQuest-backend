@@ -27,8 +27,22 @@ CREATE TABLE `User_Growth_Profiles` (
     `updated_at` TIMESTAMP(0) NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     UNIQUE INDEX `User_Growth_Profiles_user_id_key`(`user_id`),
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+
+    -- 난이도는 1(쉬움)~3(어려움). 미설정 상태를 구분해야 하므로 NULL은 허용한다.
+    -- Prisma 스키마로는 표현할 수 없어 마이그레이션에 직접 쓴다(Prisma는 CHECK를 드리프트로 잡지 않음).
+    CONSTRAINT `User_Growth_Profiles_suggested_difficulty_range` CHECK (`suggested_difficulty` IS NULL OR `suggested_difficulty` BETWEEN 1 AND 3)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- AddForeignKey
 ALTER TABLE `User_Growth_Profiles` ADD CONSTRAINT `User_Growth_Profiles_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `Users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- 성장 프로필의 증분 갱신 커서가 가리킬 지점.
+-- Feedbacks는 pending으로 먼저 생성되고 나중에 ready가 되므로, created_at으로는
+-- "여기까지 반영했다"를 표현할 수 없다(뒤늦게 ready가 된 피드백이 커서보다 앞서 영영 누락된다).
+-- 기존 행은 NULL이며, 최초 집계 시 created_at으로 대체해 한 번만 따라잡는다.
+-- AlterTable
+ALTER TABLE `Feedbacks` ADD COLUMN `ready_at` DATETIME(3) NULL;
+
+-- CreateIndex
+CREATE INDEX `Feedbacks_user_id_ready_at_idx` ON `Feedbacks`(`user_id`, `ready_at`);

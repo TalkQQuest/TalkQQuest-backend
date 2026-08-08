@@ -26,7 +26,15 @@ CREATE TABLE `Mission_Setups` (
 
     INDEX `Mission_Setups_mission_id_idx`(`mission_id`),
     INDEX `Mission_Setups_user_id_mission_id_created_at_idx`(`user_id`, `mission_id`, `created_at`),
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+
+    -- 친밀도·예절 수준은 1~5단계다. TINYINT만으로는 -128~127을 허용하므로 범위를 DB에서도 막는다.
+    -- Prisma 스키마로는 표현할 수 없어(지원하지 않음) 마이그레이션에 직접 쓴다. Prisma는 CHECK를
+    -- 인식하지 않으므로 migrate diff가 이걸 드리프트로 잡지 않는다.
+    -- MySQL 8.0.16 이상에서만 강제된다(그 미만은 파싱 후 무시). 로컬·CI 모두 mysql:8이라 충족.
+    -- 애플리케이션 쓰기 경로(POST /missions/{missionId}/setups)에서도 같은 범위를 검증한다.
+    CONSTRAINT `Mission_Setups_intimacy_level_range` CHECK (`intimacy_level` BETWEEN 1 AND 5),
+    CONSTRAINT `Mission_Setups_formality_level_range` CHECK (`formality_level` BETWEEN 1 AND 5)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- AddForeignKey

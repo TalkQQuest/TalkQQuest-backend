@@ -72,11 +72,28 @@ GET /missions/today → 콜드스타트 판단 ─┬→ LLM 프롬프트 → �
 - 성장 프로필 행이 없음 / 갱신 실패 → 최근 미션 난이도 그대로, 프로필 힌트 없이 추천
 - `reflected_feedback_count < 2` (표본 부족) → 같음
 
-### 갱신 시점
+### 갱신 시점과 증분 커서
 
-피드백이 `ready`가 되는 시점에 갱신합니다. `last_reflected_at` 이후 생성된 피드백만 다시 읽는 **증분 갱신**이라, 대화가 쌓여도 갱신 비용이 늘지 않습니다.
+피드백이 `ready`가 되는 시점에 갱신합니다. 커서 뒤의 피드백만 다시 읽는 **증분 갱신**이라, 대화가 쌓여도 갱신 비용이 늘지 않습니다.
 
-갱신 실패는 삼킵니다 — 피드백 생성이 요약 때문에 실패하면 안 됩니다. 다음 피드백 때 워터마크부터 따라잡습니다.
+**커서는 `created_at`이 아니라 `(ready_at, id)`입니다.** 피드백은 `pending`으로 먼저 생성되고 나중에 `ready`가 되므로, 생성 순서와 `ready` 순서가 다릅니다.
+
+> 피드백 A가 먼저 생성돼 `pending`으로 남아 있는 동안, 나중에 생성된 B가 `ready`가 되어 커서를 B의 시각까지 밀어버립니다. 그 뒤 A가 `ready`가 되어도 **A의 생성 시각이 커서보다 앞이라 영영 집계에서 빠집니다.**
+
+그래서 `Feedbacks`에 `ready_at` 컬럼을 추가하고, `status`가 `ready`로 바뀔 때 채웁니다. 갱신 쿼리는 아래를 읽습니다.
+
+```
+WHERE user_id = ?
+  AND status = 'ready'
+  AND (ready_at, id) > (last_reflected_at, last_feedback_id)
+ORDER BY ready_at, id
+```
+
+`id`를 타이브레이크로 두는 이유는 같은 밀리초에 여러 건이 `ready`가 될 수 있기 때문입니다. 커서는 마지막으로 읽은 행의 `(ready_at, id)`로 전진시킵니다.
+
+이 컬럼 도입 이전 피드백은 `ready_at`이 `null`입니다. **최초 집계 시에만** `COALESCE(ready_at, created_at)`으로 한 번 따라잡고, 이후로는 `ready_at`만 씁니다.
+
+갱신 실패는 삼킵니다 — 피드백 생성이 요약 때문에 실패하면 안 됩니다. 커서를 전진시키지 않았으므로 다음 피드백 때 같은 지점부터 다시 따라잡습니다.
 
 ---
 
@@ -94,14 +111,25 @@ GET /missions/today → 콜드스타트 판단 ─┬→ LLM 프롬프트 → �
 | `metric_averages` | JSON | 지표 4종 최근 평균과 추세. `{ kindness: { avg, trend }, ... }` |
 | `suggested_difficulty` | TINYINT | 이력 기반 제안 난이도(1~3). 최근 미션 난이도 ±1로 클램프해서 사용 |
 | `reflected_feedback_count` | INT | 반영한 피드백 건수. 2건 미만이면 신뢰하지 않음 |
-| `last_feedback_id` / `last_reflected_at` | CHAR(36) / DATETIME | 증분 갱신 워터마크 |
+| `last_feedback_id` / `last_reflected_at` | CHAR(36) / DATETIME | 증분 갱신 커서 `(ready_at, id)`. 아래 "갱신 시점과 증분 커서" 참고 |
 
-`struggle_situations`의 집계 기준은 **`result`가 아니라 피드백 지표 점수**입니다. 특정 상황 조합에서 지표가 반복적으로 낮게 나오면 "막히는 상황"으로 봅니다. 카테고리가 아니라 상황 축까지 담는 이유는 "카페는 괜찮은데 선배 상대만 막힌다"를 카테고리만으로 표현할 수 없기 때문입니다. `Mission_Records → Conversations → Mission_Setups` 조인으로 집계합니다(`Mission_Setups`는 별도 이슈에서 추가).
+`struggle_situations`의 집계 기준은 **`result`가 아니라 피드백 지표 점수**입니다. 특정 상황 조합에서 지표가 반복적으로 낮게 나온 횟수(`lowScoreCount`)를 세어 "막히는 상황"으로 봅니다. 카테고리가 아니라 상황 축까지 담는 이유는 "카페는 괜찮은데 선배 상대만 막힌다"를 카테고리만으로 표현할 수 없기 때문입니다.
+
+**집계는 `Feedbacks`에서 시작합니다.**
+
+```
+Feedbacks → Conversations → Mission_Setups   (상황 축)
+                          → Missions          (카테고리)
+```
+
+`Mission_Records`에서 시작하지 않는 이유는 **누락 때문**입니다. `Feedbacks.conversation_id`는 필수(그리고 unique)라 모든 피드백이 반드시 대화에 닿지만, `Mission_Records.conversation_id`는 nullable입니다. `Mission_Records`를 기점으로 잡으면 완료 기록이 없거나 `conversation_id`가 비어 있는 대화의 피드백이 통째로 빠집니다. 카테고리가 필요하면 `Conversations → Missions`를 조인해 얻습니다.
+
+`mission_setup_id`가 `null`인 대화(이 컬럼 도입 이전 대화)는 상황 축을 알 수 없으므로 `struggle_situations` 집계에서만 제외하고, 지표 평균(`metric_averages`)에는 그대로 포함합니다.
 
 **설계 메모 2가지**
 
 1. `User_Profiles`에 넣지 않았습니다. 온보딩 값은 사용자가 직접 고른 것이고 이건 시스템이 자주 덮어쓰는 파생 데이터라, 섞으면 프로필을 읽는 모든 쿼리가 JSON 덩어리를 끌고 다닙니다. (`Mission_Playbooks`를 분리한 것과 같은 이유 — 그때는 미션 1건이 1.1MB까지 커져 `GET /missions`가 500으로 죽었습니다.)
-2. `last_feedback_id`에 FK를 걸지 않았습니다. 참조된 피드백이 지워졌다고 워터마크가 `null`로 떨어지면, 이미 반영한 이력을 처음부터 다시 요약하게 됩니다.
+2. `last_feedback_id`에 FK를 걸지 않았습니다. 참조된 피드백이 지워졌다고 커서가 `null`로 떨어지면, 이미 반영한 이력을 처음부터 다시 요약하게 됩니다. 이 값은 참조가 아니라 `(ready_at, id)` 커서의 타이브레이크 성분입니다.
 
 ---
 
@@ -168,14 +196,15 @@ GET /missions/today → 콜드스타트 판단 ─┬→ LLM 프롬프트 → �
 
 ## 체크리스트
 
-- [ ] `User_Growth_Profiles` 모델 및 마이그레이션
+- [x] `User_Growth_Profiles` 모델 및 마이그레이션
+- [x] `Feedbacks.ready_at` 컬럼 및 `(user_id, ready_at)` 인덱스 추가
 - [ ] `result` 기반 규칙 제거 (`adjustDifficulty`, `collectAvoidedCategories` 및 관련 DTO·프롬프트 필드)
 - [ ] 난이도 결정: 최근 미션 난이도 기준 + 성장 프로필 제안값 ±1 클램프
 - [ ] 요약 생성 서비스 (피드백 N건 → 요약, zod 검증, 실패 시 기존 값 유지)
-- [ ] 피드백 `ready` 시 증분 갱신 훅 (실패는 삼킴)
+- [ ] 피드백 `ready` 시 `ready_at` 기록 + `(ready_at, id)` 커서 기반 증분 갱신 훅 (실패는 삼킴)
 - [ ] 추천 프롬프트에 성장 프로필 주입 (`llm.service.ts`의 `buildPromptHints`)
 - [ ] 표본 부족·프로필 없음 → 프로필 없이 추천하는 폴백
-- [ ] 단위 테스트: 클램프 경계, 표본 부족 폴백, 워터마크 증분 갱신, 요약 검증 실패
+- [ ] 단위 테스트: 클램프 경계, 표본 부족 폴백, 증분 커서(늦게 ready된 피드백이 누락되지 않는지), 요약 검증 실패
 - [ ] 기존 테스트 정리 — `difficulty.service.test.ts`의 회피·상향 케이스 삭제
 - [ ] `basedOn` 필드 추가 여부 앱 팀과 협의
 - [ ] (별도 이슈 제안) `Mission_Records.result` / 완료 API `result` 필드 정리

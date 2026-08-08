@@ -159,7 +159,10 @@ export const findConversationTitle = (conversationId: string) =>
 // 호출부에서 Map.get()이 undefined면 null/빈 배열로 처리한다.
 export const findConversationSummaryInfoByIds = (conversationIds: string[]) =>
     prisma.feedbacks.findMany({
-        where: { conversation_id: { in: conversationIds } },
+        // 재시도(retryFeedback)는 status만 pending으로 되돌리고 이전 conversation_summary/
+        // summary_chips는 지우지 않는다. status: "ready"로 걸지 않으면 재생성 중인 대화에서
+        // 낡은 요약이 그대로 노출된다.
+        where: { conversation_id: { in: conversationIds }, status: "ready" },
         select: { conversation_id: true, conversation_summary: true, summary_chips: true },
     });
 

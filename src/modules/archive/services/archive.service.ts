@@ -170,7 +170,7 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
                 type,
                 reportType,
                 title: await resolveItemTitle(dbType, row.reference_id),
-                tags: extras?.tags,
+                tags: extras ? extras.tags : ((row.tags as string[] | null) ?? []),
                 description: extras?.description,
                 isBookmarked: true,
                 missionId: null,

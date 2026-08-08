@@ -72,6 +72,42 @@ describe("getArchiveSummary — 리포트 묶음(report/weekly_compare)", () => 
 
     expect(result.reportCount).toBe(7);
   });
+
+  // #155 코드래빗 리뷰: getArchiveSummary가 conversation 외 타입에서 tags를 undefined로
+  // 내려서 searchArchives(Archive_Items.tags 사용)와 계약이 어긋났던 문제.
+  it("report 항목은 conversation처럼 undefined가 아니라 Archive_Items.tags를 그대로 쓴다", async () => {
+    mockedArchive.findRecentArchiveItems.mockResolvedValue([
+      {
+        id: "a2",
+        reference_id: "r1",
+        item_type: "report",
+        tags: ["기존태그"],
+        created_at: new Date("2026-08-08T00:00:00Z"),
+      },
+    ] as never);
+    mockedArchive.findReportData.mockResolvedValue({ data: { title: "카페 미션 리포트" } } as never);
+
+    const result = await getArchiveSummary("u1");
+
+    expect(result.recentItems[0].tags).toEqual(["기존태그"]);
+  });
+
+  it("phrase 항목처럼 Archive_Items.tags가 null이면 빈 배열로 내려간다(undefined 아님)", async () => {
+    mockedArchive.findRecentArchiveItems.mockResolvedValue([
+      {
+        id: "a5",
+        reference_id: "p1",
+        item_type: "phrase",
+        tags: null,
+        created_at: new Date("2026-08-08T00:00:00Z"),
+      },
+    ] as never);
+    mockedArchive.findSavedPhraseContent.mockResolvedValue({ content: "오늘 날씨가 좋네요." } as never);
+
+    const result = await getArchiveSummary("u1");
+
+    expect(result.recentItems[0].tags).toEqual([]);
+  });
 });
 
 describe("searchArchives — type=report 조회", () => {

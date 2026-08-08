@@ -950,7 +950,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 > **`missionRecordCount`는 필드명과 달리 "완료 기록 수"가 아니라 "북마크한 미션 수"다** (`#86`, 미션 탭이 북마크 기준으로 바뀌면서 메인 화면 카운트도 같은 기준으로 맞춤). `recentItems[]`의 최근 활동 피드는 이 변경과 무관하게 완료/시작 이벤트 기준 그대로다 — 그래서 북마크 안 한 미션이라도 최근 완료했다면 `recentItems`엔 나올 수 있다(카운트에는 안 잡힘).
 
-> **`type=conversation`의 `tags`/`description`은 AI가 생성한 대화 요약이다(`#154`).** `description`은 `Feedbacks.conversation_summary`(대화 종료 시 AI가 생성한 2~3문장 요약) 그대로, `tags`는 `Feedbacks.summary_chips`(AI가 생성한 요약 키워드 3개) 중 앞 2개다. 둘 다 **`Archive_Items.tags` DB 컬럼을 쓰지 않고 조회 시점에 `Feedbacks`에서 계산**한다 — 그 컬럼은 지금까지 어떤 타입에서도 값을 채워주는 경로가 없던 죽은 필드였고, 향후 유저 커스텀 태그 등 다른 용도로 남겨둔다. 피드백이 아직 생성되지 않은 대화(`status: pending`)는 `tags: []`, `description: null`로 응답한다(에러 아님). 이름이 같은 `Missions.setup_guideline.tags`(미션 준비 정보, `#151`)와는 무관한 별개 필드다.
+> **`type=conversation`의 `tags`/`description`은 AI가 생성한 대화 요약이다(`#154`).** `description`은 `Feedbacks.conversation_summary`(대화 종료 시 AI가 생성한 2~3문장 요약) 그대로, `tags`는 `Feedbacks.summary_chips`(AI가 생성한 요약 키워드 3개) 중 앞 2개다. 둘 다 **`Archive_Items.tags` DB 컬럼을 쓰지 않고 조회 시점에 `Feedbacks`에서 계산**한다 — 그 컬럼은 지금까지 어떤 타입에서도 값을 채워주는 경로가 없던 죽은 필드였고, 향후 유저 커스텀 태그 등 다른 용도로 남겨둔다. 피드백이 아직 생성되지 않은 대화(`status: pending`)는 `tags: []`, `description: null`로 응답한다(에러 아님). conversation 외 타입(phrase/report)의 `tags`는 지금까지처럼 `Archive_Items.tags`(현재는 항상 빈 배열)를 그대로 쓴다. 이름이 같은 `Missions.setup_guideline.tags`(미션 준비 정보, `#151`)와는 무관한 별개 필드다.
 
 #### GET /archives — 검색 및 필터
 

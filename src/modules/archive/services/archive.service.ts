@@ -92,8 +92,7 @@ const resolveConversationExtras = async (
     const feedback = conversation?.feedbacks[0];
     if (!feedback) return { tags: [], description: null };
 
-    const chips = (feedback.summary_chips as string[] | null) ?? [];
-    return { tags: chips.slice(0, 2), description: feedback.conversation_summary };
+    return { tags: toSummaryChips(feedback.summary_chips).slice(0, 2), description: feedback.conversation_summary };
 };
 
 // Archive_Items.item_type("report"/"weekly_compare")을 API 레벨 type("report")과
@@ -236,6 +235,10 @@ export const searchArchives = async (
     }
 
     const sort = query.sort === "oldest" ? "asc" : "desc";
+    // #155 코드래빗 리뷰: conversation 타입의 tags는 DB 컬럼(Archive_Items.tags)이 아니라
+    // Feedbacks.summary_chips에서 계산되므로, DB 레벨 array_contains 필터로는 conversation을
+    // 걸러낼 수 없다(응답 tags와 필터 소스가 어긋나 검색이 안 됨). keyword 필터와 동일하게
+    // 애플리케이션 레벨에서 실제 응답 tags 기준으로 필터링한다.
     const rows = await archiveRepository.searchArchiveItems({
         userId,
         type: query.type as "conversation" | "phrase" | "report" | undefined,
@@ -243,7 +246,6 @@ export const searchArchives = async (
         endDate,
         sort,
         folderId: query.folderId,
-        tags: query.tag ? [query.tag] : undefined,
     });
 
     const itemsWithTitle: ArchiveSearchItemDto[] = await Promise.all(
@@ -271,13 +273,17 @@ export const searchArchives = async (
     );
 
     // keyword 검색: title이 여러 테이블에 흩어져 있어 DB join 불가
-    // title을 조회한 뒤 애플리케이션 레벨에서 필터링한다.
+    // tag 검색: conversation의 tags가 Feedbacks에서 계산돼 DB 컬럼과 소스가 다름(위 참고)
+    // 둘 다 조회한 뒤 애플리케이션 레벨에서 필터링한다.
     // 주의: 나중에 페이지네이션이 추가되면
-    // DB에서 N개 가져온 뒤 그중 일부만 keyword에 매칭되는 문제 발생
+    // DB에서 N개 가져온 뒤 그중 일부만 keyword/tag에 매칭되는 문제 발생
     // 이 때는 title을 Archive_Items에 비정규화 후 저장하는 방식 고려 필요
-    const items = keyword
-        ? itemsWithTitle.filter((item) => item.title.toLowerCase().includes(keyword))
-        : itemsWithTitle;
+    const tag = query.tag;
+    const items = itemsWithTitle.filter((item) => {
+        if (keyword && !item.title.toLowerCase().includes(keyword)) return false;
+        if (tag && !item.tags.includes(tag)) return false;
+        return true;
+    });
 
     if (query.type) {
         return paginate(items, page, size);

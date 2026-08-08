@@ -141,6 +141,28 @@ describe("conversation 타입 — AI 요약 칩/설명(#154)", () => {
     expect(result.recentItems[0]).toMatchObject({ tags: [], description: null });
   });
 
+  it("getArchiveSummary — 칩이 1개뿐이면 그 1개만 반환한다", async () => {
+    mockedArchive.findRecentArchiveItems.mockResolvedValue([conversationRow] as never);
+    mockedArchive.findConversationSummaryInfo.mockResolvedValue({
+      feedbacks: [{ conversation_summary: "짧게 인사했어요.", summary_chips: ["첫 만남"] }],
+    } as never);
+
+    const result = await getArchiveSummary("u1");
+
+    expect(result.recentItems[0]).toMatchObject({ tags: ["첫 만남"] });
+  });
+
+  it("getArchiveSummary — summary_chips가 배열이 아니면(형식 오류 데이터) 빈 배열로 처리한다", async () => {
+    mockedArchive.findRecentArchiveItems.mockResolvedValue([conversationRow] as never);
+    mockedArchive.findConversationSummaryInfo.mockResolvedValue({
+      feedbacks: [{ conversation_summary: "요약", summary_chips: "잘못된형식" }],
+    } as never);
+
+    const result = await getArchiveSummary("u1");
+
+    expect(result.recentItems[0]).toMatchObject({ tags: [] });
+  });
+
   it("searchArchives — conversation 타입은 Archive_Items.tags 대신 요약 칩을 반환한다", async () => {
     mockedArchive.searchArchiveItems.mockResolvedValue([
       { ...conversationRow, tags: ["기존태그"], folder_id: null },
@@ -176,5 +198,28 @@ describe("conversation 타입 — AI 요약 칩/설명(#154)", () => {
 
     expect(result.items[0].tags).toEqual(["일상"]);
     expect(mockedArchive.findConversationSummaryInfo).not.toHaveBeenCalled();
+  });
+
+  // 회귀 테스트: conversation의 tags는 Feedbacks.summary_chips에서 계산되지 DB 컬럼
+  // (Archive_Items.tags)에 없다. tag 쿼리를 DB 레벨(array_contains)로 필터링하면 이 대화가
+  // 걸러져서 안 나오는 버그가 있었다 — 애플리케이션 레벨에서 응답 tags 기준으로 걸러야 한다.
+  it("?tag= 검색 시 summary_chips 기준으로 필터링된다 (DB의 Archive_Items.tags가 아님)", async () => {
+    mockedArchive.searchArchiveItems.mockResolvedValue([
+      { ...conversationRow, tags: null, folder_id: null },
+    ] as never);
+    mockedArchive.findConversationSummaryInfo.mockResolvedValue({
+      feedbacks: [{ conversation_summary: "취미 이야기", summary_chips: ["첫 만남", "취미"] }],
+    } as never);
+
+    const matched = await searchArchives("u1", { type: "conversation", tag: "취미" });
+    expect(matched.items).toHaveLength(1);
+
+    const unmatched = await searchArchives("u1", { type: "conversation", tag: "존재안함" });
+    expect(unmatched.items).toHaveLength(0);
+
+    // DB 쿼리 자체에는 tags 필터를 넘기지 않는다(conversation의 진짜 소스는 Feedbacks라서).
+    expect(mockedArchive.searchArchiveItems).toHaveBeenCalledWith(
+      expect.not.objectContaining({ tags: expect.anything() })
+    );
   });
 });

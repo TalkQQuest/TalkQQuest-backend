@@ -153,6 +153,18 @@ export const findConversationTitle = (conversationId: string) =>
         select: { mission: { select: { title: true } } },
     });
 
+// #154 — 아카이브의 대화 카드에 AI 요약(칩/설명)을 함께 보여주기 위한 조회.
+// 피드백이 아직 없으면(status: pending) feedbacks가 빈 배열로 온다 — 호출부에서 null로 처리한다.
+export const findConversationSummaryInfo = (conversationId: string) =>
+    prisma.conversations.findUnique({
+        where: { id: conversationId },
+        select: {
+            feedbacks: {
+                select: { conversation_summary: true, summary_chips: true },
+            },
+        },
+    });
+
 export const findSavedPhraseContent = (phraseId: string) =>
     prisma.saved_Phrases.findUnique({
         where: { id: phraseId },

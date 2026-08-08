@@ -81,6 +81,21 @@ const resolveItemTitle = async (itemType: ArchiveDbItemType, referenceId: string
     }
 };
 
+// #154 — 대화 카드에 AI 요약을 함께 보여준다. tags는 아카이브 전체에서 지금까지 아무도 채워주지
+// 않던 필드였는데(항상 빈 배열), conversation 타입에 한해 여기서 처음 값을 채운다 — DB 컬럼
+// (Archive_Items.tags)에는 쓰지 않고 조회 시점에 Feedbacks에서 계산만 한다. 피드백이 아직 없으면
+// (대화가 막 끝나 요약 생성 중인 경우) tags는 빈 배열, description은 null로 내려간다 — 에러 아님.
+const resolveConversationExtras = async (
+    conversationId: string
+): Promise<{ tags: string[]; description: string | null }> => {
+    const conversation = await archiveRepository.findConversationSummaryInfo(conversationId);
+    const feedback = conversation?.feedbacks[0];
+    if (!feedback) return { tags: [], description: null };
+
+    const chips = (feedback.summary_chips as string[] | null) ?? [];
+    return { tags: chips.slice(0, 2), description: feedback.conversation_summary };
+};
+
 // Archive_Items.item_type("report"/"weekly_compare")을 API 레벨 type("report")과
 // 구분 필드(reportType)로 변환한다 — 미션이 missionStatus로 완료/진행중을 나누는 것과 같은 방식.
 const toApiTypeAndReportType = (
@@ -127,12 +142,16 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
         recentArchiveRows.map(async (row) => {
             const dbType = row.item_type as ArchiveDbItemType;
             const { type, reportType } = toApiTypeAndReportType(dbType);
+            const extras =
+                dbType === "conversation" ? await resolveConversationExtras(row.reference_id) : null;
             return {
                 id: row.id,
                 referenceId: row.reference_id,
                 type,
                 reportType,
                 title: await resolveItemTitle(dbType, row.reference_id),
+                tags: extras?.tags,
+                description: extras?.description,
                 isBookmarked: true,
                 missionId: null,
                 conversationId: null,
@@ -231,6 +250,8 @@ export const searchArchives = async (
         rows.map(async (row) => {
             const dbType = row.item_type as ArchiveDbItemType;
             const { type, reportType } = toApiTypeAndReportType(dbType);
+            const extras =
+                dbType === "conversation" ? await resolveConversationExtras(row.reference_id) : null;
             return {
                 id: row.id,
                 archiveItemId: row.id,
@@ -238,7 +259,8 @@ export const searchArchives = async (
                 type,
                 reportType,
                 title: await resolveItemTitle(dbType, row.reference_id),
-                tags: (row.tags as string[] | null) ?? [],
+                tags: extras ? extras.tags : ((row.tags as string[] | null) ?? []),
+                description: extras?.description,
                 folderId: row.folder_id,
                 isBookmarked: true,
                 missionId: null,

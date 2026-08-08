@@ -94,3 +94,87 @@ describe("searchArchives — type=report 조회", () => {
     expect(result.items[0]).toMatchObject({ type: "report", reportType: "weekly_compare" });
   });
 });
+
+// #154 — 대화 카드에 AI 요약(칩/설명)을 함께 보여준다. tags는 지금까지 아무도 채우지 않던
+// Archive_Items.tags 컬럼을 대신해, conversation 타입에 한해 Feedbacks.summary_chips에서
+// 조회 시점에 계산한 값을 돌려준다(DB 컬럼에는 쓰지 않는다).
+describe("conversation 타입 — AI 요약 칩/설명(#154)", () => {
+  const conversationRow = {
+    id: "a3",
+    reference_id: "c1",
+    item_type: "conversation",
+    created_at: new Date("2026-08-08T00:00:00Z"),
+  };
+
+  beforeEach(() => {
+    mockedArchive.findConversationTitle.mockResolvedValue({
+      mission: { title: "카페 직원에게 웃으며 인사하기" },
+    } as never);
+  });
+
+  it("getArchiveSummary — 피드백이 있으면 칩 앞 2개와 요약을 반환한다", async () => {
+    mockedArchive.findRecentArchiveItems.mockResolvedValue([conversationRow] as never);
+    mockedArchive.findConversationSummaryInfo.mockResolvedValue({
+      feedbacks: [
+        {
+          conversation_summary: "서로의 취미를 소개하고 공통 관심사를 찾아봤어요.",
+          summary_chips: ["첫 만남", "취미", "스몰토크"],
+        },
+      ],
+    } as never);
+
+    const result = await getArchiveSummary("u1");
+
+    expect(result.recentItems[0]).toMatchObject({
+      type: "conversation",
+      tags: ["첫 만남", "취미"],
+      description: "서로의 취미를 소개하고 공통 관심사를 찾아봤어요.",
+    });
+  });
+
+  it("getArchiveSummary — 피드백이 아직 없으면(pending) 빈 배열/null을 반환한다", async () => {
+    mockedArchive.findRecentArchiveItems.mockResolvedValue([conversationRow] as never);
+    mockedArchive.findConversationSummaryInfo.mockResolvedValue({ feedbacks: [] } as never);
+
+    const result = await getArchiveSummary("u1");
+
+    expect(result.recentItems[0]).toMatchObject({ tags: [], description: null });
+  });
+
+  it("searchArchives — conversation 타입은 Archive_Items.tags 대신 요약 칩을 반환한다", async () => {
+    mockedArchive.searchArchiveItems.mockResolvedValue([
+      { ...conversationRow, tags: ["기존태그"], folder_id: null },
+    ] as never);
+    mockedArchive.findConversationSummaryInfo.mockResolvedValue({
+      feedbacks: [
+        { conversation_summary: "짧은 인사를 나눴어요.", summary_chips: ["첫 만남", "인사"] },
+      ],
+    } as never);
+
+    const result = await searchArchives("u1", { type: "conversation" });
+
+    expect(result.items[0]).toMatchObject({
+      tags: ["첫 만남", "인사"],
+      description: "짧은 인사를 나눴어요.",
+    });
+  });
+
+  it("searchArchives — conversation 외 타입은 기존처럼 Archive_Items.tags를 그대로 쓴다", async () => {
+    mockedArchive.searchArchiveItems.mockResolvedValue([
+      {
+        id: "a4",
+        reference_id: "p1",
+        item_type: "phrase",
+        tags: ["일상"],
+        folder_id: null,
+        created_at: new Date("2026-08-08T00:00:00Z"),
+      },
+    ] as never);
+    mockedArchive.findSavedPhraseContent.mockResolvedValue({ content: "오늘 날씨가 좋네요." } as never);
+
+    const result = await searchArchives("u1", { type: "phrase" });
+
+    expect(result.items[0].tags).toEqual(["일상"]);
+    expect(mockedArchive.findConversationSummaryInfo).not.toHaveBeenCalled();
+  });
+});

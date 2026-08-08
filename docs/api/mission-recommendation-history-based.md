@@ -80,18 +80,29 @@ GET /missions/today → 콜드스타트 판단 ─┬→ LLM 프롬프트 → �
 
 > 피드백 A가 먼저 생성돼 `pending`으로 남아 있는 동안, 나중에 생성된 B가 `ready`가 되어 커서를 B의 시각까지 밀어버립니다. 그 뒤 A가 `ready`가 되어도 **A의 생성 시각이 커서보다 앞이라 영영 집계에서 빠집니다.**
 
-그래서 `Feedbacks`에 `ready_at` 컬럼을 추가하고, `status`가 `ready`로 바뀔 때 채웁니다. 갱신 쿼리는 아래를 읽습니다.
+그래서 `Feedbacks`에 `ready_at` 컬럼을 추가하고, `markFeedbackReady`가 `status`를 `ready`로 바꾸는 **같은 update에서 함께 기록**합니다. 갱신 쿼리는 아래를 읽습니다.
 
-```
+```sql
 WHERE user_id = ?
   AND status = 'ready'
-  AND (ready_at, id) > (last_reflected_at, last_feedback_id)
+  AND (
+    ? IS NULL                        -- 커서 없음(첫 집계) → 전체를 읽는다
+    OR (ready_at, id) > (?, ?)       -- last_reflected_at, last_feedback_id
+  )
 ORDER BY ready_at, id
 ```
 
+**첫 집계에서 커서 조건을 분기해야 합니다.** `last_reflected_at`과 `last_feedback_id`가 `NULL`인 상태로 `(ready_at, id) > (NULL, NULL)`을 쓰면 비교 결과가 `NULL`이라 **한 건도 읽히지 않습니다.** 커서가 없을 때는 조건을 통째로 건너뛰어야 합니다.
+
 `id`를 타이브레이크로 두는 이유는 같은 밀리초에 여러 건이 `ready`가 될 수 있기 때문입니다. 커서는 마지막으로 읽은 행의 `(ready_at, id)`로 전진시킵니다.
 
-이 컬럼 도입 이전 피드백은 `ready_at`이 `null`입니다. **최초 집계 시에만** `COALESCE(ready_at, created_at)`으로 한 번 따라잡고, 이후로는 `ready_at`만 씁니다.
+**기존 `ready` 행은 마이그레이션에서 `created_at`으로 백필합니다.**
+
+```sql
+UPDATE Feedbacks SET ready_at = created_at WHERE status = 'ready' AND ready_at IS NULL;
+```
+
+백필하지 않으면 그 행들이 `ready_at IS NULL`이라 커서 조회에서 통째로 빠지고, 이를 피하려 집계 쪽에 `COALESCE(ready_at, created_at)` 분기를 두면 커서의 의미가 두 갈래로 갈립니다. 마이그레이션에서 한 번 채워 그 분기를 없앱니다. 과거의 실제 `ready` 전환 시각은 남아 있지 않지만, 커서는 **순서만 지키면 되므로** `created_at` 근사로 충분합니다.
 
 갱신 실패는 삼킵니다 — 피드백 생성이 요약 때문에 실패하면 안 됩니다. 커서를 전진시키지 않았으므로 다음 피드백 때 같은 지점부터 다시 따라잡습니다.
 
@@ -201,7 +212,9 @@ Feedbacks → Conversations → Mission_Setups   (상황 축)
 - [ ] `result` 기반 규칙 제거 (`adjustDifficulty`, `collectAvoidedCategories` 및 관련 DTO·프롬프트 필드)
 - [ ] 난이도 결정: 최근 미션 난이도 기준 + 성장 프로필 제안값 ±1 클램프
 - [ ] 요약 생성 서비스 (피드백 N건 → 요약, zod 검증, 실패 시 기존 값 유지)
-- [ ] 피드백 `ready` 시 `ready_at` 기록 + `(ready_at, id)` 커서 기반 증분 갱신 훅 (실패는 삼킴)
+- [x] `markFeedbackReady`가 `status`와 함께 `ready_at` 기록
+- [x] 기존 `ready` 행 `created_at` 백필 (마이그레이션)
+- [ ] `(ready_at, id)` 커서 기반 증분 갱신 훅 — 커서가 `NULL`이면 조건 생략 (실패는 삼킴)
 - [ ] 추천 프롬프트에 성장 프로필 주입 (`llm.service.ts`의 `buildPromptHints`)
 - [ ] 표본 부족·프로필 없음 → 프로필 없이 추천하는 폴백
 - [ ] 단위 테스트: 클램프 경계, 표본 부족 폴백, 증분 커서(늦게 ready된 피드백이 누락되지 않는지), 요약 검증 실패

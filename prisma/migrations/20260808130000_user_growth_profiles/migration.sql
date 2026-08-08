@@ -40,9 +40,15 @@ ALTER TABLE `User_Growth_Profiles` ADD CONSTRAINT `User_Growth_Profiles_user_id_
 -- 성장 프로필의 증분 갱신 커서가 가리킬 지점.
 -- Feedbacks는 pending으로 먼저 생성되고 나중에 ready가 되므로, created_at으로는
 -- "여기까지 반영했다"를 표현할 수 없다(뒤늦게 ready가 된 피드백이 커서보다 앞서 영영 누락된다).
--- 기존 행은 NULL이며, 최초 집계 시 created_at으로 대체해 한 번만 따라잡는다.
 -- AlterTable
 ALTER TABLE `Feedbacks` ADD COLUMN `ready_at` DATETIME(3) NULL;
+
+-- 이미 ready인 기존 행을 created_at으로 백필한다.
+-- 백필하지 않으면 이 행들은 ready_at이 NULL이라 커서 조회에서 통째로 빠지고, 그걸 피하려고
+-- 집계 쪽에 COALESCE 분기를 두면 커서 의미가 두 갈래로 갈린다. 여기서 한 번 채워 없앤다.
+-- 과거 ready 전환 시각은 남아 있지 않으므로 created_at이 가장 가까운 근사값이며,
+-- 커서는 순서만 지키면 되므로 이 근사로 충분하다.
+UPDATE `Feedbacks` SET `ready_at` = `created_at` WHERE `status` = 'ready' AND `ready_at` IS NULL;
 
 -- CreateIndex
 CREATE INDEX `Feedbacks_user_id_ready_at_idx` ON `Feedbacks`(`user_id`, `ready_at`);

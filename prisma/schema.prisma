@@ -697,7 +697,9 @@ model Feedbacks {
   // created_at으로 대신할 수 없다 — 피드백은 pending으로 먼저 만들어지고 나중에 ready가 되므로,
   // 생성 순서와 ready 순서가 다르다. 생성 시각을 커서로 쓰면 아직 pending이던 피드백이
   // 뒤늦게 ready가 됐을 때 커서보다 앞선 시각이라 영영 집계에서 빠진다.
-  // 이 컬럼 도입 이전 피드백은 null이며, 최초 집계 시 created_at으로 대체해 한 번만 따라잡는다.
+  // 이 컬럼 도입 이전의 ready 행은 마이그레이션에서 created_at으로 백필했다 —
+  // 집계 쪽에 COALESCE 분기를 두면 커서 의미가 두 갈래로 갈리므로 데이터에서 한 번에 없앤다.
+  // 아직 ready가 아닌(pending/failed) 행은 null이며, ready로 전환될 때 채워진다.
   ready_at             DateTime?
   created_at           DateTime       @default(now())
 

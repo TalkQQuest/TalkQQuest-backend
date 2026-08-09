@@ -7,7 +7,7 @@ import {
   CompleteMissionRequestDto,
   CompleteMissionResponseDto,
 } from "../dtos/mission-completion.dto";
-import { createNotification } from "../../notification/repositories/notification.repository";
+import { notifyUser } from "../../notification/services/notification.service";
 // 레벨 공식은 xp 모듈이 소유한다 — GET /xp/summary의 nextLevelXp와 반드시 같은 값을 써야 하므로
 // 여기서 따로 정의하지 않고 import한다 (xp/services/level.service.ts).
 import { calculateNextLevelXp } from "../../xp/services/level.service";
@@ -41,7 +41,7 @@ export const completeMission = async (
   // TODO: 결과별 XP 지급 규칙 미확정 — success만 전액 지급, failure/avoidance는 0으로 가정
   const xpEarned = body.result === "success" ? mission.reward_xp : 0;
 
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx): Promise<CompleteMissionResponseDto> => {
     const record = await missionCompletionRepository.createMissionRecord(
       {
         user: { connect: { id: userId } },
@@ -93,15 +93,6 @@ export const completeMission = async (
     // GET /badges/me 조회 시점에 별도로 잡힌다 (badge.service.ts 참고).
     const newlyEarnedBadges = await checkAndAwardBadges(tx, userId);
 
-    await createNotification(
-      userId,
-      "mission_completed",
-      "미션을 완료했어요! 🎉",
-      `${mission.title} 미션을 완료했습니다.`,
-      record.id,
-      "mission_record"
-    );
-    
     return {
       missionRecordId: record.id,
       status: "completed",
@@ -109,5 +100,17 @@ export const completeMission = async (
       completedAt: record.completed_at!.toISOString(),
       newlyEarnedBadges,
     };
+  }).then(async (result) => {
+    // 알림 생성(+푸시 발송)은 트랜잭션 커밋 후에 한다 — 푸시 발송은 네트워크 호출이라
+    // DB 트랜잭션을 붙잡고 있으면 안 된다.
+    await notifyUser(
+      userId,
+      "mission_completed",
+      "미션을 완료했어요! 🎉",
+      `${mission.title} 미션을 완료했습니다.`,
+      result.missionRecordId,
+      "mission_record"
+    );
+    return result;
   });
 };

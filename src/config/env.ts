@@ -25,6 +25,11 @@ const envSchema = z.object({
   // 같은 모델로 양쪽을 임베딩하면 유사도가 제대로 나오지 않는다.
   UPSTAGE_EMBEDDING_PASSAGE_MODEL: z.string().default("embedding-passage"),
   UPSTAGE_EMBEDDING_QUERY_MODEL: z.string().default("embedding-query"),
+  // 푸시 발송(FCM, Firebase Admin SDK). 셋 다 없으면 발송 없이 로그만 남긴다
+  // (RESEND_API_KEY와 같은 패턴 — 키 없이도 로컬 개발/테스트가 동작).
+  FIREBASE_PROJECT_ID: z.string().optional(),
+  FIREBASE_CLIENT_EMAIL: z.string().optional(),
+  FIREBASE_PRIVATE_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

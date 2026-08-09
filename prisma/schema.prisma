@@ -980,7 +980,9 @@ model Blocked_Users {
 model Device_Tokens {
   id             String              @id @default(uuid()) @db.Char(36)
   user_id        String              @db.Char(36)
-  fcm_token      String              @db.VarChar(500)
+  // #159 — 토큰 자체가 "이 기기의 이 앱 설치본"을 가리키는 고유 값이라 이걸로 unique를 건다.
+  // 재등록(같은 토큰으로 다시 POST)은 새 행이 아니라 upsert로 처리해 last_active_at만 갱신한다.
+  fcm_token      String              @unique @db.VarChar(500)
   platform       DeviceTokenPlatform @default(android)
   last_active_at DateTime
   created_at     DateTime            @default(now())

@@ -13,6 +13,9 @@ jest.mock("../../mission/services/playbook.service", () => ({
 jest.mock("../../mission/repositories/mission.repository", () => ({
   upsertPlaybook: jest.fn(),
 }));
+jest.mock("../../../config/logger", () => ({
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}));
 
 import { ConversationService } from "../services/conversation.service";
 import { ConversationRepository } from "../repositories/conversation.repository";
@@ -21,11 +24,13 @@ import { generateRoleSetup } from "../services/conversation-role.service";
 import { generatePlaybook } from "../../mission/services/playbook.service";
 import { upsertPlaybook } from "../../mission/repositories/mission.repository";
 import { ConversationError } from "../errors/conversation.error";
+import { logger } from "../../../config/logger";
 
 const mockedGenerate = jest.mocked(generateGuideReply);
 const mockedRoleSetup = jest.mocked(generateRoleSetup);
 const mockedPlaybook = jest.mocked(generatePlaybook);
 const mockedUpsert = jest.mocked(upsertPlaybook);
+const mockedWarn = jest.mocked(logger.warn);
 
 // 필요한 메서드만 갖춘 가짜 repository.
 const buildRepo = () => {
@@ -129,6 +134,25 @@ describe("createConversation — 공통 미션 플레이북", () => {
     ).resolves.toMatchObject({ conversationId: "c1" });
     expect(mockedUpsert).not.toHaveBeenCalled();
     expect(repo.createConversation).toHaveBeenCalled();
+  });
+
+  it("플레이북 생성 예외가 발생해도 기존 대화 생성을 계속한다", async () => {
+    const repo = buildCreateRepo();
+    const error = new Error("playbook generation failed");
+    mockedPlaybook.mockRejectedValue(error);
+
+    await expect(
+      new ConversationService(repo).createConversation("u1", {
+        missionId: mission.id,
+        mode: "text",
+      })
+    ).resolves.toMatchObject({ conversationId: "c1" });
+    expect(mockedUpsert).not.toHaveBeenCalled();
+    expect(repo.createConversation).toHaveBeenCalled();
+    expect(mockedWarn).toHaveBeenCalledWith(
+      { err: error, missionId: mission.id },
+      "대화 시작 중 플레이북 자동 생성 실패 — 플레이북 없이 진행"
+    );
   });
 });
 

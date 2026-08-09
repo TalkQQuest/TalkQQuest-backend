@@ -127,7 +127,7 @@ const NON_OBSERVABLE_PATTERNS: { term: string; pattern: RegExp }[] = [
   { term: "자세", pattern: /자세(?!히|하)/u },
   { term: "목소리", pattern: /목소리/u },
   { term: "음성", pattern: /음성/u },
-  { term: "톤", pattern: /톤/u },
+  { term: "톤", pattern: /(?<![가-힣])톤/u },
   { term: "음량", pattern: /음량/u },
   { term: "말하는 속도", pattern: /말하는\s*속도/u },
   { term: "발화 속도", pattern: /발화\s*속도/u },

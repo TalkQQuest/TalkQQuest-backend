@@ -205,7 +205,19 @@ describe("generatePlaybook", () => {
     expect(
       findPlaybookObservabilityViolation({ ...generated, objective: "메뉴를 자세히 설명한다." })
     ).toBeNull();
+    expect(
+      findPlaybookObservabilityViolation({ ...generated, objective: "주문 버튼을 누른다" })
+    ).toBeNull();
   });
+
+  it.each(["목소리 톤을 밝게 한다", "밝은 톤으로 말한다"])(
+    "독립적인 톤 표현은 계속 차단한다: %s",
+    (objective) => {
+      expect(findPlaybookObservabilityViolation({ ...generated, objective })).toMatchObject({
+        field: "objective",
+      });
+    }
+  );
 
   it("미션 원문에 명시된 횟수는 회/번 표현 차이를 허용하되 턴 수로 확대하지 않는다", () => {
     const candidate = { ...generated, successCriteria: ["사용자가 질문을 3회 한다."] };

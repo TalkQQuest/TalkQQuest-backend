@@ -52,7 +52,7 @@ const embedded = {
   responseRules: input.responseRules.map((r) => ({ ...r, whenEmbedding: [1, 0] })),
 };
 
-const embeddedWithMetadata = { ...embedded, ...inputWithMetadata };
+const embeddedWithMetadata = { ...inputWithMetadata, ...embedded };
 
 const setupGuideline = {
   defaults: {
@@ -122,6 +122,9 @@ describe("getPlaybook", () => {
       successCriteria: inputWithMetadata.successCriteria,
       feedbackFocus: inputWithMetadata.feedbackFocus,
     });
+    expect(embeddedWithMetadata.flow[0].advanceEmbeddings).toEqual([[1, 0], [0, 1]]);
+    expect(embeddedWithMetadata.responseRules[0].whenEmbedding).toEqual([1, 0]);
+    expect(result.playbook.hasEmbeddings).toBe(true);
   });
 
   it("미션이 없으면 MISSION_NOT_FOUND", async () => {

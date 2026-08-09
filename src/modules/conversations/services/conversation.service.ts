@@ -30,6 +30,7 @@ import {
 import { upsertPlaybook } from "../../mission/repositories/mission.repository";
 import { embedQuery } from "../../../shared/ai";
 import { durationMinutes } from "../../../shared/utils/date";
+import { logger } from "../../../config/logger";
 
 // LLM이 실패(키 없음/오류/재시도까지 실패)했을 때 대화가 끊기지 않도록 쓰는 템플릿 폴백 (Requirement 5.5).
 const MOCK_GUIDE_RESPONSES = [
@@ -182,10 +183,17 @@ const MOCK_GUIDE_RESPONSES = [
     }): Promise<void> {
         if (parseStoredPlaybook(mission.playbook?.data)) return;
 
-        const playbook = await generatePlaybook(toPlaybookMissionContext(mission));
-        if (!playbook) return;
+        try {
+            const playbook = await generatePlaybook(toPlaybookMissionContext(mission));
+            if (!playbook) return;
 
-        await upsertPlaybook(mission.id, playbook);
+            await upsertPlaybook(mission.id, playbook);
+        } catch (error) {
+            logger.warn(
+                { err: error, missionId: mission.id },
+                "대화 시작 중 플레이북 자동 생성 실패 — 플레이북 없이 진행"
+            );
+        }
     }
 
     // 이 대화에서 지금까지 오간 사용자 발화 수. advanceFlow가 단계별 턴 상한을 계산하는 데 쓴다.

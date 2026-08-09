@@ -8,3 +8,4 @@ src/generated/routes.ts
 coverage/
 .DS_Store
 dump.rdb
+dump.rdb

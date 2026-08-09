@@ -114,11 +114,15 @@ public async search(
     @Security("bearerAuth")
     @Middlewares(authorizeUser(), validate(createPhraseRequestSchema))
     public async createPhrase(
-        @Request() req: ExpressRequest,
+        @Request() req: AuthenticatedRequest,
         @Body() body: CreatePhraseRequestDto
     ): Promise<ApiResponse<CreatePhraseResponseDto>> {
-        const result = await archiveService.createPhrase(req.user!.id, body);
-        return success(result, "문장이 저장되었습니다.");
+        const data = await archiveService.createPhrase(req.user.id, body);
+        return {
+            success: true,
+            data,
+            message: "문장이 저장되었습니다.",
+        };
     }
 
     /** @summary 저장 문장 해제 */

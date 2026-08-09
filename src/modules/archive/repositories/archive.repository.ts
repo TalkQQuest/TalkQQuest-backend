@@ -186,8 +186,9 @@ export const findPhraseById = (phraseId: string, userId: string) =>
         },
     });
 
-export const createSavedPhrase = (data: Prisma.Saved_PhrasesCreateInput) =>
-    prisma.saved_Phrases.create({ data });
+export const createSavedPhrase = (
+    data: Prisma.Saved_PhrasesCreateInput
+) => prisma.saved_Phrases.create({ data });
 
 export const deleteSavedPhrase = (phraseId: string) =>
     prisma.saved_Phrases.delete({ where: { id: phraseId } });
@@ -213,7 +214,10 @@ export const findConversationDetail = (conversationId: string, userId: string) =
 
 // Conversations 존재 여부 확인용
 export const findConversationById = (conversationId: string, userId: string) =>
-    prisma.conversations.findFirst({ where: { id: conversationId, user_id: userId } });
+    prisma.conversations.findFirst({
+        where: { id: conversationId, user_id: userId },
+        include: { mission: true },
+    });
 
 // Archive Items (conversation/phrase/report 전용)
 export const createArchiveItem = (

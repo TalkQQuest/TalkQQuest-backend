@@ -23,3 +23,9 @@ export class ArchiveConversationNotFoundError extends AppError {
         super("CONVERSATION_NOT_FOUND", 404, message);
     }
 }
+
+export class EmptyPhraseContentError extends AppError {
+    constructor() {
+        super("VALIDATION_ERROR", 400, "저장할 문장을 입력해주세요.");
+    }
+}

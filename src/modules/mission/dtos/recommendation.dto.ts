@@ -1,4 +1,5 @@
 import { MissionResult, PersonalityType } from "@prisma/client";
+import type { SetupGuidelineDto } from "./mission.dto";
 
 // AI 미션 추천 파이프라인의 입력/중간 산출물 타입입니다.
 // 1단계(컨텍스트 조립) → 2단계(규칙 기반 난이도/필터) → (이후) 3단계 템플릿 폴백 / 4단계 LLM 생성으로 이어집니다.
@@ -77,6 +78,8 @@ export interface RecommendedMission {
   reason: string; // 추천 이유
   expectedEffect: string; // 기대 효과
   source: "template" | "fallback" | "llm"; // 어느 단계가 만든 결과인지
+  // LLM 생성 미션은 함께 만든 가이드라인을 담고, 기존 로그·템플릿·폴백은 null일 수 있다.
+  setupGuideline: SetupGuidelineDto | null;
   // 이 추천을 만든 Recommendation_Logs 행의 id. missionId가 null인 llm/fallback 추천을
   // 실제 Missions로 저장할 때(POST /missions/from-recommendation) 원본을 식별하는 데 쓴다.
   // 로깅 자체가 실패했을 때만 null (추천 응답은 그대로 반환되므로 그 경우도 대비해야 한다).

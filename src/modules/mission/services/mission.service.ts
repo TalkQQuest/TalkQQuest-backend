@@ -153,6 +153,7 @@ const materializeRecommendedMission = async (
     estimatedMinutes: number;
     rewardXp: number;
     category: string;
+    setupGuideline: SetupGuidelineDto | null;
   },
   personalityType: PersonalityType | null,
   recommendationLogId: string | null
@@ -175,6 +176,7 @@ const materializeRecommendedMission = async (
     estimatedMinutes: recommended.estimatedMinutes,
     rewardXp: recommended.rewardXp,
     category: recommended.category,
+    setupGuideline: recommended.setupGuideline,
     createdByUserId: userId,
     creatorPersonalityType: personalityType,
   };
@@ -350,6 +352,8 @@ const persistedRecommendedMissionSchema = z.object({
   reason: z.string().default(""),
   expectedEffect: z.string().default(""),
   source: z.enum(["template", "fallback", "llm"]).default("template"),
+  // 이 필드 도입 전 추천 로그와 템플릿 추천은 가이드라인이 없다.
+  setupGuideline: setupGuidelineSchema.nullable().default(null),
 });
 
 // 추천을 실제 Missions로 저장한다.

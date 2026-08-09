@@ -17,15 +17,17 @@
 
 import { z } from "zod";
 import { logger } from "../../../config/logger";
+import { setupGuidelineSchema } from "../dtos/mission.dto";
 import {
   callUpstageChat,
   callUpstageEmbedding,
   cosine,
+  generateWithRetry,
   parseJsonResponse,
   rankByVector,
 } from "../../../shared/ai";
 
-const PLAYBOOK_MAX_TOKENS = 700;
+const PLAYBOOK_MAX_TOKENS = 1000;
 const PLAYBOOK_TEMPERATURE = 0.6;
 
 const FLOW_STEPS = 3;
@@ -61,9 +63,24 @@ export const FLOW_ADVANCE_MARGIN = 0.02;
 export const MAX_TURNS_PER_STEP = 4;
 
 const MAX_LINE_LENGTH = 120;
+const MAX_OBJECTIVE_LENGTH = 300;
+const MAX_METADATA_ITEMS = 5;
+
+const playbookMetadataSchema = z.object({
+  objective: z.string().min(1).max(MAX_OBJECTIVE_LENGTH).optional(),
+  successCriteria: z
+    .array(z.string().min(1).max(MAX_LINE_LENGTH))
+    .max(MAX_METADATA_ITEMS)
+    .optional(),
+  feedbackFocus: z
+    .array(z.string().min(1).max(MAX_LINE_LENGTH))
+    .max(MAX_METADATA_ITEMS)
+    .optional(),
+});
 
 // LLM이 만들어낼 플레이북 형식. 임베딩은 생성 후 서버가 붙인다.
 const generatedPlaybookSchema = z.object({
+  ...playbookMetadataSchema.shape,
   flow: z
     .array(
       z.object({
@@ -86,9 +103,110 @@ const generatedPlaybookSchema = z.object({
     .max(RULE_COUNT),
 });
 
+type GeneratedPlaybook = z.infer<typeof generatedPlaybookSchema>;
+
+export interface PlaybookObservabilityViolation {
+  field: string;
+  term: string;
+}
+
+interface PlaybookRetryCorrection extends PlaybookObservabilityViolation {
+  reason: string;
+}
+
+const NON_OBSERVABLE_PATTERNS: { term: string; pattern: RegExp }[] = [
+  { term: "미소", pattern: /미소/u },
+  { term: "웃는 얼굴", pattern: /웃는\s*얼굴/u },
+  { term: "표정", pattern: /표정/u },
+  { term: "시선", pattern: /시선/u },
+  { term: "눈맞춤", pattern: /눈\s*맞춤/u },
+  { term: "눈을 마주치다", pattern: /눈을\s*마주(?:치|보)/u },
+  { term: "몸짓", pattern: /몸짓/u },
+  { term: "제스처", pattern: /제스처/u },
+  // "자세히 설명한다"는 텍스트 행동이므로 신체 posture 의미의 "자세"만 막는다.
+  { term: "자세", pattern: /자세(?!히|하)/u },
+  { term: "목소리", pattern: /목소리/u },
+  { term: "음성", pattern: /음성/u },
+  { term: "톤", pattern: /톤/u },
+  { term: "음량", pattern: /음량/u },
+  { term: "말하는 속도", pattern: /말하는\s*속도/u },
+  { term: "발화 속도", pattern: /발화\s*속도/u },
+];
+
+const generatedPlaybookTextFields = (
+  playbook: GeneratedPlaybook
+): { field: string; value: string }[] => [
+  ...(playbook.objective !== undefined
+    ? [{ field: "objective", value: playbook.objective }]
+    : []),
+  ...(playbook.successCriteria ?? []).map((value, index) => ({
+    field: `successCriteria[${index}]`,
+    value,
+  })),
+  ...(playbook.feedbackFocus ?? []).map((value, index) => ({
+    field: `feedbackFocus[${index}]`,
+    value,
+  })),
+  ...playbook.flow.flatMap((step, flowIndex) => [
+    { field: `flow[${flowIndex}].step`, value: step.step },
+    ...step.advanceExamples.map((value, exampleIndex) => ({
+      field: `flow[${flowIndex}].advanceExamples[${exampleIndex}]`,
+      value,
+    })),
+  ]),
+  ...playbook.responseRules.flatMap((rule, ruleIndex) => [
+    { field: `responseRules[${ruleIndex}].when`, value: rule.when },
+    { field: `responseRules[${ruleIndex}].then`, value: rule.then },
+  ]),
+];
+
+/** LLM 생성 결과에 텍스트 대화만으로 확인할 수 없는 표현이 있는지 찾는다. */
+export const findPlaybookObservabilityViolation = (
+  playbook: GeneratedPlaybook
+): PlaybookObservabilityViolation | null => {
+  for (const { field, value } of generatedPlaybookTextFields(playbook)) {
+    const forbidden = NON_OBSERVABLE_PATTERNS.find(({ pattern }) => pattern.test(value));
+    if (forbidden) return { field, term: forbidden.term };
+  }
+  return null;
+};
+
+const QUANTITATIVE_CONSTRAINT_PATTERN = /(\d+)\s*(턴|회(?!용)|번(?!째))/gu;
+
+const quantitativeConstraintKey = (count: string, unit: string): string =>
+  `${count}:${unit === "턴" ? "turn" : "count"}`;
+
+const extractQuantitativeConstraints = (text: string): Set<string> => {
+  const constraints = new Set<string>();
+  for (const match of text.matchAll(QUANTITATIVE_CONSTRAINT_PATTERN)) {
+    constraints.add(quantitativeConstraintKey(match[1], match[2]));
+  }
+  return constraints;
+};
+
+/** 미션 제목·설명에 근거하지 않은 턴 수·횟수 조건이 있는지 찾는다. */
+export const findPlaybookQuantitativeConstraintViolation = (
+  playbook: GeneratedPlaybook,
+  mission: Pick<PlaybookMissionContext, "title" | "description">
+): PlaybookObservabilityViolation | null => {
+  const missionConstraints = extractQuantitativeConstraints(
+    [mission.title, mission.description ?? ""].join("\n")
+  );
+
+  for (const { field, value } of generatedPlaybookTextFields(playbook)) {
+    for (const match of value.matchAll(QUANTITATIVE_CONSTRAINT_PATTERN)) {
+      if (!missionConstraints.has(quantitativeConstraintKey(match[1], match[2]))) {
+        return { field, term: match[0].replace(/\s+/gu, "") };
+      }
+    }
+  }
+  return null;
+};
+
 // DB(Missions.dialogue_playbook)에 저장되는 형태. 규칙마다 when의 임베딩을 함께 들고 있다.
 // 임베딩 생성이 실패했을 수 있으므로 whenEmbedding은 optional이다(그 경우 매칭에서 빠진다).
 const storedPlaybookSchema = z.object({
+  ...playbookMetadataSchema.shape,
   flow: z.array(
     z.object({
       step: z.string(),
@@ -108,10 +226,44 @@ const storedPlaybookSchema = z.object({
 
 export type DialoguePlaybook = z.infer<typeof storedPlaybookSchema>;
 
-const buildPlaybookMessages = (missionTitle: string, missionDescription: string | null) => {
-  const context = missionDescription
-    ? `미션: ${missionTitle}\n미션 설명: ${missionDescription}`
-    : `미션: ${missionTitle}`;
+export interface PlaybookMissionContext {
+  title: string;
+  description: string | null;
+  category: string;
+  difficulty: number;
+  tags: string[];
+}
+
+// Missions의 공통 데이터만 플레이북 입력으로 만든다. setup_guideline 전체가 유효하지 않으면
+// tags도 신뢰하지 않고 빈 배열로 둔다. Mission_Setups나 대화별 persona는 이 경로에 들어오지 않는다.
+export const toPlaybookMissionContext = (mission: {
+  title: string;
+  description: string | null;
+  category: string;
+  difficulty: number;
+  setup_guideline: unknown;
+}): PlaybookMissionContext => {
+  const guideline = setupGuidelineSchema.safeParse(mission.setup_guideline);
+  return {
+    title: mission.title,
+    description: mission.description,
+    category: mission.category,
+    difficulty: mission.difficulty,
+    tags: guideline.success ? guideline.data.tags : [],
+  };
+};
+
+export const buildPlaybookMessages = (
+  mission: PlaybookMissionContext,
+  previousViolation?: PlaybookRetryCorrection
+) => {
+  const context = JSON.stringify({
+    title: mission.title,
+    ...(mission.description ? { description: mission.description } : {}),
+    category: mission.category,
+    difficulty: mission.difficulty,
+    ...(mission.tags.length > 0 ? { tags: mission.tags } : {}),
+  });
 
   return [
     {
@@ -122,48 +274,140 @@ const buildPlaybookMessages = (missionTitle: string, missionDescription: string 
         "",
         "중요: 미션 설명은 **사용자에게** 주어진 과제입니다. 상대역이 할 일이 아닙니다.",
         "상대역의 목표는 사용자가 그 과제를 해낼 수 있는 상황을 만들어 주는 것입니다.",
+        "입력은 여러 사용자가 공유하는 미션 공통 정보뿐입니다.",
+        "Mission_Setups, partnerRole, intimacyLevel, formalityLevel, partnerGender, partnerAgeGroup, persona, userTask 또는 사용자별 개인정보를 추측하거나 플레이북에 고정하지 마세요.",
+        "tags는 미션의 공통 성격을 이해하는 참고 정보일 뿐입니다. 특정 관계나 말투가 포함돼도 사용자별 설정으로 확대 해석하지 마세요.",
         "",
-        `1) flow — 대화가 거쳐야 할 단계 ${FLOW_STEPS}개. 각 단계는 두 항목으로 씁니다.`,
+        "[모든 생성 필드에 동일하게 적용되는 최우선 공통 원칙]",
+        "적용 대상: objective, successCriteria, feedbackFocus, flow.step, flow.advanceExamples, responseRules.when, responseRules.then.",
+        "- 이 서비스의 플레이북과 향후 피드백이 실제로 확인할 수 있는 정보는 사용자와 AI 사이의 대화 텍스트와 발화 순서뿐입니다.",
+        "- 텍스트로 직접 확인할 수 없는 행동이나 상태를 어떤 대상 필드에도 작성하지 마세요.",
+        "- 금지 예: 미소, 웃는 얼굴, 표정, 시선, 눈맞춤, 눈을 마주침, 몸짓, 제스처, 자세, 실제 목소리·음성의 톤·크기·밝기·속도, 감정을 겉으로 드러내는 비언어적 행동.",
+        '- "텍스트에서 유추할 수 있다"고 단서를 붙이거나, "미소 이모티콘으로 표현한다"처럼 이모티콘·이모지·웃음 표시·텍스트 표현으로 바꾸는 우회도 금지합니다.',
+        "- 입력 미션 설명이나 tags에 비텍스트 표현이 있어도 대상 필드에 복사·변형하지 마세요.",
+        "- 대신 미션에서 요구하는 경우에만 먼저 인사한다, 메뉴명을 말한다, 질문한다, 상대의 이전 발화 내용에 맞게 응답한다, 감사 표현을 한다, 마무리 인사를 한다처럼 대화 텍스트로 명확히 확인 가능한 행동을 사용하세요.",
+        "- 플레이북은 미션 제목·설명의 핵심 행동을 구체화할 뿐, 원 미션에 없는 성공·실패·종료 조건을 발명하지 마세요.",
+        "- tags는 맥락 이해에만 참고하며, 제목·설명에 없는 조건을 추가하는 근거로 사용하지 마세요.",
+        '- 제목·설명에 직접 명시되지 않은 최소화·금지·억제·턴 수·시간·횟수 조건을 만들지 마세요. 예: "3턴", "30초", "질문 2번", "추가 질문 금지", "설명 최소화".',
+        '- 특히 미션 제목·설명에 숫자가 명시되지 않았다면 "3턴 이내", "2턴 이상", "3회 이내", "2번 이상" 같은 정량 조건을 어떤 대상 필드에도 생성하지 마세요.',
+        '- 미션 원문에 "3번 질문하기"처럼 횟수가 직접 명시된 경우에만 같은 수치의 횟수 조건을 사용할 수 있습니다. 원문에 있는 숫자를 다른 턴 수·시간·횟수 조건으로 확대하지 마세요.',
+        "- 원문의 정량 조건을 사용할 때는 숫자·단위뿐 아니라 그 조건이 수식하는 대상과 사용자 행동도 그대로 보존하세요.",
+        '- 예를 들어 "1문장으로 안부 인사"는 사용자의 안부 인사 발화 자체를 한 문장으로 구성하라는 뜻입니다. 전체 대화를 1~2문장으로 제한하거나, 추가 질문·응답을 금지하거나, 곧바로 대화를 종료하라는 뜻이 아닙니다.',
+        "- 한 행동에 붙은 문장 수·횟수 조건을 전체 대화 길이, 전체 턴 수, 다른 행동의 횟수 또는 종료 조건으로 옮겨 적용하지 마세요.",
+        '- "짧게", "간단히"를 임의의 숫자 제약으로 변환하지 마세요.',
+        '- "한 문장으로 주문"은 주문 표현 자체가 한 문장이라는 뜻입니다. 이를 "메뉴명과 수량만 포함", "수식어 금지", "불필요한 설명 없이"로 확대 해석하지 마세요.',
+        "- 주문 뒤의 자연스러운 확인 질문·답변·추가 응답은 허용됩니다. 사용자의 추가 발화를 자동으로 불필요·실패·감점 요소로 취급하지 마세요.",
+        "- successCriteria는 제목·설명의 핵심 행동 수행 여부를 확인하는 최소 기준만 생성하고, 권장 스타일이나 효율성을 필수 조건으로 승격하지 마세요.",
+        "- feedbackFocus는 successCriteria와 직접 연결된 관찰 항목만 생성하고 새로운 제약을 추가하지 마세요.",
+        "- 미션 제목·설명에서 직접 요구하지 않은 표현 형식을 successCriteria나 feedbackFocus로 승격하지 마세요.",
+        '- 금지 예: 물음표·느낌표 같은 문장부호 사용, 특정 호칭 사용, 가족·친구 등 관계를 직접 언급, 문말 기호, 존댓말·반말·간결체 같은 특정 문체. 미션이 이를 직접 요구하지 않으면 성공 여부와 무관합니다.',
+        "- 표현 방식의 예시, 자연스러워 보이는 말투, 권장 스타일은 미션 성공에 반드시 필요한 사용자 행동이 아니므로 criterion이나 피드백 중점 항목으로 만들지 마세요.",
+        "- flow와 responseRules는 위 원칙을 그대로 지키면서 사용자가 원 미션을 자연스럽게 수행하도록 돕는 단계와 대응만 생성하세요.",
+        "- objective, successCriteria, feedbackFocus, flow, responseRules는 서로 모순되면 안 됩니다. 한 필드에서 요구하거나 허용한 행동을 다른 필드에서 금지·실패·종료 조건으로 만들지 마세요.",
+        '- 특히 flow에서 추가 질문이나 응답을 유도하면서 responseRules에서 이를 금지하거나 "불필요한 발화"로 취급하지 마세요. 반대 방향의 모순도 금지합니다.',
+        "- 최종 JSON을 내기 전에 모든 필드를 함께 검토하여 미션 목표, 진행 단계, 대응 규칙이 같은 방향인지 확인하세요.",
+        "- 아래 배열 개수는 JSON 구조를 위한 형식일 뿐, 사용자 행동의 턴 수·시간·횟수 조건이 아닙니다.",
+        "",
+        "1) objective — 사용자가 이 미션에서 직접 수행해야 할 전체 목표를 한 문장으로 씁니다.",
+        "   상대역 AI의 행동이 아니라 사용자 행동 중심으로, 실제 대화에서 달성 여부를 판단할 수 있게 씁니다.",
+        "",
+        `2) successCriteria — 실제 대화 기록에서 관찰 가능한 구체적인 성공 행동을 최대 ${MAX_METADATA_ITEMS}개 씁니다.`,
+        '   "대화를 잘한다" 같은 추상적 평가 대신 "사용자가 먼저 안부를 묻는다"처럼 확인 가능한 행동으로 씁니다.',
+        "   반드시 미션에서 요구한 핵심 행동만 최소 기준으로 작성합니다.",
+        "   각 항목은 다른 항목과 독립적으로 평가할 수 있는 서로 다른 사용자 행동이어야 합니다.",
+        "   같은 행동의 표현 예시·동의어·말투 변형을 각각 별도의 필수 성공조건으로 나열하지 말고 하나의 행동 기준으로 합치세요.",
+        "   선택 가능한 여러 표현을 모두 수행해야 하는 필수 조건처럼 만들지 마세요.",
+        "",
+        `3) feedbackFocus — 이후 피드백에서 중점적으로 평가할 관찰 포인트를 최대 ${MAX_METADATA_ITEMS}개 씁니다.`,
+        "   성격이나 관계를 단정하지 말고, 사용자의 실제 발화 내용과 발화 순서에서 직접 확인할 항목으로 씁니다.",
+        "   successCriteria의 핵심 행동과 직접 연결된 항목만 작성합니다.",
+        "",
+        `4) flow — 미션 수행을 위해 대화가 거쳐야 할 단계 ${FLOW_STEPS}개. 각 단계는 두 항목으로 씁니다.`,
         '   step: 그 단계에서 상대역이 무엇을 하는지. 예: "가볍게 근황을 물어 편한 분위기 만들기"',
+        '   미션의 핵심 행동이 "사용자가 먼저 인사하기", "먼저 질문하기", "먼저 말 걸기"라면 첫 단계에서 상대역 AI가 인사·질문·말 걸기를 먼저 수행하지 마세요.',
+        "   이 경우 상대역은 짧게 기다리거나 사용자가 먼저 시작할 수 있는 상황만 열어 주고, 사용자의 과제를 대신 수행하지 않습니다.",
         '   advanceExamples: 이 단계를 지났다고 볼 만한 **사용자의 실제 발화**를 2~3개.',
         '     설명문이 아니라 사용자가 입 밖으로 낼 말 그대로 씁니다.',
         '     ✗ "사용자가 근황을 꺼냄"   ✓ "요즘 시험 준비하느라 바빠"',
         "     상대역의 말이 아니라 **사용자가 할 말**이어야 합니다. 표현이 다양하도록 서로 다르게 씁니다.",
         "",
-        `2) responseRules — 자주 나올 상황과 대응 방향 ${RULE_COUNT}개.`,
+        `5) responseRules — 자주 나올 상황과 대응 방향 ${RULE_COUNT}개.`,
         '   when: 사용자가 보일 만한 반응을 구체적으로. 예: "무슨 말을 해야 할지 모르겠다고 함"',
         '   then: 상대역이 어느 방향으로 반응할지. 예: "선택지를 좁혀 하나만 물어보기"',
         "   then에는 **할 말을 그대로 쓰지 말고 방향만** 씁니다. 대본이 되면 대화가 딱딱해집니다.",
         "   사용자가 과제를 이미 수행한 상황에 대한 규칙도 반드시 하나 넣으세요.",
         "",
         `- 모든 문장은 ${MAX_LINE_LENGTH}자 이내 한 줄입니다.`,
+        "- objective, successCriteria, feedbackFocus, flow.step, flow.advanceExamples, responseRules.when, responseRules.then의 모든 문자열을 문장 중간에서 끊지 마세요.",
+        '- 각 문자열은 짧더라도 의미가 완결된 문장 또는 자립 가능한 표현이어야 하며, "후", "하고", "하며", "또는", "및", 조사만 남은 형태처럼 뒤 내용이 필요한 말로 끝내지 마세요.',
+        '- 특히 responseRules.then은 "계산 안내 후 "처럼 다음 행동이 빠진 미완성 표현이 아니라, 상대역이 취할 대응 방향을 끝까지 작성하세요.',
+        "- 길이 제한에 가까우면 내용을 줄여 완결하고, 문장을 잘라 길이만 맞추지 마세요.",
         "- 반드시 아래 JSON 형식으로만 응답하세요.",
-        '{ "flow": [{ "step": "string", "advanceExamples": ["string"] }], "responseRules": [{ "when": "string", "then": "string" }] }',
+        '{ "objective": "string", "successCriteria": ["string"], "feedbackFocus": ["string"], "flow": [{ "step": "string", "advanceExamples": ["string"] }], "responseRules": [{ "when": "string", "then": "string" }] }',
       ].join("\n"),
     },
     {
       role: "user" as const,
-      content: `${context}\n\n이 미션의 대화 지침을 만들어주세요.`,
+      content: [
+        `미션 공통 정보: ${context}`,
+        ...(previousViolation
+          ? [
+              `재생성 보정 지시: 이전 생성 결과가 ${previousViolation.reason} 때문에 거부되었습니다.`,
+              `위반 위치: ${previousViolation.field}`,
+              `위반 표현 유형: ${previousViolation.term}`,
+              "이번에는 대화 텍스트와 발화 순서로 직접 확인 가능한 행동만 사용하세요.",
+            ]
+          : []),
+        "이 미션의 대화 지침을 만들어주세요.",
+      ].join("\n\n"),
     },
   ];
 };
 
 // 미션별 플레이북 생성. 실패하면 null → 호출부가 플레이북 없이 진행한다(기존 동작 유지).
 export const generatePlaybook = async (
-  missionTitle: string,
-  missionDescription: string | null
+  mission: PlaybookMissionContext
 ): Promise<DialoguePlaybook | null> => {
-  const result = await callUpstageChat(buildPlaybookMessages(missionTitle, missionDescription), {
-    temperature: PLAYBOOK_TEMPERATURE,
-    maxTokens: PLAYBOOK_MAX_TOKENS,
-    jsonMode: true,
-  });
-  if (!result.ok) {
-    logger.warn({ reason: result.reason }, "대화 플레이북 생성 LLM 호출 실패");
-    return null;
-  }
+  let previousViolation: PlaybookRetryCorrection | undefined;
+  const parsed = await generateWithRetry(async () => {
+    const result = await callUpstageChat(buildPlaybookMessages(mission, previousViolation), {
+      temperature: PLAYBOOK_TEMPERATURE,
+      maxTokens: PLAYBOOK_MAX_TOKENS,
+      jsonMode: true,
+    });
+    if (!result.ok) {
+      logger.warn({ reason: result.reason }, "대화 플레이북 생성 LLM 호출 실패");
+      return null;
+    }
 
-  const parsed = parseJsonResponse(result.content, generatedPlaybookSchema, "대화 플레이북");
+    const candidate = parseJsonResponse(
+      result.content,
+      generatedPlaybookSchema,
+      "대화 플레이북"
+    );
+    if (!candidate) return null;
+
+    const observabilityViolation = findPlaybookObservabilityViolation(candidate);
+    if (observabilityViolation) {
+      logger.warn(observabilityViolation, "대화 플레이북 비관찰 표현 검증 실패");
+      previousViolation = {
+        ...observabilityViolation,
+        reason: "텍스트로 관찰할 수 없는 표현 포함",
+      };
+      return null;
+    }
+
+    const quantitativeViolation = findPlaybookQuantitativeConstraintViolation(candidate, mission);
+    if (quantitativeViolation) {
+      logger.warn(quantitativeViolation, "대화 플레이북 미션 비근거 정량 조건 검증 실패");
+      previousViolation = {
+        ...quantitativeViolation,
+        reason: "미션 원문에 근거 없는 정량 조건 포함",
+      };
+      return null;
+    }
+    return candidate;
+  }, { label: "대화 플레이북" });
   if (!parsed) return null;
 
   return embedPlaybook(parsed);
@@ -174,7 +418,7 @@ export const generatePlaybook = async (
 // **텍스트를 고쳤으면 반드시 여기를 다시 거쳐야 한다.** 임베딩만 옛 텍스트로 남으면
 // 매칭이 조용히 어긋난다 — 겉으로는 정상이라 알아채기 어렵다.
 export const embedPlaybook = async (
-  parsed: z.infer<typeof generatedPlaybookSchema>
+  parsed: GeneratedPlaybook
 ): Promise<DialoguePlaybook> => {
   // 규칙의 when과 단계의 예시 발화를 미리 임베딩해 함께 저장한다.
   // 매 턴 다시 임베딩하면 비용·지연이 생기고, 두 종류를 한 번의 호출로 묶어 왕복도 줄인다.
@@ -189,6 +433,11 @@ export const embedPlaybook = async (
 
   let cursor = ruleConditions.length;
   return {
+    ...(parsed.objective !== undefined ? { objective: parsed.objective } : {}),
+    ...(parsed.successCriteria !== undefined
+      ? { successCriteria: parsed.successCriteria }
+      : {}),
+    ...(parsed.feedbackFocus !== undefined ? { feedbackFocus: parsed.feedbackFocus } : {}),
     flow: parsed.flow.map((step) => {
       const slice = embedded.ok
         ? embedded.embeddings.slice(cursor, cursor + step.advanceExamples.length)
@@ -311,6 +560,9 @@ export const advanceFlow = (
 
 /** 응답용 형태 — 임베딩은 뺀다(4096차원 × 10개라 1MB가 넘고, 사람이 볼 값이 아니다). */
 export interface PlaybookView {
+  objective?: string;
+  successCriteria?: string[];
+  feedbackFocus?: string[];
   flow: { step: string; advanceExamples: string[] }[];
   responseRules: { when: string; then: string }[];
   /** 임베딩이 붙어 있는지. false면 단계 진행이 턴 상한으로만 동작한다. */
@@ -318,6 +570,11 @@ export interface PlaybookView {
 }
 
 export const toPlaybookView = (playbook: DialoguePlaybook): PlaybookView => ({
+  ...(playbook.objective !== undefined ? { objective: playbook.objective } : {}),
+  ...(playbook.successCriteria !== undefined
+    ? { successCriteria: playbook.successCriteria }
+    : {}),
+  ...(playbook.feedbackFocus !== undefined ? { feedbackFocus: playbook.feedbackFocus } : {}),
   flow: playbook.flow.map(({ step, advanceExamples }) => ({ step, advanceExamples })),
   responseRules: playbook.responseRules.map(({ when, then }) => ({ when, then })),
   hasEmbeddings:

@@ -3,13 +3,29 @@ jest.mock("../services/conversation-guide.service", () => ({
   ...jest.requireActual("../services/conversation-guide.service"),
   generateGuideReply: jest.fn(),
 }));
+jest.mock("../services/conversation-role.service", () => ({
+  generateRoleSetup: jest.fn(),
+}));
+jest.mock("../../mission/services/playbook.service", () => ({
+  ...jest.requireActual("../../mission/services/playbook.service"),
+  generatePlaybook: jest.fn(),
+}));
+jest.mock("../../mission/repositories/mission.repository", () => ({
+  upsertPlaybook: jest.fn(),
+}));
 
 import { ConversationService } from "../services/conversation.service";
 import { ConversationRepository } from "../repositories/conversation.repository";
 import { generateGuideReply } from "../services/conversation-guide.service";
+import { generateRoleSetup } from "../services/conversation-role.service";
+import { generatePlaybook } from "../../mission/services/playbook.service";
+import { upsertPlaybook } from "../../mission/repositories/mission.repository";
 import { ConversationError } from "../errors/conversation.error";
 
 const mockedGenerate = jest.mocked(generateGuideReply);
+const mockedRoleSetup = jest.mocked(generateRoleSetup);
+const mockedPlaybook = jest.mocked(generatePlaybook);
+const mockedUpsert = jest.mocked(upsertPlaybook);
 
 // 필요한 메서드만 갖춘 가짜 repository.
 const buildRepo = () => {
@@ -38,6 +54,83 @@ const buildRepo = () => {
 };
 
 beforeEach(() => jest.clearAllMocks());
+
+describe("createConversation — 공통 미션 플레이북", () => {
+  const mission = {
+    id: "11111111-1111-4111-8111-111111111111",
+    title: "카페 직원에게 인사하기",
+    description: "먼저 인사해 보세요.",
+    category: "짧은 대화",
+    difficulty: 1,
+    setup_guideline: {
+      defaults: {
+        environment: "daily_place", partnerRole: "other", intimacyLevel: 1,
+        formalityLevel: 3, partnerGender: "female", partnerAgeGroup: "twenties",
+      },
+      disabled: {
+        environment: [], partnerRole: [], intimacyLevel: [], formalityLevel: [],
+        partnerGender: [], partnerAgeGroup: [],
+      },
+      note: null,
+      recommendedTopics: [],
+      tags: ["첫 만남", "가벼운 인사"],
+    },
+    playbook: null,
+  };
+
+  const buildCreateRepo = () => {
+    const repo = {
+      findMissionById: jest.fn().mockResolvedValue(mission),
+      createConversation: jest.fn().mockResolvedValue({
+        id: "c1", mode: "text", selected_topic: null,
+        started_at: new Date("2026-08-09T00:00:00.000Z"),
+      }),
+      createMessage: jest.fn().mockResolvedValue({}),
+    };
+    return repo as unknown as ConversationRepository & typeof repo;
+  };
+
+  beforeEach(() => {
+    mockedRoleSetup.mockResolvedValue({ persona: "직원", userTask: "먼저 인사하기" });
+    mockedPlaybook.mockResolvedValue({ flow: [], responseRules: [] });
+    mockedUpsert.mockResolvedValue({} as never);
+  });
+
+  it("자동 생성에 미션 공통 컨텍스트만 전달한다", async () => {
+    const service = new ConversationService(buildCreateRepo());
+
+    await service.createConversation("u1", {
+      missionId: mission.id,
+      mode: "text",
+    });
+
+    expect(mockedPlaybook).toHaveBeenCalledWith({
+      title: mission.title,
+      description: mission.description,
+      category: mission.category,
+      difficulty: mission.difficulty,
+      tags: ["첫 만남", "가벼운 인사"],
+    });
+    const context = mockedPlaybook.mock.calls[0][0] as unknown as Record<string, unknown>;
+    expect(context).not.toHaveProperty("missionSetup");
+    expect(context).not.toHaveProperty("persona");
+    expect(context).not.toHaveProperty("userTask");
+  });
+
+  it("플레이북 생성 실패에도 기존 대화 생성 fallback을 유지한다", async () => {
+    const repo = buildCreateRepo();
+    mockedPlaybook.mockResolvedValue(null);
+
+    await expect(
+      new ConversationService(repo).createConversation("u1", {
+        missionId: mission.id,
+        mode: "text",
+      })
+    ).resolves.toMatchObject({ conversationId: "c1" });
+    expect(mockedUpsert).not.toHaveBeenCalled();
+    expect(repo.createConversation).toHaveBeenCalled();
+  });
+});
 
 describe("createMessage", () => {
   it("LLM 응답이 있으면 그 내용을 guide 메시지로 저장한다", async () => {

@@ -24,6 +24,7 @@ import {
     generatePlaybook,
     matchResponseRules,
     parseStoredPlaybook,
+    toPlaybookMissionContext,
 } from "../../mission/services/playbook.service";
 // 플레이북 저장은 미션 소유 데이터라 미션 리포지토리를 쓴다.
 import { upsertPlaybook } from "../../mission/repositories/mission.repository";
@@ -174,11 +175,14 @@ const MOCK_GUIDE_RESPONSES = [
         id: string;
         title: string;
         description: string | null;
+        category: string;
+        difficulty: number;
+        setup_guideline: unknown;
         playbook: { data: unknown } | null;
     }): Promise<void> {
         if (parseStoredPlaybook(mission.playbook?.data)) return;
 
-        const playbook = await generatePlaybook(mission.title, mission.description);
+        const playbook = await generatePlaybook(toPlaybookMissionContext(mission));
         if (!playbook) return;
 
         await upsertPlaybook(mission.id, playbook);

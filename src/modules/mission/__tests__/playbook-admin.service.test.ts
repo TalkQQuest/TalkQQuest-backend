@@ -39,10 +39,37 @@ const input = {
   responseRules: [{ when: "막힘", then: "선택지를 좁혀 물어보기" }],
 };
 
+const inputWithMetadata = {
+  ...input,
+  objective: "사용자가 먼저 인사하고 짧은 대화를 이어간다.",
+  successCriteria: ["사용자가 먼저 인사한다."],
+  feedbackFocus: ["대화 시작 여부"],
+};
+
 // 저장된 형태(임베딩 포함)
 const embedded = {
   flow: input.flow.map((s) => ({ ...s, advanceEmbeddings: [[1, 0], [0, 1]] })),
   responseRules: input.responseRules.map((r) => ({ ...r, whenEmbedding: [1, 0] })),
+};
+
+const embeddedWithMetadata = { ...embedded, ...inputWithMetadata };
+
+const setupGuideline = {
+  defaults: {
+    environment: "daily_place",
+    partnerRole: "other",
+    intimacyLevel: 2,
+    formalityLevel: 3,
+    partnerGender: "female",
+    partnerAgeGroup: "twenties",
+  },
+  disabled: {
+    environment: [], partnerRole: [], intimacyLevel: [], formalityLevel: [],
+    partnerGender: [], partnerAgeGroup: [],
+  },
+  note: null,
+  recommendedTopics: [],
+  tags: ["첫 만남", "가벼운 질문"],
 };
 
 beforeEach(() => {
@@ -51,6 +78,9 @@ beforeEach(() => {
     id: MISSION_ID,
     title: "카페 대화",
     description: "설명",
+    category: "짧은 대화",
+    difficulty: 2,
+    setup_guideline: setupGuideline,
   } as never);
   mockedRepo.upsertPlaybook.mockResolvedValue({ updated_at: UPDATED_AT } as never);
 });
@@ -78,6 +108,20 @@ describe("getPlaybook", () => {
     } as never);
 
     expect((await getPlaybook(MISSION_ID)).playbook.hasEmbeddings).toBe(false);
+  });
+
+  it("새 optional 필드를 관리자 조회 응답에 포함한다", async () => {
+    mockedRepo.findPlaybookByMissionId.mockResolvedValue({
+      data: embeddedWithMetadata,
+      updated_at: UPDATED_AT,
+    } as never);
+
+    const result = await getPlaybook(MISSION_ID);
+    expect(result.playbook).toMatchObject({
+      objective: inputWithMetadata.objective,
+      successCriteria: inputWithMetadata.successCriteria,
+      feedbackFocus: inputWithMetadata.feedbackFocus,
+    });
   });
 
   it("미션이 없으면 MISSION_NOT_FOUND", async () => {
@@ -122,6 +166,21 @@ describe("replacePlaybook", () => {
     expect(result.updatedAt).toBe(UPDATED_AT.toISOString());
   });
 
+  it("새 optional 필드를 포함한 관리자 수정을 저장하고 응답한다", async () => {
+    mockedEmbed.mockResolvedValue(embeddedWithMetadata);
+
+    const result = await replacePlaybook(MISSION_ID, inputWithMetadata);
+
+    expect(mockedEmbed).toHaveBeenCalledWith(inputWithMetadata);
+    expect(mockedRepo.upsertPlaybook).toHaveBeenCalledWith(MISSION_ID, embeddedWithMetadata);
+    expect(result.playbook.objective).toBe(inputWithMetadata.objective);
+  });
+
+  it("새 필드가 없는 기존 형식 관리자 PUT도 정상 처리한다", async () => {
+    mockedEmbed.mockResolvedValue(embedded);
+    await expect(replacePlaybook(MISSION_ID, input)).resolves.toBeDefined();
+  });
+
   it("미션이 없으면 저장하지 않는다", async () => {
     mockedRepo.findMissionById.mockResolvedValue(null as never);
 
@@ -136,7 +195,13 @@ describe("regeneratePlaybook", () => {
 
     const result = await regeneratePlaybook(MISSION_ID);
 
-    expect(mockedGenerate).toHaveBeenCalledWith("카페 대화", "설명");
+    expect(mockedGenerate).toHaveBeenCalledWith({
+      title: "카페 대화",
+      description: "설명",
+      category: "짧은 대화",
+      difficulty: 2,
+      tags: ["첫 만남", "가벼운 질문"],
+    });
     expect(mockedRepo.upsertPlaybook).toHaveBeenCalledWith(MISSION_ID, embedded);
     expect(result.playbook.flow).toHaveLength(3);
   });

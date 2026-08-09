@@ -1,4 +1,5 @@
 import { prisma } from "../../../config/database";
+import { logger } from "../../../config/logger";
 import { ValidationError, NotFoundError } from "../../../shared/errors/common.error";
 import { MissionNotFoundError } from "../errors/mission.error";
 import * as missionRepository from "../repositories/mission.repository";
@@ -102,15 +103,21 @@ export const completeMission = async (
     };
   }).then(async (result) => {
     // 알림 생성(+푸시 발송)은 트랜잭션 커밋 후에 한다 — 푸시 발송은 네트워크 호출이라
-    // DB 트랜잭션을 붙잡고 있으면 안 된다.
-    await notifyUser(
-      userId,
-      "mission_completed",
-      "미션을 완료했어요! 🎉",
-      `${mission.title} 미션을 완료했습니다.`,
-      result.missionRecordId,
-      "mission_record"
-    );
+    // DB 트랜잭션을 붙잡고 있으면 안 된다. 미션 완료·XP 지급은 이미 커밋된 뒤이므로,
+    // 여기서 실패해도(인앱 알림 insert 실패 등) 요청 자체를 실패시키지 않는다 — 그러지 않으면
+    // 사용자는 미션이 완료됐는데도 에러를 받고, 재시도하면 "이미 종료된 대화"로 막힌다.
+    try {
+      await notifyUser(
+        userId,
+        "mission_completed",
+        "미션을 완료했어요! 🎉",
+        `${mission.title} 미션을 완료했습니다.`,
+        result.missionRecordId,
+        "mission_record"
+      );
+    } catch (error) {
+      logger.warn({ err: error, userId, missionRecordId: result.missionRecordId }, "미션 완료 알림 생성 실패 (미션 완료 자체는 정상 처리)");
+    }
     return result;
   });
 };

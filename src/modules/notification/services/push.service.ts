@@ -36,7 +36,15 @@ export const sendPushToUser = async (userId: string, payload: PushPayload): Prom
     return;
   }
 
-  const tokens = await deviceRepository.findDeviceTokensByUserId(userId);
+  // 이 함수 전체가 "절대 reject하지 않는다"는 계약을 스스로 지켜야 한다 — 토큰 조회 자체가
+  // 실패해도(DB 일시 오류 등) 위로 던지지 않고 로그만 남기고 끝낸다.
+  let tokens: Awaited<ReturnType<typeof deviceRepository.findDeviceTokensByUserId>>;
+  try {
+    tokens = await deviceRepository.findDeviceTokensByUserId(userId);
+  } catch (error) {
+    logger.warn({ err: error, userId }, "기기 토큰 조회 실패로 푸시 발송을 건너뜀");
+    return;
+  }
   if (tokens.length === 0) return;
 
   await Promise.all(
@@ -50,7 +58,12 @@ export const sendPushToUser = async (userId: string, payload: PushPayload): Prom
       } catch (error) {
         const code = (error as { code?: string } | undefined)?.code;
         if (code && INVALID_TOKEN_ERROR_CODES.has(code)) {
-          await deviceRepository.deleteDeviceTokenByToken(token.fcm_token);
+          // 삭제 실패도 다른 기기 발송을 막으면 안 되므로 여기서 흡수한다.
+          try {
+            await deviceRepository.deleteDeviceTokenByToken(token.fcm_token);
+          } catch (deleteError) {
+            logger.warn({ err: deleteError, userId, deviceTokenId: token.id }, "무효 토큰 삭제 실패");
+          }
           return;
         }
         logger.warn({ err: error, userId, deviceTokenId: token.id }, "푸시 발송 실패");

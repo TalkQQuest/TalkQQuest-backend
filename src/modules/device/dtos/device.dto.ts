@@ -8,7 +8,7 @@ export interface RegisterFcmTokenRequestDto {
 }
 
 export const registerFcmTokenRequestSchema = z.object({
-  fcmToken: z.string().min(1, "fcmToken이 필요합니다"),
+  fcmToken: z.string().trim().min(1, "fcmToken이 필요합니다"),
   platform: z.literal("android"),
 }) satisfies z.ZodType<RegisterFcmTokenRequestDto>;
 

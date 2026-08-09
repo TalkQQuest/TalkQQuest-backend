@@ -81,4 +81,33 @@ describe("sendPushToUser", () => {
     expect(mockedRepo.deleteDeviceTokenByToken).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledTimes(2);
   });
+
+  // 회귀 테스트: sendPushToUser는 스스로 "절대 reject하지 않는다"고 약속하는 함수다.
+  // findDeviceTokensByUserId/deleteDeviceTokenByToken이 실패해도 그 약속을 지켜야 한다.
+  it("토큰 조회 자체가 실패해도 reject하지 않고 조용히 끝난다", async () => {
+    mockedGetMessaging.mockReturnValue({ send: jest.fn() } as never);
+    mockedRepo.findDeviceTokensByUserId.mockRejectedValue(new Error("db down"));
+
+    await expect(
+      sendPushToUser("u1", { title: "t", body: "b", data: { type: "report_ready" } })
+    ).resolves.toBeUndefined();
+  });
+
+  it("무효 토큰 삭제가 실패해도 reject하지 않고, 다른 토큰 발송은 계속된다", async () => {
+    const send = jest
+      .fn()
+      .mockRejectedValueOnce({ code: "messaging/registration-token-not-registered" })
+      .mockResolvedValueOnce("message-id");
+    mockedGetMessaging.mockReturnValue({ send } as never);
+    mockedRepo.findDeviceTokensByUserId.mockResolvedValue([
+      { id: "d1", fcm_token: "dead-token" },
+      { id: "d2", fcm_token: "token-2" },
+    ] as never);
+    mockedRepo.deleteDeviceTokenByToken.mockRejectedValue(new Error("delete failed"));
+
+    await expect(
+      sendPushToUser("u1", { title: "t", body: "b", data: { type: "report_ready" } })
+    ).resolves.toBeUndefined();
+    expect(send).toHaveBeenCalledTimes(2);
+  });
 });

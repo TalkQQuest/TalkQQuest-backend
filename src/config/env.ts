@@ -30,6 +30,19 @@ const envSchema = z.object({
   FIREBASE_PROJECT_ID: z.string().optional(),
   FIREBASE_CLIENT_EMAIL: z.string().optional(),
   FIREBASE_PRIVATE_KEY: z.string().optional(),
+}).superRefine((data, ctx) => {
+  // 셋 다 비어 있으면 정상(발송 기능 비활성). 하나라도 있으면 셋 다 있어야 한다 —
+  // 부분 설정(오타 등으로 하나만 빠짐)이 "발송 비활성"으로 조용히 흡수되는 것을 막는다.
+  const values = [data.FIREBASE_PROJECT_ID, data.FIREBASE_CLIENT_EMAIL, data.FIREBASE_PRIVATE_KEY];
+  const presentCount = values.filter((v) => !!v).length;
+  if (presentCount > 0 && presentCount < values.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY는 셋 다 설정하거나 셋 다 비워야 합니다",
+      path: ["FIREBASE_PROJECT_ID"],
+    });
+  }
 });
 
 const parsed = envSchema.safeParse(process.env);

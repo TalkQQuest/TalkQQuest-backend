@@ -424,10 +424,16 @@ export const createPhrase = async (
     const conversation = await archiveRepository.findConversationById(body.conversationId, userId);
     if (!conversation) throw new ArchiveConversationNotFoundError();
 
+    const recentMessages = await archiveRepository.findRecentConversationMessages(body.conversationId);
+
     // AI 평가 — 실패해도 저장 자체는 막지 않는다 (memo: null, chips: [] 폴백)
     const evaluation = await evaluatePhrase({
         phraseContent: body.content,
         missionTitle: conversation.mission?.title ?? null,
+        conversationMessages: recentMessages.map((m) => ({
+            role: m.role as "user" | "guide",
+            content: m.content,
+        })),
     });
 
     const phrase = await archiveRepository.createSavedPhrase({

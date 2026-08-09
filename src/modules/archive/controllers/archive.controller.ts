@@ -118,11 +118,7 @@ public async search(
         @Body() body: CreatePhraseRequestDto
     ): Promise<ApiResponse<CreatePhraseResponseDto>> {
         const data = await archiveService.createPhrase(req.user.id, body);
-        return {
-            success: true,
-            data,
-            message: "문장이 저장되었습니다.",
-        };
+        return success(data, "문장이 저장되었습니다.");
     }
 
     /** @summary 저장 문장 해제 */

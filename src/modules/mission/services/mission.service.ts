@@ -7,10 +7,13 @@ import {
   InvalidMissionDateError,
   MissionNotFoundError,
   MissionRefreshLimitExceededError,
+  MissionSetupDisabledCombinationError,
   RecommendationLogNotFoundError,
   SaveNotFoundError,
 } from "../errors/mission.error";
 import {
+  CreateMissionSetupRequestDto,
+  CreateMissionSetupResponseDto,
   GetMissionsQueryDto,
   GetTodayMissionQueryDto,
   MissionListResponseDto,
@@ -21,6 +24,8 @@ import {
   MissionSaveResponseDto,
   MissionUnsaveResponseDto,
   SaveRecommendedMissionResponseDto,
+  SetupGuidelineDto,
+  setupGuidelineSchema,
   TodayMissionResponseDto
 } from "../dtos/mission.dto";
 import {
@@ -35,6 +40,15 @@ import { generateStarters, pickRandomStarters, STARTER_DISPLAY_COUNT } from "./p
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_SIZE = 10;
+
+// Missions.setup_guideline(Json)을 안전하게 파싱한다. LLM이 만든 값이라 형식이 깨질 수 있고,
+// 이 컬럼 도입 이전 미션·템플릿 미션은 애초에 null이다 — 두 경우 모두 미션 조회 자체를
+// 실패시키지 않고 setupGuideline: null로 응답한다(앱이 전체 활성+자체 기본값으로 처리).
+const parseSetupGuideline = (raw: unknown): SetupGuidelineDto | null => {
+  if (raw === null || raw === undefined) return null;
+  const parsed = setupGuidelineSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+};
 
 const toListItemDto = (
   mission: {
@@ -293,7 +307,11 @@ const buildTodayMissionResponse = async (params: {
   isNew: boolean;
 }): Promise<TodayMissionResponseDto> => {
   const { recommended } = params;
-  const isSaved = !!(await missionRepository.findSavedMission(params.userId, params.missionId));
+  const [saved, missionRow] = await Promise.all([
+    missionRepository.findSavedMission(params.userId, params.missionId),
+    // 추천 결과는 Recommendation_Logs 캐시(JSON)에서 오므로 setup_guideline은 여기서 따로 읽는다.
+    missionRepository.findMissionSetupGuideline(params.missionId),
+  ]);
 
   return {
     missionId: params.missionId,
@@ -306,13 +324,14 @@ const buildTodayMissionResponse = async (params: {
     reason: recommended.reason,
     expectedEffect: recommended.expectedEffect,
     source: recommended.source,
-    isSaved,
+    isSaved: !!saved,
     recommendationLogId: params.recommendationLogId,
     date: params.date,
     refreshCount: params.refreshCount,
     refreshLimit: MISSION_REFRESH_LIMIT,
     remainingRefreshes: Math.max(0, MISSION_REFRESH_LIMIT - params.refreshCount),
     isNew: params.isNew,
+    setupGuideline: parseSetupGuideline(missionRow?.setup_guideline),
   };
 };
 
@@ -387,7 +406,42 @@ export const getMissionDetail = async (
     preparationTip: mission.preparation_tip,
     caution: mission.caution,
     isSaved: !!saved,
+    setupGuideline: parseSetupGuideline(mission.setup_guideline),
   };
+};
+
+// POST /missions/{missionId}/setups — #152.
+// Mission_Setups는 "대화 1회짜리 개인 설정"이고 Missions.setup_guideline은 "미션 1개당 1벌,
+// 여러 사용자가 공유하는 가이드라인"이다(#148-150 계층 원칙). 여기서는 가이드라인을 읽기만
+// 하고 절대 갱신하지 않는다 — 그래야 같은 미션이라도 사용자마다 다른 환경/관계로 대화할 수
+// 있고, 한 사용자의 선택이 다른 사용자가 보는 가이드라인에 새지 않는다.
+export const createMissionSetup = async (
+  userId: string,
+  missionId: string,
+  body: CreateMissionSetupRequestDto
+): Promise<CreateMissionSetupResponseDto> => {
+  const personalityType = await missionRepository.findUserPersonalityType(userId);
+  const mission = await missionRepository.findVisibleMissionById(missionId, {
+    userId,
+    personalityType,
+  });
+  if (!mission) throw new MissionNotFoundError();
+
+  const guideline = parseSetupGuideline(mission.setup_guideline);
+  // 가이드라인이 없으면(구버전 미션·생성 실패) 제약할 근거가 없으므로 전체 축을 허용한다.
+  if (guideline) {
+    const disabledHit =
+      guideline.disabled.environment.includes(body.environment) ||
+      guideline.disabled.partnerRole.includes(body.partnerRole) ||
+      guideline.disabled.partnerGender.includes(body.partnerGender) ||
+      guideline.disabled.partnerAgeGroup.includes(body.partnerAgeGroup) ||
+      guideline.disabled.intimacyLevel.includes(body.intimacyLevel) ||
+      guideline.disabled.formalityLevel.includes(body.formalityLevel);
+    if (disabledHit) throw new MissionSetupDisabledCombinationError();
+  }
+
+  const created = await missionRepository.createMissionSetup(userId, missionId, body);
+  return { missionSetupId: created.id, createdAt: created.created_at.toISOString() };
 };
 
 export const saveMission = async (

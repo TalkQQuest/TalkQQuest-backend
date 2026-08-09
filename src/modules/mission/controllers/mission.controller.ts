@@ -6,6 +6,9 @@ import { validate } from "../../../middlewares/validator";
 import { ValidationError } from "../../../shared/errors/common.error";
 import { success, ApiResponse } from "../../../shared/utils/response";
 import {
+  CreateMissionSetupRequestDto,
+  createMissionSetupRequestSchema,
+  CreateMissionSetupResponseDto,
   getMissionsQuerySchema,
   getTodayMissionQuerySchema,
   MissionListResponseDto,
@@ -150,6 +153,25 @@ public async unsaveMission(
   const result = await missionService.unsaveMission(req.user!.id, missionId);
   return success(result, "미션 저장이 취소되었습니다.");
 }
+
+  /**
+   * @summary 미션 준비 정보(환경/상대 역할/친밀도/예절 수준/성별/나이대) 저장
+   */
+  @Post("{missionId}/setups")
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser(), validate(createMissionSetupRequestSchema))
+  @Response(400, "VALIDATION_ERROR")
+  @Response(400, "MISSION_SETUP_DISABLED_COMBINATION")
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "MISSION_NOT_FOUND")
+  public async createMissionSetup(
+    @Request() req: ExpressRequest,
+    @Path() missionId: string,
+    @Body() body: CreateMissionSetupRequestDto
+  ): Promise<ApiResponse<CreateMissionSetupResponseDto>> {
+    const result = await missionService.createMissionSetup(req.user!.id, missionId, body);
+    return success(result, "미션 준비 정보가 저장되었습니다.");
+  }
 
   /**
    * @summary 대화 시작 준비 문장 조회

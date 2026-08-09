@@ -7,3 +7,4 @@ src/generated/routes.ts
 *.log
 coverage/
 .DS_Store
+dump.rdb

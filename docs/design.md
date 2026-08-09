@@ -944,11 +944,13 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 **Response (200):** `data` — `totalCount`, `missionRecordCount`, `conversationCount`, `phraseCount`, `reportCount`, `recentItems[]`(최근 10건).
 
-`recentItems[]` 필드: `id`, `referenceId`(상세 API 조회에 사용하는 원본 리소스 ID), `type`(`conversation`\|`phrase`\|`report`\|`mission`), `title`, `isBookmarked`, `missionId`(`string | null`), `conversationId`(`string | null`), `missionRecordId`(`string | null`), `missionStatus?`(`in_progress`\|`completed`, mission 타입만), `reportType?`(`growth`\|`weekly_compare`, report 타입만 — 성장 리포트/저장된 주간 비교 리포트 구분), `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`(마지막 4개는 mission 타입만), `createdAt`.
+`recentItems[]` 필드: `id`, `referenceId`(상세 API 조회에 사용하는 원본 리소스 ID), `type`(`conversation`\|`phrase`\|`report`\|`mission`), `title`, `tags?`(`string[]`, conversation 타입만 — 아래 참고), `description?`(`string | null`, conversation 타입만 — 아래 참고), `isBookmarked`, `missionId`(`string | null`), `conversationId`(`string | null`), `missionRecordId`(`string | null`), `missionStatus?`(`in_progress`\|`completed`, mission 타입만), `reportType?`(`growth`\|`weekly_compare`, report 타입만 — 성장 리포트/저장된 주간 비교 리포트 구분), `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`(마지막 4개는 mission 타입만), `createdAt`.
 
 > **`type=report`는 성장 리포트와 저장된 주간 비교 리포트를 함께 담는다.** `Reports`/`Weekly_Compare_Reports`는 별도 테이블이지만 아카이브 화면에서는 하나의 "리포트" 묶음으로 노출되고(`#145`), `reportType`으로 구분한다 — 미션이 `type=mission` 하나에 `missionStatus`로 완료/진행중을 나누는 것과 같은 방식이다. `reportCount`/`totalCount`에도 두 타입 합계가 반영된다.
 
 > **`missionRecordCount`는 필드명과 달리 "완료 기록 수"가 아니라 "북마크한 미션 수"다** (`#86`, 미션 탭이 북마크 기준으로 바뀌면서 메인 화면 카운트도 같은 기준으로 맞춤). `recentItems[]`의 최근 활동 피드는 이 변경과 무관하게 완료/시작 이벤트 기준 그대로다 — 그래서 북마크 안 한 미션이라도 최근 완료했다면 `recentItems`엔 나올 수 있다(카운트에는 안 잡힘).
+
+> **`type=conversation`의 `tags`/`description`은 AI가 생성한 대화 요약이다(`#154`).** `description`은 `Feedbacks.conversation_summary`(대화 종료 시 AI가 생성한 2~3문장 요약) 그대로, `tags`는 `Feedbacks.summary_chips`(AI가 생성한 요약 키워드 3개) 중 앞 2개다. 둘 다 **`Archive_Items.tags` DB 컬럼을 쓰지 않고 조회 시점에 `Feedbacks`에서 계산**한다 — 그 컬럼은 지금까지 어떤 타입에서도 값을 채워주는 경로가 없던 죽은 필드였고, 향후 유저 커스텀 태그 등 다른 용도로 남겨둔다. 피드백이 아직 생성되지 않은 대화(`status: pending`)는 `tags: []`, `description: null`로 응답한다(에러 아님). conversation 외 타입(phrase/report)의 `tags`는 지금까지처럼 `Archive_Items.tags`(현재는 항상 빈 배열)를 그대로 쓴다. 이름이 같은 `Missions.setup_guideline.tags`(미션 준비 정보, `#151`)와는 무관한 별개 필드다.
 
 #### GET /archives — 검색 및 필터
 
@@ -956,9 +958,11 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 `type`을 안 주면 conversation/phrase/report + mission을 합쳐서 반환한다.
 
-**Response (200):** `data` — `totalCount`, `items[]`, `pageInfo`. `items[]` 필드는 `archiveItemId`(`string | null`, mission은 null), `referenceId`, `id`, `type`, `title`, `tags[]`, `folderId`(`string | null`), `isBookmarked`, `missionStatus?`, `reportType?`(`growth`\|`weekly_compare`, report 타입만), `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`, `missionId`(`string | null`), `missionRecordId`(`string | null`), `createdAt`.
+**Response (200):** `data` — `totalCount`, `items[]`, `pageInfo`. `items[]` 필드는 `archiveItemId`(`string | null`, mission은 null), `referenceId`, `id`, `type`, `title`, `tags[]`, `description?`(`string | null`, conversation 타입만 — 위 GET /archives/summary 참고), `folderId`(`string | null`), `isBookmarked`, `missionStatus?`, `reportType?`(`growth`\|`weekly_compare`, report 타입만), `category?`, `difficulty?`, `estimatedMinutes?`, `rewardXp?`, `missionId`(`string | null`), `missionRecordId`(`string | null`), `createdAt`.
 
 > **미션 탭 base set은 항상 북마크(`Mission_Saves`)다** (`#86`). 완료 여부와 무관하게 찜한 미션 전체가 노출되고, `missionFilter`로 그 안에서 완료/미완료를 좁힌다. `sort`는 북마크한 시각 기준 정렬이다. 완료했지만 북마크 안 한 미션은 여기 안 나온다 — 위 `missionRecordCount` note 참고.
+
+> **`tag` 필터는 conversation 타입에 한해 `Feedbacks.summary_chips` 기준으로 동작한다(`#155`).** conversation의 `tags` 응답값 자체가 DB 컬럼이 아니라 `Feedbacks`에서 계산되므로, `keyword`와 마찬가지로 DB 조회 후 애플리케이션 레벨에서 필터링한다. conversation 외 타입은 여전히 `Archive_Items.tags`(현재는 항상 빈 배열) 기준이다.
 
 #### GET /archives/conversations/{conversationId}
 

@@ -153,6 +153,19 @@ export const findConversationTitle = (conversationId: string) =>
         select: { mission: { select: { title: true } } },
     });
 
+// #155 — 아카이브의 대화 카드에 AI 요약(칩/설명)을 함께 보여주기 위한 일괄 조회.
+// 결과 목록의 대화 개수만큼 개별 조회(N+1)하지 않도록, conversationId 목록을 한 번에 받아
+// Feedbacks를 IN 절 하나로 조회한다. 피드백이 없는(status: pending) 대화는 결과에서 빠진다 —
+// 호출부에서 Map.get()이 undefined면 null/빈 배열로 처리한다.
+export const findConversationSummaryInfoByIds = (conversationIds: string[]) =>
+    prisma.feedbacks.findMany({
+        // 재시도(retryFeedback)는 status만 pending으로 되돌리고 이전 conversation_summary/
+        // summary_chips는 지우지 않는다. status: "ready"로 걸지 않으면 재생성 중인 대화에서
+        // 낡은 요약이 그대로 노출된다.
+        where: { conversation_id: { in: conversationIds }, status: "ready" },
+        select: { conversation_id: true, conversation_summary: true, summary_chips: true },
+    });
+
 export const findSavedPhraseContent = (phraseId: string) =>
     prisma.saved_Phrases.findUnique({
         where: { id: phraseId },

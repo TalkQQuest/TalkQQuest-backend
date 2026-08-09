@@ -24,6 +24,10 @@ export interface RecentArchiveItemDto {
     missionStatus?: "in_progress" | "completed";
     /** type이 report일 때 성장 리포트/저장된 주간 비교 리포트를 구분한다. */
     reportType?: "growth" | "weekly_compare";
+    /** type이 conversation일 때만 존재. AI가 생성한 대화 요약 칩 중 앞 2개(#154). */
+    tags?: string[];
+    /** type이 conversation일 때만 존재. AI가 생성한 대화 요약 2~3문장. 피드백 생성 전이면 null(#154). */
+    description?: string | null;
     category?: string;
     difficulty?: MissionDifficultyLabel;
     estimatedMinutes?: number;
@@ -82,6 +86,8 @@ export interface ArchiveSearchItemDto {
     missionStatus?: "in_progress" | "completed" | null;
     /** type이 report일 때 성장 리포트/저장된 주간 비교 리포트를 구분한다. */
     reportType?: "growth" | "weekly_compare";
+    /** type이 conversation일 때만 존재. AI가 생성한 대화 요약 2~3문장. 피드백 생성 전이면 null(#154). */
+    description?: string | null;
     category?: string;
     difficulty?: MissionDifficultyLabel;
     estimatedMinutes?: number;

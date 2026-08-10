@@ -5,6 +5,16 @@ export const durationMinutes = (startedAt: Date, finishedAt: Date | null): numbe
   return Math.max(0, Math.round(ms / 60000));
 };
 
+// 대화 소요 시간을 "mm:ss" 문자열로 계산한다(#175). 종료 시각이 없으면(진행 중) null.
+// 초 단위로 버림(반올림하면 59.6초가 1:00으로 올라가 실제 경과 시간을 넘어서는 표시가 될 수 있음).
+export const formatDuration = (startedAt: Date, finishedAt: Date | null): string | null => {
+  if (!finishedAt) return null;
+  const totalSeconds = Math.max(0, Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+};
+
 export const addMonths = (date: Date, months: number): Date => {
   const result = new Date(date);
   result.setMonth(result.getMonth() + months);

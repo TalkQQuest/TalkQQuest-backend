@@ -167,6 +167,15 @@ export const findConversationSummaryInfoByIds = (conversationIds: string[]) =>
         select: { conversation_id: true, card_summary: true, summary_chips: true },
     });
 
+// #175 — 대화 카드의 소요 시간(started_at/finished_at)을 계산하기 위한 일괄 조회.
+// findConversationSummaryInfoByIds(Feedbacks 기반)와 별개인 이유: 소요 시간은 피드백 생성 여부와
+// 무관하게(status: "ready"가 아니어도) 항상 계산 가능해야 하므로, Conversations를 직접 IN 조회한다.
+export const findConversationDurationInfoByIds = (conversationIds: string[]) =>
+    prisma.conversations.findMany({
+        where: { id: { in: conversationIds } },
+        select: { id: true, started_at: true, finished_at: true },
+    });
+
 export const findSavedPhraseContent = (phraseId: string) =>
     prisma.saved_Phrases.findUnique({
         where: { id: phraseId },

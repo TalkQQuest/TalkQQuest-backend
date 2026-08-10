@@ -912,7 +912,11 @@ model Notifications {
 model Notification_Settings {
   id                 String   @id @default(uuid()) @db.Char(36)
   user_id            String   @unique @db.Char(36)
-  mission_reminder   Boolean  @default(true)
+  mission_reminder      Boolean  @default(true)
+  // "HH:mm" 문자열로 저장한다(MySQL TIME 대신) — Prisma의 @db.Time은 JS Date로 매핑되며
+  // 드라이버가 UTC로 해석해 KST 기준 시각과 어긋날 수 있어, 타임존 변환 없이 그대로
+  // 비교/저장할 수 있는 문자열 형식을 택했다. 유저는 전부 KST 기준으로 가정한다.
+  mission_reminder_time String  @default("09:00") @db.VarChar(5)
   community_approved Boolean  @default(true)
   report_ready       Boolean  @default(true)
   marketing          Boolean  @default(false)

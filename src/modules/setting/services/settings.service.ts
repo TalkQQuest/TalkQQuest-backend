@@ -10,6 +10,7 @@ export const getSettings = async (userId: string): Promise<SettingsResponseDto> 
 
     return {
         missionReminder: settings.mission_reminder,
+        missionReminderTime: settings.mission_reminder_time,
         communityApproved: settings.community_approved,
         reportReady: settings.report_ready,
         marketing: settings.marketing,
@@ -27,6 +28,7 @@ export const getSettings = async (userId: string): Promise<SettingsResponseDto> 
 
     await updateSettings(userId, {
         ...(dto.missionReminder !== undefined && { mission_reminder: dto.missionReminder }),
+        ...(dto.missionReminderTime !== undefined && { mission_reminder_time: dto.missionReminderTime }),
         ...(dto.communityApproved !== undefined && { community_approved: dto.communityApproved }),
         ...(dto.reportReady !== undefined && { report_ready: dto.reportReady }),
         ...(dto.marketing !== undefined && { marketing: dto.marketing }),

@@ -326,4 +326,21 @@ describe("getConversationDetail — 재생성 중(pending/failed) 요약 숨김(
     expect(result.summaryChips).toEqual(["예전칩1", "예전칩2", "예전칩3"]);
     expect(result.keyPoints).toEqual(["예전 흐름1", "예전 흐름2"]);
   });
+
+  it("ready 피드백이어도 conversation_highlights에 문자열 아닌 요소가 섞이면 걸러낸다", async () => {
+    mockedArchive.findConversationDetail.mockResolvedValue({
+      ...baseConversation,
+      feedbacks: [
+        {
+          ...staleFeedback,
+          status: "ready",
+          conversation_highlights: ["정상 흐름", null, 123, "또 다른 정상 흐름", undefined],
+        },
+      ],
+    } as never);
+
+    const result = await getConversationDetail("u1", "c1");
+
+    expect(result.keyPoints).toEqual(["정상 흐름", "또 다른 정상 흐름"]);
+  });
 });

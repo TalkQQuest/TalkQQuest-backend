@@ -442,9 +442,7 @@ export const getConversationDetail = async (
         summaryChips: toSummaryChips(feedback?.summary_chips),
         // "주요 내용" — 실제 대화 흐름 2~3개(Feedbacks.conversation_highlights).
         // 요약(summary)과 달리 사건 단위 서술이다. 피드백 생성 전/재생성 중이면 빈 배열(#169).
-        keyPoints: Array.isArray(feedback?.conversation_highlights)
-            ? (feedback.conversation_highlights as string[])
-            : [],
+        keyPoints: toSummaryChips(feedback?.conversation_highlights),
         messages: conversation.messages.map((m) => ({
             sender: m.role === "user" ? "USER" : "AI",
             content: m.content,

@@ -924,6 +924,9 @@ model Notification_Settings {
 
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  // 스케줄러가 매 분 (mission_reminder_time, mission_reminder)로 조회하고 user_id를 꺼내 쓴다 —
+  // covering index로 풀 스캔 없이 처리하기 위함.
+  @@index([mission_reminder_time, mission_reminder, user_id])
   @@map("Notification_Settings")
 }
 

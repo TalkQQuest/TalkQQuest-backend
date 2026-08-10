@@ -25,11 +25,16 @@ const sendMissionReminders = async (): Promise<void> => {
 };
 
 export const startMissionReminderScheduler = (): void => {
-  cron.schedule("* * * * *", () => {
-    sendMissionReminders().catch((error) => {
-      logger.warn({ err: error }, "미션 리마인드 스케줄러 실행 중 예기치 못한 오류");
-    });
-  }, { timezone: "Asia/Seoul" });
+  cron.schedule(
+    "* * * * *",
+    // 콜백이 Promise를 반환해야 noOverlap이 "현재 실행 중인지"를 정확히 추적한다 —
+    // 실행이 1분을 넘겨도 다음 tick이 겹쳐 돌지 않도록 막는다.
+    () =>
+      sendMissionReminders().catch((error) => {
+        logger.warn({ err: error }, "미션 리마인드 스케줄러 실행 중 예기치 못한 오류");
+      }),
+    { timezone: "Asia/Seoul", noOverlap: true }
+  );
 
   logger.info("미션 리마인드 스케줄러 시작 (매 분, Asia/Seoul)");
 };

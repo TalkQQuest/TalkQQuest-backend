@@ -3,7 +3,7 @@ jest.mock("../../mission/repositories/mission.repository");
 
 import * as archiveRepository from "../repositories/archive.repository";
 import * as missionRepository from "../../mission/repositories/mission.repository";
-import { getArchiveSummary, searchArchives } from "../services/archive.service";
+import { getArchiveSummary, searchArchives, getConversationDetail } from "../services/archive.service";
 
 const mockedArchive = jest.mocked(archiveRepository);
 const mockedMission = jest.mocked(missionRepository);
@@ -259,5 +259,71 @@ describe("conversation 타입 — AI 요약 칩/설명(#154, #155, #169)", () =>
     expect(mockedArchive.searchArchiveItems).toHaveBeenCalledWith(
       expect.not.objectContaining({ tags: expect.anything() })
     );
+  });
+});
+
+// #169 회귀 테스트 — 재시도(retryFeedback)는 status만 pending으로 되돌리고 이전
+// conversation_summary/summary_chips/conversation_highlights는 지우지 않는다. status가
+// ready일 때만 요약 관련 필드를 노출해야, 재생성 중인 대화에서 낡은 값이 보이지 않는다.
+describe("getConversationDetail — 재생성 중(pending/failed) 요약 숨김(#169)", () => {
+  const baseConversation = {
+    id: "c1",
+    mission: { title: "카페 인사하기" },
+    started_at: new Date("2026-08-10T00:00:00Z"),
+    finished_at: new Date("2026-08-10T00:10:00Z"),
+    messages: [],
+  };
+
+  const staleFeedback = {
+    id: "f1",
+    status: "pending",
+    conversation_summary: "예전 요약입니다.",
+    summary_chips: ["예전칩1", "예전칩2", "예전칩3"],
+    conversation_highlights: ["예전 흐름1", "예전 흐름2"],
+    kindness_score: 80,
+    initiative_score: 70,
+    empathy_score: 60,
+    question_link_score: 50,
+  };
+
+  it("피드백이 pending(재생성 중)이면 summary/summaryChips/keyPoints는 빈 값을 반환한다", async () => {
+    mockedArchive.findConversationDetail.mockResolvedValue({
+      ...baseConversation,
+      feedbacks: [staleFeedback],
+    } as never);
+
+    const result = await getConversationDetail("u1", "c1");
+
+    expect(result.summary).toBe("");
+    expect(result.summaryChips).toEqual([]);
+    expect(result.keyPoints).toEqual([]);
+    // feedback 객체(점수) 자체는 status와 무관하게 그대로 노출한다(기존 정책 유지).
+    expect(result.feedback).toMatchObject({ feedbackId: "f1", kindnessScore: 80 });
+  });
+
+  it("피드백이 failed면 summary/summaryChips/keyPoints는 빈 값을 반환한다", async () => {
+    mockedArchive.findConversationDetail.mockResolvedValue({
+      ...baseConversation,
+      feedbacks: [{ ...staleFeedback, status: "failed" }],
+    } as never);
+
+    const result = await getConversationDetail("u1", "c1");
+
+    expect(result.summary).toBe("");
+    expect(result.summaryChips).toEqual([]);
+    expect(result.keyPoints).toEqual([]);
+  });
+
+  it("피드백이 ready면 summary/summaryChips/keyPoints를 그대로 반환한다", async () => {
+    mockedArchive.findConversationDetail.mockResolvedValue({
+      ...baseConversation,
+      feedbacks: [{ ...staleFeedback, status: "ready" }],
+    } as never);
+
+    const result = await getConversationDetail("u1", "c1");
+
+    expect(result.summary).toBe("예전 요약입니다.");
+    expect(result.summaryChips).toEqual(["예전칩1", "예전칩2", "예전칩3"]);
+    expect(result.keyPoints).toEqual(["예전 흐름1", "예전 흐름2"]);
   });
 });

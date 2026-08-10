@@ -424,19 +424,24 @@ export const getConversationDetail = async (
     const conversation = await archiveRepository.findConversationDetail(conversationId, userId);
     if (!conversation) throw new ArchiveConversationNotFoundError();
 
-    const feedback = conversation.feedbacks[0];
+    const feedbackRow = conversation.feedbacks[0];
+    // 재시도(retryFeedback)는 status만 pending으로 되돌리고 이전 conversation_summary/
+    // summary_chips/conversation_highlights는 지우지 않는다. status가 ready일 때만
+    // 요약 관련 필드를 노출해야, 재생성 중인 대화에서 낡은 요약/주요 내용이 보이지 않는다.
+    // (findConversationSummaryInfoByIds가 카드 목록에서 이미 쓰는 것과 같은 기준.)
+    const feedback = feedbackRow?.status === "ready" ? feedbackRow : undefined;
 
     return {
         conversationId: conversation.id,
         missionTitle: conversation.mission?.title ?? null,
         // 대화 요약은 피드백 생성 시 함께 만들어 저장한다(Feedbacks.conversation_summary).
-        // 피드백 생성 전이면 빈 문자열.
+        // 피드백 생성 전이거나 재생성 중(status != ready)이면 빈 문자열.
         summary: feedback?.conversation_summary ?? "",
         durationMinutes: durationMinutes(conversation.started_at, conversation.finished_at),
         // 대화 요약 칩은 피드백 생성 시 저장된다(Feedbacks.summary_chips).
         summaryChips: toSummaryChips(feedback?.summary_chips),
         // "주요 내용" — 실제 대화 흐름 2~3개(Feedbacks.conversation_highlights).
-        // 요약(summary)과 달리 사건 단위 서술이다. 피드백 생성 전이면 빈 배열(#169).
+        // 요약(summary)과 달리 사건 단위 서술이다. 피드백 생성 전/재생성 중이면 빈 배열(#169).
         keyPoints: Array.isArray(feedback?.conversation_highlights)
             ? (feedback.conversation_highlights as string[])
             : [],
@@ -445,13 +450,15 @@ export const getConversationDetail = async (
             content: m.content,
             sentAt: m.created_at.toISOString(),
         })),
-        feedback: feedback
+        // feedback 객체(점수) 노출 여부는 기존 정책대로 feedbackRow 존재 여부만 본다 —
+        // pending/failed여도 피드백 존재 자체(재시도 가능 여부 등)는 프론트가 알아야 할 수 있다.
+        feedback: feedbackRow
             ? {
-                feedbackId: feedback.id,
-                kindnessScore: feedback.kindness_score ?? 0,
-                initiativeScore: feedback.initiative_score ?? 0,
-                empathyScore: feedback.empathy_score ?? 0,
-                questionLinkScore: feedback.question_link_score ?? 0,
+                feedbackId: feedbackRow.id,
+                kindnessScore: feedbackRow.kindness_score ?? 0,
+                initiativeScore: feedbackRow.initiative_score ?? 0,
+                empathyScore: feedbackRow.empathy_score ?? 0,
+                questionLinkScore: feedbackRow.question_link_score ?? 0,
             }
             : null,
     };

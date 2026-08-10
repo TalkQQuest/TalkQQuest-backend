@@ -455,6 +455,6 @@ describe("conversation 타입 — 소요 시간(#175)", () => {
 
     const result = await getPhraseDetail("u1", "p1");
 
-    expect(result.duration).toBe("3:20");
+    expect(result.duration).toBe("03:20");
   });
 });

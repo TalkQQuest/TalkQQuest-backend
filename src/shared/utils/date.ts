@@ -12,7 +12,7 @@ export const formatDuration = (startedAt: Date, finishedAt: Date | null): string
   const totalSeconds = Math.max(0, Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 };
 
 export const addMonths = (date: Date, months: number): Date => {

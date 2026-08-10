@@ -724,6 +724,7 @@ model Saved_Phrases {
   conversation_id String?  @db.Char(36)
   content         String   @db.Text
   memo            String?  @db.Text
+  chips           Json?    // AI 생성 태그 칩 3개 (string[]) — 이슈 #83 summary_chips와 동일 패턴
   created_at      DateTime @default(now())
 
   user         Users          @relation(fields: [user_id], references: [id], onDelete: Cascade)

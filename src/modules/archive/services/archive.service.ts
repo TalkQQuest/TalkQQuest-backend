@@ -29,6 +29,7 @@ import {
 import { DuplicatedError } from "../../../shared/errors/common.error";
 import { DIFFICULTY_TO_LABEL } from "../../mission/dtos/mission.constants";
 import { durationMinutes } from "../../../shared/utils/date";
+import { evaluatePhrase } from "./phrase-evaluation.service";
 
 // Feedbacks.summary_chips(Json)를 안전하게 string[]로 변환한다. 없거나 형식이 다르면 빈 배열.
 const toSummaryChips = (raw: unknown): string[] =>
@@ -478,11 +479,24 @@ export const createPhrase = async (
     const conversation = await archiveRepository.findConversationById(body.conversationId, userId);
     if (!conversation) throw new ArchiveConversationNotFoundError();
 
+    const recentMessages = await archiveRepository.findRecentConversationMessages(body.conversationId);
+
+    // AI 평가 — 실패해도 저장 자체는 막지 않는다 (memo: null, chips: [] 폴백)
+    const evaluation = await evaluatePhrase({
+        phraseContent: body.content,
+        missionTitle: conversation.mission?.title ?? null,
+        conversationMessages: recentMessages.map((m) => ({
+            role: m.role as "user" | "guide",
+            content: m.content,
+        })),
+    });
+
     const phrase = await archiveRepository.createSavedPhrase({
         user: { connect: { id: userId } },
         conversation: { connect: { id: body.conversationId } },
         content: body.content,
-        memo: body.memo,
+        memo: evaluation?.memo ?? null,
+        chips: evaluation?.chips ?? [],
     });
 
     await archiveRepository.createArchiveItem({
@@ -496,6 +510,7 @@ export const createPhrase = async (
         conversationId: body.conversationId,
         content: phrase.content,
         memo: phrase.memo,
+        chips: (phrase.chips as string[] | null) ?? [],
         createdAt: phrase.created_at.toISOString(),
     };
 };

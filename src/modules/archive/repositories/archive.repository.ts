@@ -199,8 +199,9 @@ export const findPhraseById = (phraseId: string, userId: string) =>
         },
     });
 
-export const createSavedPhrase = (data: Prisma.Saved_PhrasesCreateInput) =>
-    prisma.saved_Phrases.create({ data });
+export const createSavedPhrase = (
+    data: Prisma.Saved_PhrasesCreateInput
+) => prisma.saved_Phrases.create({ data });
 
 export const deleteSavedPhrase = (phraseId: string) =>
     prisma.saved_Phrases.delete({ where: { id: phraseId } });
@@ -226,7 +227,28 @@ export const findConversationDetail = (conversationId: string, userId: string) =
 
 // Conversations 존재 여부 확인용
 export const findConversationById = (conversationId: string, userId: string) =>
-    prisma.conversations.findFirst({ where: { id: conversationId, user_id: userId } });
+    prisma.conversations.findFirst({
+        where: { id: conversationId, user_id: userId },
+        include: { mission: true },
+    });
+
+// 문장 평가 AI 프롬프트용 — 해당 대화의 최근 메시지를 시간순으로 가져온다.
+// system 메시지는 실제 대화 교환이 아니므로 제외한다.
+// 전체 대화가 아니라 최근 일부만 쓰는 이유: 프롬프트 길이 제한 + 저장 시점 근처 맥락이 평가에 더 유의미.
+const PHRASE_EVALUATION_CONTEXT_LIMIT = 10;
+
+export const findRecentConversationMessages = (conversationId: string) =>
+    prisma.conversation_Messages
+        .findMany({
+            where: {
+                conversation_id: conversationId,
+                role: { in: ["user", "guide"] },
+            },
+            orderBy: { created_at: "desc" },
+            take: PHRASE_EVALUATION_CONTEXT_LIMIT,
+            select: { role: true, content: true },
+        })
+        .then((rows) => rows.reverse()); // 시간순(오래된 → 최신)으로 뒤집는다
 
 // Archive Items (conversation/phrase/report 전용)
 export const createArchiveItem = (

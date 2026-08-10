@@ -157,13 +157,12 @@ export interface PhraseDetailResponseDto {
 export interface CreatePhraseRequestDto {
     conversationId: string;
     content: string;
-    memo?: string;
+    // memo 제거 — AI가 자동 생성으로 변경
 }
 
 export const createPhraseRequestSchema = z.object({
     conversationId: z.string().uuid(),
     content: z.string().trim().min(1, "저장할 문장을 입력해주세요."),
-    memo: z.string().optional(),
 }) satisfies z.ZodType<CreatePhraseRequestDto>;
 
 export interface CreatePhraseResponseDto {
@@ -171,6 +170,8 @@ export interface CreatePhraseResponseDto {
     conversationId: string;
     content: string;
     memo: string | null;
+    /** AI가 생성한 태그 3개 고정. AI 실패 시 빈 배열. */
+    chips: string[];
     createdAt: string;
 }
 

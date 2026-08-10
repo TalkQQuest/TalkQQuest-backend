@@ -55,6 +55,8 @@ export const markFeedbackReady = (
     missionSummary: string[];
     summaryChips: string[]; // 대화 요약 키워드 칩 3개(단어 형태)
     conversationSummary: string; // 대화 전체 2~3문장 요약
+    cardSummary: string; // 대화 카드(목록)용 1~2줄 축약 요약 (#169)
+    conversationHighlights: string[]; // 대화 상세 "주요 내용" — 실제 흐름 2~3개 (#169)
     savedPhrase: string;
   }
 ) =>
@@ -69,6 +71,8 @@ export const markFeedbackReady = (
       mission_summary: data.missionSummary as unknown as Prisma.InputJsonValue,
       summary_chips: data.summaryChips as unknown as Prisma.InputJsonValue,
       conversation_summary: data.conversationSummary,
+      card_summary: data.cardSummary,
+      conversation_highlights: data.conversationHighlights as unknown as Prisma.InputJsonValue,
       saved_phrase: data.savedPhrase,
       status: "ready",
       // status와 같은 update로 함께 기록한다. 성장 프로필(User_Growth_Profiles)의 증분 갱신이

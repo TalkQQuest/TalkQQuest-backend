@@ -137,6 +137,8 @@ const runGeneration = async (
     missionSummary: result.missionSummary,
     summaryChips: result.summaryChips,
     conversationSummary: result.conversationSummary,
+    cardSummary: result.cardSummary,
+    conversationHighlights: result.conversationHighlights,
     savedPhrase: result.savedPhrase,
   });
 };

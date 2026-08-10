@@ -133,6 +133,8 @@ export interface ConversationDetailResponseDto {
     durationMinutes: number | null;
     /** 대화 요약 키워드 칩 3개(단어 형태). 피드백 생성 전에는 빈 배열. */
     summaryChips: string[];
+    /** "주요 내용" — 실제 대화 흐름을 2~3개 포인트로 서술. 피드백 생성 전에는 빈 배열(#169). */
+    keyPoints: string[];
     messages: ConversationDetailMessageDto[];
     feedback: ConversationFeedbackDto | null;
 }

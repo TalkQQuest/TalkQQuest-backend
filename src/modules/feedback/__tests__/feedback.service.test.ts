@@ -34,6 +34,8 @@ const llmSuccess = () => ({
   missionSummary: ["장소 경험을 공유했어요"],
   summaryChips: ["자기성장", "첫 만남", "스몰토크"],
   conversationSummary: "카페에서 처음 만난 사람과 날씨 이야기를 나눴습니다.",
+  cardSummary: "처음 만난 사람과 인사를 나눴어요.",
+  conversationHighlights: ["먼저 인사를 건넸어요", "날씨 이야기로 대화를 이어갔어요"],
   savedPhrase: "오늘 날씨가 좋네요.",
 });
 

@@ -103,7 +103,8 @@ const resolveConversationExtrasBatch = async (
             feedback.conversation_id,
             {
                 tags: toSummaryChips(feedback.summary_chips).slice(0, 2),
-                description: feedback.conversation_summary,
+                // 카드에는 상세용 conversation_summary가 아니라 카드 전용 축약 요약을 쓴다(#169).
+                description: feedback.card_summary,
             },
         ])
     );
@@ -434,6 +435,11 @@ export const getConversationDetail = async (
         durationMinutes: durationMinutes(conversation.started_at, conversation.finished_at),
         // 대화 요약 칩은 피드백 생성 시 저장된다(Feedbacks.summary_chips).
         summaryChips: toSummaryChips(feedback?.summary_chips),
+        // "주요 내용" — 실제 대화 흐름 2~3개(Feedbacks.conversation_highlights).
+        // 요약(summary)과 달리 사건 단위 서술이다. 피드백 생성 전이면 빈 배열(#169).
+        keyPoints: Array.isArray(feedback?.conversation_highlights)
+            ? (feedback.conversation_highlights as string[])
+            : [],
         messages: conversation.messages.map((m) => ({
             sender: m.role === "user" ? "USER" : "AI",
             content: m.content,

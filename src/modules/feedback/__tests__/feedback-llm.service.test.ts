@@ -36,6 +36,8 @@ const validResponse = JSON.stringify({
   missionSummary: ["장소 경험을 공유했어요"],
   summaryChips: ["자기성장", "첫 만남", "스몰토크"],
   conversationSummary: "카페에서 처음 만난 사람에게 먼저 인사를 건네고 날씨와 동네 이야기를 나눴습니다.",
+  cardSummary: "처음 만난 사람과 인사를 나눴어요.",
+  conversationHighlights: ["먼저 인사를 건넸어요", "날씨 이야기로 대화를 이어갔어요"],
   savedPhraseIndex: 1,
 });
 
@@ -57,7 +59,6 @@ describe("buildFeedbackMessages", () => {
   });
 
   it("내용 없는 사용자 발화는 대화 기록과 후보 목록 양쪽에서 똑같이 제외한다", () => {
-    // 한쪽만 걸러내면 이후 번호가 통째로 밀려, 모델이 고른 번호가 다른 발화를 가리킨다.
     const withBlank = [
       { role: "user" as const, content: "   " },
       ...transcript,
@@ -72,8 +73,6 @@ describe("buildFeedbackMessages", () => {
   });
 
   it("끝쪽에 공백 발화가 몰려 있어도 유효 발화가 밀려나지 않는다", () => {
-    // 상한을 먼저 적용하면 공백 발화가 자리를 차지해 후보 목록이 비고,
-    // LLM이 고른 번호를 해석할 수 없어 피드백 생성이 통째로 실패한다.
     const blanks = Array.from({ length: 60 }, () => ({ role: "user" as const, content: "  " }));
     const content = buildFeedbackMessages([...transcript, ...blanks], "인사 연습", null)[1].content;
 
@@ -101,6 +100,11 @@ describe("generateFeedbackWithLlm", () => {
     expect(result?.missionSummary).toEqual(["장소 경험을 공유했어요"]);
     expect(result?.summaryChips).toEqual(["자기성장", "첫 만남", "스몰토크"]);
     expect(result?.conversationSummary).toContain("카페에서 처음 만난 사람");
+    expect(result?.cardSummary).toBe("처음 만난 사람과 인사를 나눴어요.");
+    expect(result?.conversationHighlights).toEqual([
+      "먼저 인사를 건넸어요",
+      "날씨 이야기로 대화를 이어갔어요",
+    ]);
     expect(mockedCall).toHaveBeenCalledTimes(1);
   });
 
@@ -109,7 +113,6 @@ describe("generateFeedbackWithLlm", () => {
 
     const result = await generateFeedbackWithLlm(transcript, "인사 연습", null);
 
-    // 1번 = 첫 번째 사용자 발화, 2번 = 두 번째 사용자 발화 (guide 발화는 번호에서 제외된다)
     expect(result?.metrics.kindness.bestSentence).toBe("안녕하세요! 오늘 날씨가 좋네요");
     expect(result?.metrics.questionLink.bestSentence).toBe("혹시 이 근처 자주 오세요?");
     expect(result?.savedPhrase).toBe("안녕하세요! 오늘 날씨가 좋네요");
@@ -126,6 +129,8 @@ describe("generateFeedbackWithLlm", () => {
         missionSummary: ["요약"],
         summaryChips: ["자기성장", "첫 만남", "스몰토크"],
         conversationSummary: "요약 문장입니다.",
+        cardSummary: "짧은 요약입니다.",
+        conversationHighlights: ["흐름1", "흐름2"],
         savedPhraseIndex: 1,
       }),
     });
@@ -134,7 +139,6 @@ describe("generateFeedbackWithLlm", () => {
   });
 
   it("사용자 발화 범위를 벗어난 번호를 고르면 null을 반환한다(하지 않은 말 방지)", async () => {
-    // 사용자 발화는 2건인데 3번을 고른 경우 = 지어낸 문장
     mockedCall.mockResolvedValue({
       ok: true,
       content: JSON.stringify({
@@ -145,6 +149,8 @@ describe("generateFeedbackWithLlm", () => {
         missionSummary: ["요약"],
         summaryChips: ["자기성장", "첫 만남", "스몰토크"],
         conversationSummary: "요약 문장입니다.",
+        cardSummary: "짧은 요약입니다.",
+        conversationHighlights: ["흐름1", "흐름2"],
         savedPhraseIndex: 1,
       }),
     });
@@ -163,6 +169,8 @@ describe("generateFeedbackWithLlm", () => {
         missionSummary: ["요약"],
         summaryChips: ["자기성장", "첫 만남", "스몰토크"],
         conversationSummary: "요약 문장입니다.",
+        cardSummary: "짧은 요약입니다.",
+        conversationHighlights: ["흐름1", "흐름2"],
         savedPhraseIndex: 99,
       }),
     });
@@ -181,6 +189,8 @@ describe("generateFeedbackWithLlm", () => {
         missionSummary: ["요약"],
         summaryChips: ["자기성장", "첫 만남", "스몰토크"],
         conversationSummary: "요약 문장입니다.",
+        cardSummary: "짧은 요약입니다.",
+        conversationHighlights: ["흐름1", "흐름2"],
         savedPhraseIndex: 1,
       }),
     });
@@ -217,7 +227,7 @@ describe("generateFeedbackWithLlm", () => {
   it("스키마에 안 맞으면(지표 누락) null을 반환한다", async () => {
     mockedCall.mockResolvedValue({
       ok: true,
-      content: JSON.stringify({ kindness: validMetric }), // 나머지 3개 지표 누락
+      content: JSON.stringify({ kindness: validMetric }),
     });
 
     expect(await generateFeedbackWithLlm(transcript, "인사 연습", null)).toBeNull();
@@ -234,6 +244,8 @@ describe("generateFeedbackWithLlm", () => {
         missionSummary: ["요약"],
         summaryChips: ["자기성장", "첫 만남", "스몰토크"],
         conversationSummary: "요약 문장입니다.",
+        cardSummary: "짧은 요약입니다.",
+        conversationHighlights: ["흐름1", "흐름2"],
         savedPhraseIndex: 1,
       }),
     });
@@ -242,7 +254,6 @@ describe("generateFeedbackWithLlm", () => {
   });
 
   it("summaryChips가 3개가 아니거나 문장(12자 초과)이면 null을 반환한다", async () => {
-    // 2개(부족)
     mockedCall.mockResolvedValueOnce({
       ok: true,
       content: JSON.stringify({
@@ -253,12 +264,13 @@ describe("generateFeedbackWithLlm", () => {
         missionSummary: ["요약"],
         summaryChips: ["자기성장", "첫 만남"],
         conversationSummary: "요약 문장입니다.",
+        cardSummary: "짧은 요약입니다.",
+        conversationHighlights: ["흐름1", "흐름2"],
         savedPhraseIndex: 1,
       }),
     });
     expect(await generateFeedbackWithLlm(transcript, "인사 연습", null)).toBeNull();
 
-    // 문장형(12자 초과) — 단어 포맷 위반
     mockedCall.mockResolvedValue({
       ok: true,
       content: JSON.stringify({
@@ -269,6 +281,8 @@ describe("generateFeedbackWithLlm", () => {
         missionSummary: ["요약"],
         summaryChips: ["자기성장", "첫 만남", "오늘 처음 만난 사람과 즐겁게 대화했어요"],
         conversationSummary: "요약 문장입니다.",
+        cardSummary: "짧은 요약입니다.",
+        conversationHighlights: ["흐름1", "흐름2"],
         savedPhraseIndex: 1,
       }),
     });

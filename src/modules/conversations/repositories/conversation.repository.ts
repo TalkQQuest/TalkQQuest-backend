@@ -28,25 +28,27 @@ export class ConversationRepository {
     }
 
     async createConversation(
-        userId: string,
-        dto: CreateConversationDto,
-        roleSetup: { persona: string | null; userTask: string | null }
-    ) {
-        return this.prisma.conversations.create({
-        data: {
-            user_id: userId,
-            mission_id: dto.missionId,
-            mode: dto.mode,
-            selected_topic: dto.selectedTopic ?? null,
-            // 이 대화가 어떤 상황 설정으로 시작됐는지 남긴다. 설정 없이 시작했으면 null.
-            mission_setup_id: dto.missionSetupId ?? null,
-            persona: roleSetup.persona,
-            user_task: roleSetup.userTask,
-            status: "in_progress",
-            started_at: new Date(),
-        },
-        });
-    }
+    userId: string,
+    dto: CreateConversationDto,
+    roleSetup: { persona: string | null; userTask: string | null },
+    verifiedMissionSetupId: string | null
+) {
+    return this.prisma.conversations.create({
+    data: {
+        user_id: userId,
+        mission_id: dto.missionId,
+        mode: dto.mode,
+        selected_topic: dto.selectedTopic ?? null,
+        // 서비스 레이어에서 소유권 검증까지 끝난 ID만 받는다 — dto.missionSetupId를
+        // 직접 쓰지 않는다(검증 안 된 값이 그대로 저장되는 걸 막기 위함).
+        mission_setup_id: verifiedMissionSetupId,
+        persona: roleSetup.persona,
+        user_task: roleSetup.userTask,
+        status: "in_progress",
+        started_at: new Date(),
+    },
+    });
+}
 
     // Mission_Setups 조회. 본인 것만, 해당 미션 것만 쓸 수 있도록 mission_id/user_id로 좁힌다.
     async findMissionSetupById(missionSetupId: string, userId: string, missionId: string) {

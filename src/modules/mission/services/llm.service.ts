@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { logger } from "../../../config/logger";
 import { stripCodeFence, callUpstageChat, upstageModel } from "../../../shared/ai";
-import { LlmHealthResponseDto } from "../dtos/mission.dto";
+import { LlmHealthResponseDto, SetupGuidelineDto, setupGuidelineSchema } from "../dtos/mission.dto";
 import {
   RecommendationCriteria,
   RecommendedMission,
@@ -37,7 +37,7 @@ export type ParseResult =
   | { ok: true; mission: RecommendedMission }
   | { ok: false; reason: "invalid_json" | "schema_invalid" };
 
-const MAX_TOKENS = 500;
+const MAX_TOKENS = 900;
 const TEMPERATURE = 0.7;
 
 // LLM이 반드시 이 형태의 JSON만 반환하도록 프롬프트로 강제하고, 응답도 이 스키마로 검증한다.
@@ -49,7 +49,47 @@ const llmMissionSchema = z.object({
   category: z.string().min(1),
   reason: z.string().min(1),
   expected_effect: z.string().min(1),
+  // 별도 검증하여 이 필드만 깨진 경우 정상 미션까지 폴백하지 않는다.
+  setup_guideline: z.unknown().optional(),
 });
+
+const llmSetupGuidelineSchema = setupGuidelineSchema.pick({
+  defaults: true,
+  disabled: true,
+  tags: true,
+});
+
+const normalizeSetupGuideline = (raw: unknown): SetupGuidelineDto | null => {
+  const parsed = llmSetupGuidelineSchema.safeParse(raw);
+  if (!parsed.success) {
+    logger.warn(
+      { issues: parsed.error.issues },
+      "LLM setupGuideline 스키마 검증 실패 — 미션은 유지하고 가이드라인만 제외"
+    );
+    return null;
+  }
+
+  const { defaults } = parsed.data;
+  const disabled = {
+    environment: parsed.data.disabled.environment.filter((value) => value !== defaults.environment),
+    partnerRole: parsed.data.disabled.partnerRole.filter((value) => value !== defaults.partnerRole),
+    intimacyLevel: parsed.data.disabled.intimacyLevel.filter(
+      (value) => value !== defaults.intimacyLevel
+    ),
+    formalityLevel: parsed.data.disabled.formalityLevel.filter(
+      (value) => value !== defaults.formalityLevel
+    ),
+    partnerGender: parsed.data.disabled.partnerGender.filter(
+      (value) => value !== defaults.partnerGender
+    ),
+    partnerAgeGroup: parsed.data.disabled.partnerAgeGroup.filter(
+      (value) => value !== defaults.partnerAgeGroup
+    ),
+  };
+  const tags = [...new Set(parsed.data.tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 5);
+
+  return { defaults, disabled, tags, note: null, recommendedTopics: [] };
+};
 
 interface ChatMessage {
   role: "system" | "user";
@@ -72,6 +112,23 @@ reason과 expected_effect 작성 규칙 (사용자에게 그대로 보여지는 
 - 정보가 부족하다는 사실을 언급하지 마세요. ("관심사 정보가 없어서", "데이터가 부족하지만" 같은 표현 금지)
 - 시스템 내부 사정이 아니라, 이 미션이 사용자에게 왜 좋은지만 설명합니다.
 
+setup_guideline 작성 규칙:
+- defaults는 가장 자연스럽고 추천되는 초기 선택값입니다. disabled는 추천 순위가 아니라 선택 자체의 허용 여부입니다. 둘을 서로 독립적으로 판단합니다.
+- "덜 추천됨", "어색함", "흔하지 않음", "일반적이지 않음"은 disabled 사유가 아닙니다. 기본 추천값이 아닌 선택지도 이 이유만으로 막지 않습니다.
+- disabled에는 선택했을 때 미션의 핵심 전제와 명백히 충돌하여 대화 시뮬레이션 자체가 성립하기 어려운 값만 넣습니다.
+- 현실적으로 가능한 상황은 모두 허용합니다. 판단이 조금이라도 애매하면 disabled에 넣지 않고 허용합니다.
+- intimacyLevel과 formalityLevel의 1 또는 5 같은 극단값도 단순히 부자연스럽거나 덜 추천된다는 이유로 제한하지 않습니다. 핵심 전제와 명백히 충돌할 때만 제한합니다.
+- partnerGender와 partnerAgeGroup은 미션 자체에서 특정 성별이나 연령이 필수라는 전제가 명시된 경우가 아니면 반드시 빈 배열로 둡니다.
+- partnerRole도 미션 설명에서 특정 인간관계가 핵심 전제로 명시된 경우에만 disabled 값을 넣습니다.
+- 예: "친구에게 사과하기"처럼 친구 관계가 반드시 필요하면 friend 외 일부 역할을 제한할 수 있습니다.
+- 반대로 "카페 직원에게 인사하기", "가게 주인과 대화하기"처럼 직원·주인이 상황적 대화 대상일 뿐 특정 인간관계를 전제하지 않는 미션은 disabled.partnerRole을 빈 배열로 둡니다.
+- 예: "이웃 가게 주인과 간단한 안부 인사 나누기"는 친밀도나 격식 수준이 다양해도 현실적으로 가능하므로 intimacyLevel과 formalityLevel을 포함한 disabled 배열을 비워 둡니다.
+- 대부분의 미션에서 disabled의 모든 배열이 빈 배열인 결과는 정상이며 권장됩니다.
+- defaults.partnerGender는 필수이며 반드시 문자열 "male" 또는 "female" 중 하나만 사용합니다.
+- 상대 성별이 미션 수행에 중요하지 않거나 특정되지 않아도 기본 추천값으로 "male" 또는 "female" 중 하나를 반드시 선택합니다.
+- defaults.partnerGender에 "other", "any", "unknown", null 또는 그 밖의 값을 절대 생성하지 않습니다.
+- disabled.partnerGender에도 "male"과 "female" 외의 값은 절대 넣지 않습니다.
+
 - 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
 {
   "mission_title": "string",
@@ -80,7 +137,26 @@ reason과 expected_effect 작성 규칙 (사용자에게 그대로 보여지는 
   "estimated_minutes": 정수,
   "category": "string",
   "reason": "이 미션을 추천한 이유",
-  "expected_effect": "기대 효과"
+  "expected_effect": "기대 효과",
+  "setup_guideline": {
+    "defaults": {
+      "environment": "school | workplace | daily_place | community | online 중 하나",
+      "partnerRole": "friend | senior | junior | peer | other 중 하나",
+      "intimacyLevel": "1~5 정수",
+      "formalityLevel": "1~5 정수",
+      "partnerGender": "female",
+      "partnerAgeGroup": "teens | twenties | thirties | forties | fifties | sixties_plus 중 하나"
+    },
+    "disabled": {
+      "environment": "상황과 명백히 모순되는 environment 값만 담은 배열(대부분 [])",
+      "partnerRole": "특정 인간관계가 핵심 전제로 명시된 경우에만 막을 값을 담은 배열(상황적 대상이면 반드시 [])",
+      "intimacyLevel": "핵심 전제와 명백히 충돌해 선택 자체가 불가능한 1~5 정수만 담은 배열(대부분 [])",
+      "formalityLevel": "핵심 전제와 명백히 충돌해 선택 자체가 불가능한 1~5 정수만 담은 배열(대부분 [])",
+      "partnerGender": "미션에 특정 성별이 필수라고 명시된 경우에만 막을 값을 담은 배열(그 외 반드시 [])",
+      "partnerAgeGroup": "미션에 특정 연령이 필수라고 명시된 경우에만 막을 값을 담은 배열(그 외 반드시 [])"
+    },
+    "tags": "미션 성격을 나타내는 짧은 한국어 태그 배열(최대 5개)"
+  }
 }`;
 
 const nonEmpty = (values: string[]): string[] =>
@@ -176,6 +252,7 @@ export const parseLlmMission = (rawContent: string): ParseResult => {
       reason: data.reason,
       expectedEffect: data.expected_effect,
       source: "llm",
+      setupGuideline: normalizeSetupGuideline(data.setup_guideline),
       recommendationLogId: null, // recommendation.service가 로깅 후 채운다
     },
   };

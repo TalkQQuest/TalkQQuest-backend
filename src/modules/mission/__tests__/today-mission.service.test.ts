@@ -39,6 +39,7 @@ const recommended = (overrides: Record<string, unknown> = {}) => ({
   reason: "이유",
   expectedEffect: "효과",
   source: "llm" as const,
+  setupGuideline: null,
   recommendationLogId: "log1",
   ...overrides,
 });

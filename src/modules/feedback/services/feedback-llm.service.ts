@@ -52,6 +52,11 @@ const feedbackLlmSchema = z.object({
   summaryChips: summaryChipSchema,
   // 대화 전체를 2~3문장으로 요약한 텍스트(칩과 달리 문장형).
   conversationSummary: z.string().min(1).max(500),
+  // 대화 카드(목록)용 1~2줄 축약 요약. conversationSummary와 같은 대화 내용을 기반으로 하되
+  // 짧은 버전으로 함께 생성한다(#169).
+  cardSummary: z.string().min(1).max(100),
+  // "주요 내용" — 대화에서 실제 있었던 흐름을 시간 순으로 2~3개(#169).
+  conversationHighlights: z.array(z.string().min(1).max(80)).min(2).max(3),
   savedPhraseIndex: userUtteranceIndexSchema,
 });
 
@@ -70,6 +75,8 @@ export interface FeedbackLlmResult {
   missionSummary: string[];
   summaryChips: string[];
   conversationSummary: string;
+  cardSummary: string;
+  conversationHighlights: string[];
   savedPhrase: string;
 }
 
@@ -113,6 +120,8 @@ const SYSTEM_PROMPT = `당신은 사용자의 실제 대화 연습을 분석하�
 - missionSummary: 미션 완료 화면에 보여줄 짧은 요약 태그를 1~3개 생성합니다 (예: "장소 경험을 공유했어요").
 - summaryChips: 이 대화 전체를 대표하는 키워드 칩을 정확히 3개 생성합니다. 반드시 문장이 아니라 단어/짧은 명사구여야 하며(예: "자기성장", "첫 만남", "스몰토크"), 각 칩은 최대 12자, 마침표나 서술형 어미를 쓰지 않습니다.
 - conversationSummary: 이 대화가 어떤 내용이었는지 2~3문장으로 요약합니다. 나중에 대화 기록을 다시 볼 때 한눈에 파악할 수 있도록 무엇에 대해 이야기했는지 중심으로 쓰고, 평가나 점수는 넣지 않습니다.
+- cardSummary: conversationSummary와 같은 대화 내용을 바탕으로, 목록 카드에 보여줄 1~2줄(50자 내외)의 축약 버전을 씁니다. 새로운 내용을 넣지 말고 conversationSummary를 짧게 줄인 버전이어야 합니다.
+- conversationHighlights: 이 대화에서 실제로 있었던 흐름을 시간 순서대로 2~3개의 짧은 문장으로 씁니다 (예: "먼저 인사를 건네며 대화를 시작했어요", "상대의 질문에 답하며 대화를 이어갔어요"). missionSummary(평가 태그)나 conversationSummary(전체 요약)와 달리, 대화 중 실제로 일어난 행동을 순서대로 나열하는 것입니다.
 - savedPhraseIndex: 사용자가 나중에 다시 쓰기 좋은 발화를 "사용자 발화 목록"에서 골라 그 **번호만** 적습니다. bestSentenceIndex와 같은 규칙입니다.
 - 근거 없이 과장하지 말고, 실제 대화 내용에 기반해 구체적으로 씁니다.
 - 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
@@ -124,6 +133,8 @@ const SYSTEM_PROMPT = `당신은 사용자의 실제 대화 연습을 분석하�
   "missionSummary": ["string"],
   "summaryChips": ["단어", "단어", "단어"],
   "conversationSummary": "string",
+  "cardSummary": "string",
+  "conversationHighlights": ["string", "string"],
   "savedPhraseIndex": 정수
 }`;
 
@@ -217,6 +228,8 @@ const parseFeedbackLlm = (
     missionSummary: data.missionSummary,
     summaryChips: data.summaryChips,
     conversationSummary: data.conversationSummary,
+    cardSummary: data.cardSummary,
+    conversationHighlights: data.conversationHighlights,
     savedPhrase,
   };
 };

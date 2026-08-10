@@ -52,28 +52,50 @@ const MOCK_GUIDE_RESPONSES = [
     constructor(private readonly conversationRepository: ConversationRepository) {}
 
     async createConversation(
-        userId: string,
-        dto: CreateConversationDto
-    ): Promise<CreateConversationResponse> {
-        const mission = await this.conversationRepository.findMissionById(dto.missionId);
-        if (!mission) throw ConversationError.missionNotFound();
+    userId: string,
+    dto: CreateConversationDto
+): Promise<CreateConversationResponse> {
+    const mission = await this.conversationRepository.findMissionById(dto.missionId);
+    if (!mission) throw ConversationError.missionNotFound();
 
-        // 배역과 "사용자가 할 일"을 이 시점에 한 번 정해 저장한다. 매 턴 다시 만들지 않으므로
-        // 대화 내내 일관되고, 생성이 실패해도(null) 미션 제목 기반으로 그대로 진행된다.
-        // 플레이북은 미션 단위라 처음 대화를 시작하는 사용자만 생성 비용을 치른다.
-        // 배역 설정과 독립이라 병렬로 처리해 세션 생성 지연을 줄인다.
-        const [roleSetup] = await Promise.all([
-        generateRoleSetup(mission.title, mission.description),
+    // 사용자가 미션 창에서 상황 설정을 골랐다면 그 설정을 배역 생성에 반영한다.
+    // 못 찾으면(다른 사람 것이거나 삭제됨) 조용히 무시하고 설정 없이 진행한다 —
+    // 상황 설정은 연출 정보일 뿐이라, 없다고 대화 시작 자체를 막을 이유가 없다.
+    const missionSetup = dto.missionSetupId
+        ? await this.conversationRepository.findMissionSetupById(
+              dto.missionSetupId,
+              userId,
+              dto.missionId
+          )
+        : null;
+
+    // 배역과 "사용자가 할 일"을 이 시점에 한 번 정해 저장한다. 매 턴 다시 만들지 않으므로
+    // 대화 내내 일관되고, 생성이 실패해도(null) 미션 제목 기반으로 그대로 진행된다.
+    // 플레이북은 미션 단위라 처음 대화를 시작하는 사용자만 생성 비용을 치른다.
+    // 배역 설정과 독립이라 병렬로 처리해 세션 생성 지연을 줄인다.
+    const [roleSetup] = await Promise.all([
+        generateRoleSetup(
+            mission.title,
+            mission.description,
+            missionSetup
+                ? {
+                        environment: missionSetup.environment,
+                        partnerRole: missionSetup.partner_role,
+                        partnerGender: missionSetup.partner_gender,
+                        partnerAgeGroup: missionSetup.partner_age_group,
+                        intimacyLevel: missionSetup.intimacy_level,
+                        formalityLevel: missionSetup.formality_level,
+                    }
+                : null
+        ),
         this.ensureMissionPlaybook(mission),
-        ]);
-        const conversation = await this.conversationRepository.createConversation(userId, dto, roleSetup);
+    ]);
+    const conversation = await this.conversationRepository.createConversation(userId, dto, roleSetup);
 
-        // 첫 안내를 guide 메시지로 저장해 둔다. 앱이 응답에서 바로 띄울 수도 있고,
-        // 나중에 대화 기록을 다시 열었을 때도 같은 안내가 남아 있어야 하기 때문이다.
-        const openingMessage = buildOpeningMessage(mission.title);
-        await this.conversationRepository.createMessage(conversation.id, "guide", openingMessage);
+    const openingMessage = buildOpeningMessage(mission.title);
+    await this.conversationRepository.createMessage(conversation.id, "guide", openingMessage);
 
-        return {
+    return {
         conversationId: conversation.id,
         missionId: mission.id,
         missionTitle: mission.title,
@@ -82,8 +104,8 @@ const MOCK_GUIDE_RESPONSES = [
         status: "in_progress",
         startedAt: conversation.started_at.toISOString(),
         openingMessage,
-        };
-    }
+    };
+}
 
     async getConversation(
         userId: string,

@@ -38,13 +38,28 @@ export class ConversationRepository {
             mission_id: dto.missionId,
             mode: dto.mode,
             selected_topic: dto.selectedTopic ?? null,
-            // 배역과 "사용자의 몫"은 세션 생성 시 한 번 정해 굳힌다. 매 턴 프롬프트에 다시
-            // 주입해, 이력이 잘려도 배역이 흔들리거나 AI가 과제를 먼저 하지 않게 한다.
+            // 이 대화가 어떤 상황 설정으로 시작됐는지 남긴다. 설정 없이 시작했으면 null.
+            mission_setup_id: dto.missionSetupId ?? null,
             persona: roleSetup.persona,
             user_task: roleSetup.userTask,
             status: "in_progress",
             started_at: new Date(),
         },
+        });
+    }
+
+    // Mission_Setups 조회. 본인 것만, 해당 미션 것만 쓸 수 있도록 mission_id/user_id로 좁힌다.
+    async findMissionSetupById(missionSetupId: string, userId: string, missionId: string) {
+        return this.prisma.mission_Setups.findFirst({
+            where: { id: missionSetupId, user_id: userId, mission_id: missionId },
+            select: {
+                environment: true,
+                partner_role: true,
+                partner_gender: true,
+                partner_age_group: true,
+                intimacy_level: true,
+                formality_level: true,
+            },
         });
     }
 

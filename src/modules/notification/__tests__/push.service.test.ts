@@ -16,6 +16,19 @@ beforeEach(() => {
 });
 
 describe("sendPushToUser", () => {
+  // 회귀 테스트(#166): getFirebaseMessaging()이 Firebase 초기화 오류(예: malformed PEM
+  // private key)로 동기 throw해도, sendPushToUser는 이 예외를 흡수하고 조용히 resolve해야 한다.
+  it("getFirebaseMessaging()이 동기적으로 throw해도 reject하지 않고 조용히 끝난다", async () => {
+    mockedGetMessaging.mockImplementation(() => {
+      throw new Error("Failed to parse private key: Invalid PEM formatted message");
+    });
+
+    await expect(
+      sendPushToUser("u1", { title: "t", body: "b", data: { type: "report_ready" } })
+    ).resolves.toBeUndefined();
+    expect(mockedRepo.findDeviceTokensByUserId).not.toHaveBeenCalled();
+  });
+
   it("Firebase가 설정 안 돼 있으면(null) 조용히 건너뛴다", async () => {
     mockedGetMessaging.mockReturnValue(null);
 

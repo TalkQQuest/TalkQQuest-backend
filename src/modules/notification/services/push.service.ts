@@ -30,7 +30,16 @@ const toStringData = (data: PushPayload["data"]): Record<string, string> => {
 // 이 유저의 등록된 기기 전체로 발송한다. 실패는 절대 위로 던지지 않는다 —
 // 알림 자체(DB 행 생성)는 이미 끝난 상태라, 푸시 발송 실패가 그 성공을 무효로 만들면 안 된다.
 export const sendPushToUser = async (userId: string, payload: PushPayload): Promise<void> => {
-  const messaging = getFirebaseMessaging();
+  // getFirebaseMessaging()은 최초 호출 시 Firebase Admin SDK를 초기화하는데, PEM 형식이 깨진
+  // private key처럼 설정 자체가 잘못되면 cert()/initializeApp()이 여기서 동기적으로 throw할 수
+  // 있다. 이 함수의 "절대 reject하지 않는다"는 계약을 지키려면 이 호출도 감싸야 한다.
+  let messaging: ReturnType<typeof getFirebaseMessaging>;
+  try {
+    messaging = getFirebaseMessaging();
+  } catch (error) {
+    logger.warn({ err: error, userId }, "Firebase 초기화 실패로 푸시 발송을 건너뜀");
+    return;
+  }
   if (!messaging) {
     logger.info({ userId }, "[dev-only] 푸시 발송 건너뜀 (FIREBASE_* 미설정)");
     return;

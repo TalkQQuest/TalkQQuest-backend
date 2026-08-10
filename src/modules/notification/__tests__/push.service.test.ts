@@ -6,10 +6,12 @@ jest.mock("../../../config/logger", () => ({
 
 import { getFirebaseMessaging } from "../../../config/firebase";
 import * as deviceRepository from "../../device/repositories/device.repository";
+import { logger } from "../../../config/logger";
 import { sendPushToUser } from "../services/push.service";
 
 const mockedGetMessaging = jest.mocked(getFirebaseMessaging);
 const mockedRepo = jest.mocked(deviceRepository);
+const mockedLogger = jest.mocked(logger);
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -19,14 +21,21 @@ describe("sendPushToUser", () => {
   // 회귀 테스트(#166): getFirebaseMessaging()이 Firebase 초기화 오류(예: malformed PEM
   // private key)로 동기 throw해도, sendPushToUser는 이 예외를 흡수하고 조용히 resolve해야 한다.
   it("getFirebaseMessaging()이 동기적으로 throw해도 reject하지 않고 조용히 끝난다", async () => {
+    const initError = new Error("Failed to parse private key: Invalid PEM formatted message");
     mockedGetMessaging.mockImplementation(() => {
-      throw new Error("Failed to parse private key: Invalid PEM formatted message");
+      throw initError;
     });
 
     await expect(
       sendPushToUser("u1", { title: "t", body: "b", data: { type: "report_ready" } })
     ).resolves.toBeUndefined();
     expect(mockedRepo.findDeviceTokensByUserId).not.toHaveBeenCalled();
+    // 로그 자체가 빠지거나 내용이 누락돼도 위 assertion들은 통과하므로, 실제로 경고 로그가
+    // userId/에러 정보와 함께 남는지도 따로 검증한다.
+    expect(mockedLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: initError, userId: "u1" }),
+      expect.any(String)
+    );
   });
 
   it("Firebase가 설정 안 돼 있으면(null) 조용히 건너뛴다", async () => {

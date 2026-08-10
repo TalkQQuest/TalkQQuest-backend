@@ -26,6 +26,12 @@ export interface PlaybookResponseRuleDto {
 }
 
 export interface PlaybookViewDto {
+  /** 사용자가 이 미션에서 수행해야 할 전체 목표. 기존 플레이북에는 없을 수 있다. */
+  objective?: string;
+  /** 실제 대화 기록에서 확인할 수 있는 구체적인 성공 행동. */
+  successCriteria?: string[];
+  /** 향후 피드백에서 중점적으로 평가할 관찰 포인트. */
+  feedbackFocus?: string[];
   /** 대화가 거쳐갈 단계 3개. 서버가 진행도를 계산해 매 턴 한 단계만 프롬프트에 넣는다. */
   flow: PlaybookFlowStepDto[];
   /** 상황별 대응 지침. 사용자 발화와 의미가 가까운 것만 골라 주입한다. */
@@ -48,6 +54,9 @@ export interface PlaybookResponseDto {
 // PUT 요청 본문. 검증 규칙(단계 3개, 예시 2~4개, 규칙 1~5개)은 생성 시와 동일한 스키마를 쓴다 —
 // 사람이 손으로 넣은 값이 LLM 생성분보다 느슨하면 안 된다.
 export interface PlaybookRequestDto {
+  objective?: string;
+  successCriteria?: string[];
+  feedbackFocus?: string[];
   flow: PlaybookFlowStepDto[];
   responseRules: PlaybookResponseRuleDto[];
 }

@@ -12,6 +12,10 @@ export class ConversationRepository {
             title: true,
             // 세션 생성 시 배역을 정하는 데 쓴다(상황 설명이 있어야 구체적인 배역이 나온다).
             description: true,
+            category: true,
+            difficulty: true,
+            // 플레이북 생성에는 미션 공통 가이드라인의 tags만 방어적으로 추출해 사용한다.
+            setup_guideline: true,
             // 플레이북은 1MB 넘는 임베딩을 들고 있어 별도 테이블에 있다. 필요한 곳에서만 join한다.
             playbook: { select: { data: true } },
             preparation_tip: true,

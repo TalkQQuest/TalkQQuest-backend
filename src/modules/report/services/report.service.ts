@@ -22,7 +22,8 @@ import {
   WeeklyCompareReportDetailResponseDto,
   WeeklyCompareReportDto,
 } from "../dtos/report.dto";
-import { createNotification, findNotificationSettings } from "../../notification/repositories/notification.repository";
+import { findNotificationSettings } from "../../notification/repositories/notification.repository";
+import { notifyUser } from "../../notification/services/notification.service";
 
 // 성장 리포트 스냅샷 Json 컬럼 구조 (#145 — weeklyCompare는 더 이상 여기 포함되지 않는다).
 interface StoredReportData {
@@ -41,7 +42,7 @@ const notifyReportReady = async (
 ): Promise<void> => {
   const settings = await findNotificationSettings(userId);
   if (!settings?.report_ready) return;
-  await createNotification(userId, "report_ready", title, body, referenceId, referenceType);
+  await notifyUser(userId, "report_ready", title, body, referenceId, referenceType);
 };
 
 // Archive_Items에는 (user_id, item_type, reference_id) unique 제약이 있다. 이미 있으면

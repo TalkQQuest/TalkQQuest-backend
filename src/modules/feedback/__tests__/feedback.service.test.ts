@@ -51,6 +51,16 @@ const buildConversation = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   }) as never;
 
+const storedPlaybook = (metadata: Record<string, unknown> = {}) => ({
+  ...metadata,
+  flow: [
+    { step: "인사", advanceExamples: ["안녕하세요"] },
+    { step: "대화", advanceExamples: ["어떤 메뉴를 좋아하세요?"] },
+    { step: "마무리", advanceExamples: ["다음에 또 봬요"] },
+  ],
+  responseRules: [{ when: "사용자가 막힘", then: "선택지를 제시한다", whenEmbedding: [1, 0] }],
+});
+
 const metricRow = (key: string, label: string, score: number) => ({
   key,
   label,
@@ -202,6 +212,95 @@ describe("createFeedback", () => {
     expect(mockedRepo.createPendingFeedback).not.toHaveBeenCalled();
     expect(mockedRepo.markFeedbackPending).toHaveBeenCalledWith("f1");
   });
+
+  it("Playbook의 평가 메타데이터만 LLM context로 전달한다", async () => {
+    mockedRepo.findConversationForFeedback.mockResolvedValue(
+      buildConversation({
+        mission: {
+          title: "카페 인사하기",
+          description: "먼저 인사해보세요",
+          playbook: {
+            data: storedPlaybook({
+              objective: "처음 만난 사람과 자연스럽게 대화를 시작한다.",
+              successCriteria: ["사용자가 먼저 인사한다."],
+              feedbackFocus: ["대화를 시작하는 표현"],
+            }),
+          },
+        },
+      })
+    );
+    mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
+    mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
+    mockedGenerate.mockResolvedValue(llmSuccess());
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
+
+    await createFeedback("u1", { conversationId: "c1" });
+
+    expect(mockedGenerate).toHaveBeenCalledWith(
+      expect.any(Array),
+      "카페 인사하기",
+      "먼저 인사해보세요",
+      {
+        objective: "처음 만난 사람과 자연스럽게 대화를 시작한다.",
+        successCriteria: ["사용자가 먼저 인사한다."],
+        feedbackFocus: ["대화를 시작하는 표현"],
+      }
+    );
+    const context = mockedGenerate.mock.calls[0][3] as Record<string, unknown>;
+    expect(context).not.toHaveProperty("flow");
+    expect(context).not.toHaveProperty("responseRules");
+  });
+
+  it.each([
+    ["Playbook 없음", undefined],
+    ["잘못된 Playbook", { unexpected: "shape" }],
+    ["평가 메타데이터가 없는 구형 Playbook", storedPlaybook()],
+  ])("%s이면 기존 방식으로 생성한다", async (_label, data) => {
+    mockedRepo.findConversationForFeedback.mockResolvedValue(
+      buildConversation({
+        mission: {
+          title: "카페 인사하기",
+          description: "먼저 인사해보세요",
+          ...(data === undefined ? {} : { playbook: { data } }),
+        },
+      })
+    );
+    mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
+    mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
+    mockedGenerate.mockResolvedValue(llmSuccess());
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
+
+    await createFeedback("u1", { conversationId: "c1" });
+
+    expect(mockedGenerate).toHaveBeenCalledWith(
+      expect.any(Array),
+      "카페 인사하기",
+      "먼저 인사해보세요",
+      undefined
+    );
+  });
+
+  it("successCriteria와 feedbackFocus 중 존재하는 값만 전달한다", async () => {
+    mockedRepo.findConversationForFeedback.mockResolvedValue(
+      buildConversation({
+        mission: {
+          title: "카페 인사하기",
+          description: null,
+          playbook: { data: storedPlaybook({ successCriteria: ["사용자가 먼저 인사한다."] }) },
+        },
+      })
+    );
+    mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
+    mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
+    mockedGenerate.mockResolvedValue(llmSuccess());
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
+
+    await createFeedback("u1", { conversationId: "c1" });
+
+    expect(mockedGenerate.mock.calls[0][3]).toEqual({
+      successCriteria: ["사용자가 먼저 인사한다."],
+    });
+  });
 });
 
 describe("retryFeedback", () => {
@@ -226,5 +325,30 @@ describe("retryFeedback", () => {
 
     expect(result).toEqual({ feedbackId: "f1", status: "pending" });
     expect(mockedRepo.markFeedbackPending).toHaveBeenCalledWith("f1");
+  });
+
+  it("failed Feedback retry에도 동일한 Playbook 평가 context를 적용한다", async () => {
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow({ status: "failed" }));
+    mockedRepo.findConversationForFeedback.mockResolvedValue(
+      buildConversation({
+        mission: {
+          title: "카페 인사하기",
+          description: "먼저 인사해보세요",
+          playbook: {
+            data: storedPlaybook({ feedbackFocus: ["상대 답변과 연결된 후속 질문"] }),
+          },
+        },
+      })
+    );
+    mockedGenerate.mockResolvedValue(llmSuccess());
+
+    await retryFeedback("u1", "f1");
+
+    expect(mockedGenerate).toHaveBeenCalledWith(
+      expect.any(Array),
+      "카페 인사하기",
+      "먼저 인사해보세요",
+      { feedbackFocus: ["상대 답변과 연결된 후속 질문"] }
+    );
   });
 });

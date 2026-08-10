@@ -8,7 +8,13 @@ export const findConversationForFeedback = (conversationId: string, userId: stri
   prisma.conversations.findFirst({
     where: { id: conversationId, user_id: userId },
     include: {
-      mission: { select: { title: true, description: true } },
+      mission: {
+        select: {
+          title: true,
+          description: true,
+          playbook: { select: { data: true } },
+        },
+      },
       messages: {
         orderBy: { created_at: "asc" },
         select: { role: true, content: true },

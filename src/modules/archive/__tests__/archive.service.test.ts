@@ -3,7 +3,7 @@ jest.mock("../../mission/repositories/mission.repository");
 
 import * as archiveRepository from "../repositories/archive.repository";
 import * as missionRepository from "../../mission/repositories/mission.repository";
-import { getArchiveSummary, searchArchives, getConversationDetail } from "../services/archive.service";
+import { getArchiveSummary, searchArchives, getConversationDetail, getPhraseDetail } from "../services/archive.service";
 
 const mockedArchive = jest.mocked(archiveRepository);
 const mockedMission = jest.mocked(missionRepository);
@@ -148,6 +148,7 @@ describe("conversation 타입 — AI 요약 칩/설명(#154, #155, #169)", () =>
       mission: { title: "카페 직원에게 웃으며 인사하기" },
     } as never);
     mockedArchive.findConversationSummaryInfoByIds.mockResolvedValue([]);
+    mockedArchive.findConversationDurationInfoByIds.mockResolvedValue([]);
   });
 
   it("getArchiveSummary — 피드백이 있으면 칩 앞 2개와 카드 요약을 반환한다", async () => {
@@ -342,5 +343,118 @@ describe("getConversationDetail — 재생성 중(pending/failed) 요약 숨김(
     const result = await getConversationDetail("u1", "c1");
 
     expect(result.keyPoints).toEqual(["정상 흐름", "또 다른 정상 흐름"]);
+  });
+});
+
+// #175 — 대화 카드의 소요 시간은 Feedbacks(요약)와 무관하게 Conversations.started_at/finished_at
+// 에서 계산된다. 피드백이 아직 없어도(pending) 대화만 끝났으면 duration은 채워져야 한다.
+describe("conversation 타입 — 소요 시간(#175)", () => {
+  const conversationRow = {
+    id: "a3",
+    reference_id: "c1",
+    item_type: "conversation",
+    created_at: new Date("2026-08-08T00:00:00Z"),
+  };
+
+  beforeEach(() => {
+    mockedArchive.findConversationTitle.mockResolvedValue({
+      mission: { title: "카페 직원에게 웃으며 인사하기" },
+    } as never);
+    mockedArchive.findConversationSummaryInfoByIds.mockResolvedValue([]);
+  });
+
+  it("getArchiveSummary — 종료된 대화는 mm:ss 형식의 duration을 반환한다", async () => {
+    mockedArchive.findRecentArchiveItems.mockResolvedValue([conversationRow] as never);
+    mockedArchive.findConversationDurationInfoByIds.mockResolvedValue([
+      {
+        id: "c1",
+        started_at: new Date("2026-08-08T00:00:00Z"),
+        finished_at: new Date("2026-08-08T00:12:34Z"),
+      },
+    ] as never);
+
+    const result = await getArchiveSummary("u1");
+
+    expect(result.recentItems[0]).toMatchObject({ duration: "12:34" });
+  });
+
+  it("getArchiveSummary — 아직 종료되지 않은 대화는 duration이 null이다", async () => {
+    mockedArchive.findRecentArchiveItems.mockResolvedValue([conversationRow] as never);
+    mockedArchive.findConversationDurationInfoByIds.mockResolvedValue([
+      { id: "c1", started_at: new Date("2026-08-08T00:00:00Z"), finished_at: null },
+    ] as never);
+
+    const result = await getArchiveSummary("u1");
+
+    expect(result.recentItems[0]).toMatchObject({ duration: null });
+  });
+
+  it("searchArchives — conversation 외 타입은 duration 필드가 없다(undefined)", async () => {
+    mockedArchive.searchArchiveItems.mockResolvedValue([
+      {
+        id: "a4",
+        reference_id: "p1",
+        item_type: "phrase",
+        tags: ["일상"],
+        folder_id: null,
+        created_at: new Date("2026-08-08T00:00:00Z"),
+      },
+    ] as never);
+    mockedArchive.findSavedPhraseContent.mockResolvedValue({ content: "오늘 날씨가 좋네요." } as never);
+
+    const result = await searchArchives("u1", { type: "phrase" });
+
+    expect(result.items[0].duration).toBeUndefined();
+  });
+
+  it("getConversationDetail — 종료된 대화는 mm:ss 형식의 duration을 반환한다(#175, 기존엔 durationMinutes 숫자였음)", async () => {
+    mockedArchive.findConversationDetail.mockResolvedValue({
+      id: "c1",
+      started_at: new Date("2026-08-08T00:00:00Z"),
+      finished_at: new Date("2026-08-08T00:12:34Z"),
+      mission: { title: "카페 직원에게 웃으며 인사하기" },
+      messages: [],
+      feedbacks: [],
+    } as never);
+
+    const result = await getConversationDetail("u1", "c1");
+
+    expect(result.duration).toBe("12:34");
+  });
+
+  it("getConversationDetail — 진행 중인 대화는 duration이 null이다", async () => {
+    mockedArchive.findConversationDetail.mockResolvedValue({
+      id: "c1",
+      started_at: new Date("2026-08-08T00:00:00Z"),
+      finished_at: null,
+      mission: { title: "카페 직원에게 웃으며 인사하기" },
+      messages: [],
+      feedbacks: [],
+    } as never);
+
+    const result = await getConversationDetail("u1", "c1");
+
+    expect(result.duration).toBeNull();
+  });
+
+  it("getPhraseDetail — 저장된 문장이 속한 대화의 duration을 반환한다", async () => {
+    mockedArchive.findPhraseById.mockResolvedValue({
+      id: "p1",
+      content: "안녕하세요",
+      memo: null,
+      conversation_id: "c1",
+      conversation: {
+        started_at: new Date("2026-08-08T00:00:00Z"),
+        finished_at: new Date("2026-08-08T00:03:20Z"),
+        mission: { title: "카페 직원에게 웃으며 인사하기" },
+        feedbacks: [],
+      },
+      created_at: new Date("2026-08-08T00:00:00Z"),
+    } as never);
+    mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
+
+    const result = await getPhraseDetail("u1", "p1");
+
+    expect(result.duration).toBe("03:20");
   });
 });

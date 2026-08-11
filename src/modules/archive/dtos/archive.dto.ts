@@ -24,6 +24,10 @@ export interface RecentArchiveItemDto {
     missionStatus?: "in_progress" | "completed";
     /** type이 report일 때 성장 리포트/저장된 주간 비교 리포트를 구분한다. */
     reportType?: "growth" | "weekly_compare";
+    /** type이 conversation일 때만 존재. AI가 생성한 대화 요약 칩 중 앞 2개(#154). */
+    tags?: string[];
+    /** type이 conversation일 때만 존재. AI가 생성한 대화 요약 2~3문장. 피드백 생성 전이면 null(#154). */
+    description?: string | null;
     category?: string;
     difficulty?: MissionDifficultyLabel;
     estimatedMinutes?: number;
@@ -82,6 +86,8 @@ export interface ArchiveSearchItemDto {
     missionStatus?: "in_progress" | "completed" | null;
     /** type이 report일 때 성장 리포트/저장된 주간 비교 리포트를 구분한다. */
     reportType?: "growth" | "weekly_compare";
+    /** type이 conversation일 때만 존재. AI가 생성한 대화 요약 2~3문장. 피드백 생성 전이면 null(#154). */
+    description?: string | null;
     category?: string;
     difficulty?: MissionDifficultyLabel;
     estimatedMinutes?: number;
@@ -127,6 +133,8 @@ export interface ConversationDetailResponseDto {
     durationMinutes: number | null;
     /** 대화 요약 키워드 칩 3개(단어 형태). 피드백 생성 전에는 빈 배열. */
     summaryChips: string[];
+    /** "주요 내용" — 실제 대화 흐름을 2~3개 포인트로 서술. 피드백 생성 전에는 빈 배열(#169). */
+    keyPoints: string[];
     messages: ConversationDetailMessageDto[];
     feedback: ConversationFeedbackDto | null;
 }
@@ -151,13 +159,12 @@ export interface PhraseDetailResponseDto {
 export interface CreatePhraseRequestDto {
     conversationId: string;
     content: string;
-    memo?: string;
+    // memo 제거 — AI가 자동 생성으로 변경
 }
 
 export const createPhraseRequestSchema = z.object({
     conversationId: z.string().uuid(),
     content: z.string().trim().min(1, "저장할 문장을 입력해주세요."),
-    memo: z.string().optional(),
 }) satisfies z.ZodType<CreatePhraseRequestDto>;
 
 export interface CreatePhraseResponseDto {
@@ -165,6 +172,8 @@ export interface CreatePhraseResponseDto {
     conversationId: string;
     content: string;
     memo: string | null;
+    /** AI가 생성한 태그 3개 고정. AI 실패 시 빈 배열. */
+    chips: string[];
     createdAt: string;
 }
 

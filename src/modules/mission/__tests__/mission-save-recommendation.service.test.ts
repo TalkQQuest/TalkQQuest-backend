@@ -18,6 +18,27 @@ const llmRecommendedMission = (overrides: Record<string, unknown> = {}) => ({
   reason: "이유",
   expectedEffect: "효과",
   source: "llm",
+  setupGuideline: {
+    defaults: {
+      environment: "daily_place",
+      partnerRole: "other",
+      intimacyLevel: 2,
+      formalityLevel: 4,
+      partnerGender: "female",
+      partnerAgeGroup: "twenties",
+    },
+    disabled: {
+      environment: [],
+      partnerRole: [],
+      intimacyLevel: [],
+      formalityLevel: [],
+      partnerGender: [],
+      partnerAgeGroup: [],
+    },
+    note: null,
+    recommendedTopics: [],
+    tags: ["첫 만남"],
+  },
   recommendationLogId: "log1",
   ...overrides,
 });
@@ -85,6 +106,7 @@ describe("saveRecommendedMission", () => {
       estimatedMinutes: 10,
       rewardXp: 20,
       category: "짧은 대화",
+      setupGuideline: llmRecommendedMission().setupGuideline,
       // 유사 성향 필터가 쓸 수 있도록 생성자와 그 시점의 성향을 함께 남긴다.
       createdByUserId: "u1",
       creatorPersonalityType: "introvert",

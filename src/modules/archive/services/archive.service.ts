@@ -29,6 +29,7 @@ import {
 import { DuplicatedError } from "../../../shared/errors/common.error";
 import { DIFFICULTY_TO_LABEL } from "../../mission/dtos/mission.constants";
 import { durationMinutes } from "../../../shared/utils/date";
+import { evaluatePhrase } from "./phrase-evaluation.service";
 
 // Feedbacks.summary_chips(Json)를 안전하게 string[]로 변환한다. 없거나 형식이 다르면 빈 배열.
 const toSummaryChips = (raw: unknown): string[] =>
@@ -81,6 +82,36 @@ const resolveItemTitle = async (itemType: ArchiveDbItemType, referenceId: string
     }
 };
 
+type ConversationExtras = { tags: string[]; description: string | null };
+
+// #154/#155 — 대화 카드에 AI 요약을 함께 보여준다. tags는 아카이브 전체에서 지금까지 아무도
+// 채워주지 않던 필드였는데(항상 빈 배열), conversation 타입에 한해 여기서 처음 값을 채운다 —
+// DB 컬럼(Archive_Items.tags)에는 쓰지 않고 조회 시점에 Feedbacks에서 계산만 한다. 피드백이
+// 아직 없으면(대화가 막 끝나 요약 생성 중인 경우) tags는 빈 배열, description은 null로
+// 내려간다 — 에러 아님.
+//
+// 결과 목록의 conversation 개수만큼 개별 조회하면 N+1이 되므로(#155 코드래빗 리뷰), 목록에
+// 등장하는 conversationId를 모아 한 번의 IN 쿼리로 조회해 Map으로 돌려준다.
+const resolveConversationExtrasBatch = async (
+    conversationIds: string[]
+): Promise<Map<string, ConversationExtras>> => {
+    if (conversationIds.length === 0) return new Map();
+
+    const feedbacks = await archiveRepository.findConversationSummaryInfoByIds(conversationIds);
+    return new Map(
+        feedbacks.map((feedback) => [
+            feedback.conversation_id,
+            {
+                tags: toSummaryChips(feedback.summary_chips).slice(0, 2),
+                // 카드에는 상세용 conversation_summary가 아니라 카드 전용 축약 요약을 쓴다(#169).
+                description: feedback.card_summary,
+            },
+        ])
+    );
+};
+
+const EMPTY_CONVERSATION_EXTRAS: ConversationExtras = { tags: [], description: null };
+
 // Archive_Items.item_type("report"/"weekly_compare")을 API 레벨 type("report")과
 // 구분 필드(reportType)로 변환한다 — 미션이 missionStatus로 완료/진행중을 나누는 것과 같은 방식.
 const toApiTypeAndReportType = (
@@ -123,16 +154,26 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
         : [];
     const savedMissionIds = new Set(savedRows.map((s) => s.mission_id));
 
+    const conversationExtrasMap = await resolveConversationExtrasBatch(
+        recentArchiveRows.filter((row) => row.item_type === "conversation").map((row) => row.reference_id)
+    );
+
     const archiveItemsResolved = await Promise.all(
         recentArchiveRows.map(async (row) => {
             const dbType = row.item_type as ArchiveDbItemType;
             const { type, reportType } = toApiTypeAndReportType(dbType);
+            const extras =
+                dbType === "conversation"
+                    ? (conversationExtrasMap.get(row.reference_id) ?? EMPTY_CONVERSATION_EXTRAS)
+                    : null;
             return {
                 id: row.id,
                 referenceId: row.reference_id,
                 type,
                 reportType,
                 title: await resolveItemTitle(dbType, row.reference_id),
+                tags: extras ? extras.tags : ((row.tags as string[] | null) ?? []),
+                description: extras?.description,
                 isBookmarked: true,
                 missionId: null,
                 conversationId: null,
@@ -217,6 +258,10 @@ export const searchArchives = async (
     }
 
     const sort = query.sort === "oldest" ? "asc" : "desc";
+    // #155 코드래빗 리뷰: conversation 타입의 tags는 DB 컬럼(Archive_Items.tags)이 아니라
+    // Feedbacks.summary_chips에서 계산되므로, DB 레벨 array_contains 필터로는 conversation을
+    // 걸러낼 수 없다(응답 tags와 필터 소스가 어긋나 검색이 안 됨). keyword 필터와 동일하게
+    // 애플리케이션 레벨에서 실제 응답 tags 기준으로 필터링한다.
     const rows = await archiveRepository.searchArchiveItems({
         userId,
         type: query.type as "conversation" | "phrase" | "report" | undefined,
@@ -224,13 +269,20 @@ export const searchArchives = async (
         endDate,
         sort,
         folderId: query.folderId,
-        tags: query.tag ? [query.tag] : undefined,
     });
+
+    const conversationExtrasMap = await resolveConversationExtrasBatch(
+        rows.filter((row) => row.item_type === "conversation").map((row) => row.reference_id)
+    );
 
     const itemsWithTitle: ArchiveSearchItemDto[] = await Promise.all(
         rows.map(async (row) => {
             const dbType = row.item_type as ArchiveDbItemType;
             const { type, reportType } = toApiTypeAndReportType(dbType);
+            const extras =
+                dbType === "conversation"
+                    ? (conversationExtrasMap.get(row.reference_id) ?? EMPTY_CONVERSATION_EXTRAS)
+                    : null;
             return {
                 id: row.id,
                 archiveItemId: row.id,
@@ -238,7 +290,8 @@ export const searchArchives = async (
                 type,
                 reportType,
                 title: await resolveItemTitle(dbType, row.reference_id),
-                tags: (row.tags as string[] | null) ?? [],
+                tags: extras ? extras.tags : ((row.tags as string[] | null) ?? []),
+                description: extras?.description,
                 folderId: row.folder_id,
                 isBookmarked: true,
                 missionId: null,
@@ -249,13 +302,17 @@ export const searchArchives = async (
     );
 
     // keyword 검색: title이 여러 테이블에 흩어져 있어 DB join 불가
-    // title을 조회한 뒤 애플리케이션 레벨에서 필터링한다.
+    // tag 검색: conversation의 tags가 Feedbacks에서 계산돼 DB 컬럼과 소스가 다름(위 참고)
+    // 둘 다 조회한 뒤 애플리케이션 레벨에서 필터링한다.
     // 주의: 나중에 페이지네이션이 추가되면
-    // DB에서 N개 가져온 뒤 그중 일부만 keyword에 매칭되는 문제 발생
+    // DB에서 N개 가져온 뒤 그중 일부만 keyword/tag에 매칭되는 문제 발생
     // 이 때는 title을 Archive_Items에 비정규화 후 저장하는 방식 고려 필요
-    const items = keyword
-        ? itemsWithTitle.filter((item) => item.title.toLowerCase().includes(keyword))
-        : itemsWithTitle;
+    const tag = query.tag;
+    const items = itemsWithTitle.filter((item) => {
+        if (keyword && !item.title.toLowerCase().includes(keyword)) return false;
+        if (tag && !item.tags.includes(tag)) return false;
+        return true;
+    });
 
     if (query.type) {
         return paginate(items, page, size);
@@ -367,29 +424,39 @@ export const getConversationDetail = async (
     const conversation = await archiveRepository.findConversationDetail(conversationId, userId);
     if (!conversation) throw new ArchiveConversationNotFoundError();
 
-    const feedback = conversation.feedbacks[0];
+    const feedbackRow = conversation.feedbacks[0];
+    // 재시도(retryFeedback)는 status만 pending으로 되돌리고 이전 conversation_summary/
+    // summary_chips/conversation_highlights는 지우지 않는다. status가 ready일 때만
+    // 요약 관련 필드를 노출해야, 재생성 중인 대화에서 낡은 요약/주요 내용이 보이지 않는다.
+    // (findConversationSummaryInfoByIds가 카드 목록에서 이미 쓰는 것과 같은 기준.)
+    const feedback = feedbackRow?.status === "ready" ? feedbackRow : undefined;
 
     return {
         conversationId: conversation.id,
         missionTitle: conversation.mission?.title ?? null,
         // 대화 요약은 피드백 생성 시 함께 만들어 저장한다(Feedbacks.conversation_summary).
-        // 피드백 생성 전이면 빈 문자열.
+        // 피드백 생성 전이거나 재생성 중(status != ready)이면 빈 문자열.
         summary: feedback?.conversation_summary ?? "",
         durationMinutes: durationMinutes(conversation.started_at, conversation.finished_at),
         // 대화 요약 칩은 피드백 생성 시 저장된다(Feedbacks.summary_chips).
         summaryChips: toSummaryChips(feedback?.summary_chips),
+        // "주요 내용" — 실제 대화 흐름 2~3개(Feedbacks.conversation_highlights).
+        // 요약(summary)과 달리 사건 단위 서술이다. 피드백 생성 전/재생성 중이면 빈 배열(#169).
+        keyPoints: toSummaryChips(feedback?.conversation_highlights),
         messages: conversation.messages.map((m) => ({
             sender: m.role === "user" ? "USER" : "AI",
             content: m.content,
             sentAt: m.created_at.toISOString(),
         })),
-        feedback: feedback
+        // feedback 객체(점수) 노출 여부는 기존 정책대로 feedbackRow 존재 여부만 본다 —
+        // pending/failed여도 피드백 존재 자체(재시도 가능 여부 등)는 프론트가 알아야 할 수 있다.
+        feedback: feedbackRow
             ? {
-                feedbackId: feedback.id,
-                kindnessScore: feedback.kindness_score ?? 0,
-                initiativeScore: feedback.initiative_score ?? 0,
-                empathyScore: feedback.empathy_score ?? 0,
-                questionLinkScore: feedback.question_link_score ?? 0,
+                feedbackId: feedbackRow.id,
+                kindnessScore: feedbackRow.kindness_score ?? 0,
+                initiativeScore: feedbackRow.initiative_score ?? 0,
+                empathyScore: feedbackRow.empathy_score ?? 0,
+                questionLinkScore: feedbackRow.question_link_score ?? 0,
             }
             : null,
     };
@@ -423,11 +490,24 @@ export const createPhrase = async (
     const conversation = await archiveRepository.findConversationById(body.conversationId, userId);
     if (!conversation) throw new ArchiveConversationNotFoundError();
 
+    const recentMessages = await archiveRepository.findRecentConversationMessages(body.conversationId);
+
+    // AI 평가 — 실패해도 저장 자체는 막지 않는다 (memo: null, chips: [] 폴백)
+    const evaluation = await evaluatePhrase({
+        phraseContent: body.content,
+        missionTitle: conversation.mission?.title ?? null,
+        conversationMessages: recentMessages.map((m) => ({
+            role: m.role as "user" | "guide",
+            content: m.content,
+        })),
+    });
+
     const phrase = await archiveRepository.createSavedPhrase({
         user: { connect: { id: userId } },
         conversation: { connect: { id: body.conversationId } },
         content: body.content,
-        memo: body.memo,
+        memo: evaluation?.memo ?? null,
+        chips: evaluation?.chips ?? [],
     });
 
     await archiveRepository.createArchiveItem({
@@ -441,6 +521,7 @@ export const createPhrase = async (
         conversationId: body.conversationId,
         content: phrase.content,
         memo: phrase.memo,
+        chips: (phrase.chips as string[] | null) ?? [],
         createdAt: phrase.created_at.toISOString(),
     };
 };

@@ -45,6 +45,26 @@ const criteria: RecommendationCriteria = {
   difficultyAdjustment: { baseDifficulty: 2, adjustedDifficulty: 2, reason: "kept" },
 };
 
+const setupGuideline = {
+  defaults: {
+    environment: "daily_place",
+    partnerRole: "other",
+    intimacyLevel: 2,
+    formalityLevel: 4,
+    partnerGender: "female",
+    partnerAgeGroup: "twenties",
+  },
+  disabled: {
+    environment: ["daily_place", "online"],
+    partnerRole: [],
+    intimacyLevel: [2, 5],
+    formalityLevel: [],
+    partnerGender: [],
+    partnerAgeGroup: [],
+  },
+  tags: [" 첫 만남 ", "", "첫 만남", "가벼운 질문"],
+};
+
 const validJson = JSON.stringify({
   mission_title: "카페에서 음료 추천 물어보기",
   mission_description: "주문할 때 점원에게 추천 음료를 물어보세요.",
@@ -53,6 +73,7 @@ const validJson = JSON.stringify({
   category: "짧은 대화",
   reason: "관심사(카페)를 반영했어요.",
   expected_effect: "작은 대화로 자신감을 얻습니다.",
+  setup_guideline: setupGuideline,
 });
 
 describe("buildLlmMessages", () => {
@@ -61,6 +82,40 @@ describe("buildLlmMessages", () => {
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe("system");
     expect(messages[1].role).toBe("user");
+  });
+
+  it("성별 기본값은 중요도와 무관하게 male 또는 female만 생성하도록 명시한다", () => {
+    const systemContent = buildLlmMessages(context, criteria)[0].content;
+
+    expect(systemContent).toContain('defaults.partnerGender는 필수');
+    expect(systemContent).toContain('"male" 또는 "female" 중 하나를 반드시 선택');
+    expect(systemContent).toContain('"other", "any", "unknown", null');
+    expect(systemContent).toContain('"partnerGender": "female"');
+  });
+
+  it("disabled는 비추천값이 아니라 명백히 모순되는 값만 제한하도록 명시한다", () => {
+    const systemContent = buildLlmMessages(context, criteria)[0].content;
+
+    expect(systemContent).toContain('"덜 추천됨", "어색함", "흔하지 않음", "일반적이지 않음"은 disabled 사유가 아닙니다');
+    expect(systemContent).toContain("판단이 조금이라도 애매하면 disabled에 넣지 않고 허용");
+    expect(systemContent).toContain("disabled의 모든 배열이 빈 배열인 결과는 정상이며 권장");
+    expect(systemContent).toContain(
+      "partnerGender와 partnerAgeGroup은 미션 자체에서 특정 성별이나 연령이 필수라는 전제가 명시된 경우가 아니면 반드시 빈 배열"
+    );
+    expect(systemContent).toContain(
+      "극단값도 단순히 부자연스럽거나 덜 추천된다는 이유로 제한하지 않습니다"
+    );
+    expect(systemContent).toContain("이웃 가게 주인과 간단한 안부 인사 나누기");
+    expect(systemContent).toContain("intimacyLevel과 formalityLevel을 포함한 disabled 배열을 비워 둡니다");
+    expect(systemContent).toContain(
+      "partnerRole도 미션 설명에서 특정 인간관계가 핵심 전제로 명시된 경우에만"
+    );
+    expect(systemContent).toContain('"친구에게 사과하기"');
+    expect(systemContent).toContain(
+      '"카페 직원에게 인사하기", "가게 주인과 대화하기"'
+    );
+    expect(systemContent).toContain("상황적 대화 대상일 뿐 특정 인간관계를 전제하지 않는 미션");
+    expect(systemContent).toContain("disabled.partnerRole을 빈 배열로 둡니다");
   });
 
   it("user 메시지에 목표 난이도와 회피 카테고리 힌트를 담는다", () => {
@@ -117,6 +172,17 @@ describe("parseLlmMission", () => {
     expect(result.mission.title).toBe("카페에서 음료 추천 물어보기");
     expect(result.mission.rewardXp).toBe(20); // difficulty(2) * 10
     expect(result.mission.estimatedMinutes).toBe(5);
+    expect(result.mission.setupGuideline).toEqual({
+      ...setupGuideline,
+      disabled: {
+        ...setupGuideline.disabled,
+        environment: ["online"],
+        intimacyLevel: [5],
+      },
+      tags: ["첫 만남", "가벼운 질문"],
+      note: null,
+      recommendedTopics: [],
+    });
   });
 
   it("```json 코드펜스로 감싼 응답도 파싱한다", () => {
@@ -137,6 +203,16 @@ describe("parseLlmMission", () => {
   it("난이도가 범위(1~3)를 벗어나면 schema_invalid 사유로 실패한다", () => {
     const bad = JSON.stringify({ ...JSON.parse(validJson), difficulty: 5 });
     expect(parseLlmMission(bad)).toEqual({ ok: false, reason: "schema_invalid" });
+  });
+
+  it("setupGuideline만 잘못되면 미션은 유지하고 가이드라인만 null로 처리한다", () => {
+    const bad = JSON.stringify({ ...JSON.parse(validJson), setup_guideline: { defaults: {} } });
+    const result = parseLlmMission(bad);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("ok=true여야 함");
+    expect(result.mission.title).toBe("카페에서 음료 추천 물어보기");
+    expect(result.mission.setupGuideline).toBeNull();
   });
 });
 

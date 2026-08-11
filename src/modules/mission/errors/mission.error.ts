@@ -57,3 +57,11 @@ export class InvalidMissionDateError extends AppError {
     super("INVALID_MISSION_DATE", 400, message);
   }
 }
+
+// POST /missions/{missionId}/setups — 이 미션의 setup_guideline.disabled에 걸린 조합을 선택한 경우.
+// 앱이 비활성 처리를 놓치거나(구버전) 우회 요청을 보낸 경우를 서버에서 최종적으로 막는다.
+export class MissionSetupDisabledCombinationError extends AppError {
+  constructor(message = "이 미션에서는 선택할 수 없는 조합입니다.", data?: unknown) {
+    super("MISSION_SETUP_DISABLED_COMBINATION", 400, message, data);
+  }
+}

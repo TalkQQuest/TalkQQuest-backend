@@ -39,6 +39,7 @@ const recommended = (overrides: Record<string, unknown> = {}) => ({
   reason: "이유",
   expectedEffect: "효과",
   source: "llm" as const,
+  setupGuideline: null,
   recommendationLogId: "log1",
   ...overrides,
 });
@@ -237,6 +238,46 @@ describe("getTodayMission — 새로고침 제한", () => {
 
     expect(result.missionId).toBe("m-existing");
     expect(result.remainingRefreshes).toBe(0);
+  });
+});
+
+describe("getTodayMission — setupGuideline (#152)", () => {
+  it("추천된 미션의 setup_guideline을 별도 조회해 응답에 포함한다", async () => {
+    const rawGuideline = {
+      defaults: {
+        environment: "community",
+        partnerRole: "other",
+        intimacyLevel: 2,
+        formalityLevel: 4,
+        partnerGender: "female",
+        partnerAgeGroup: "twenties",
+      },
+      disabled: {
+        environment: [],
+        partnerRole: [],
+        intimacyLevel: [],
+        formalityLevel: [],
+        partnerGender: [],
+        partnerAgeGroup: [],
+      },
+      note: null,
+      recommendedTopics: [],
+      tags: [],
+    };
+    mockedRepo.findMissionSetupGuideline.mockResolvedValue({ setup_guideline: rawGuideline } as never);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    expect(mockedRepo.findMissionSetupGuideline).toHaveBeenCalledWith("m-new");
+    expect(result.setupGuideline).toEqual(rawGuideline);
+  });
+
+  it("setup_guideline이 없으면 null을 응답한다", async () => {
+    mockedRepo.findMissionSetupGuideline.mockResolvedValue({ setup_guideline: null } as never);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    expect(result.setupGuideline).toBeNull();
   });
 });
 

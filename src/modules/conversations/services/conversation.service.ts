@@ -24,11 +24,13 @@ import {
     generatePlaybook,
     matchResponseRules,
     parseStoredPlaybook,
+    toPlaybookMissionContext,
 } from "../../mission/services/playbook.service";
 // 플레이북 저장은 미션 소유 데이터라 미션 리포지토리를 쓴다.
 import { upsertPlaybook } from "../../mission/repositories/mission.repository";
 import { embedQuery } from "../../../shared/ai";
 import { durationMinutes } from "../../../shared/utils/date";
+import { logger } from "../../../config/logger";
 
 // LLM이 실패(키 없음/오류/재시도까지 실패)했을 때 대화가 끊기지 않도록 쓰는 템플릿 폴백 (Requirement 5.5).
 const MOCK_GUIDE_RESPONSES = [
@@ -50,28 +52,54 @@ const MOCK_GUIDE_RESPONSES = [
     constructor(private readonly conversationRepository: ConversationRepository) {}
 
     async createConversation(
-        userId: string,
-        dto: CreateConversationDto
-    ): Promise<CreateConversationResponse> {
-        const mission = await this.conversationRepository.findMissionById(dto.missionId);
-        if (!mission) throw ConversationError.missionNotFound();
+    userId: string,
+    dto: CreateConversationDto
+): Promise<CreateConversationResponse> {
+    const mission = await this.conversationRepository.findMissionById(dto.missionId);
+    if (!mission) throw ConversationError.missionNotFound();
 
-        // 배역과 "사용자가 할 일"을 이 시점에 한 번 정해 저장한다. 매 턴 다시 만들지 않으므로
-        // 대화 내내 일관되고, 생성이 실패해도(null) 미션 제목 기반으로 그대로 진행된다.
-        // 플레이북은 미션 단위라 처음 대화를 시작하는 사용자만 생성 비용을 치른다.
-        // 배역 설정과 독립이라 병렬로 처리해 세션 생성 지연을 줄인다.
-        const [roleSetup] = await Promise.all([
-        generateRoleSetup(mission.title, mission.description),
+    // 사용자가 미션 창에서 상황 설정을 골랐다면 그 설정을 배역 생성에 반영한다.
+    // 못 찾으면(다른 사람 것이거나 삭제됨) 조용히 무시하고 설정 없이 진행한다 —
+    // 상황 설정은 연출 정보일 뿐이라, 없다고 대화 시작 자체를 막을 이유가 없다.
+    // 조회에 실패한 ID는 검증되지 않은 값이므로 저장에도 쓰지 않는다 — 소유권 없는
+    // 설정을 대화가 참조하게 되는 걸 막기 위해 조회 성공 시의 ID만 별도로 들고 간다.
+    const missionSetup = dto.missionSetupId
+        ? await this.conversationRepository.findMissionSetupById(
+              dto.missionSetupId,
+              userId,
+              dto.missionId
+          )
+        : null;
+    const verifiedMissionSetupId = missionSetup ? dto.missionSetupId ?? null : null;
+
+    const [roleSetup] = await Promise.all([
+        generateRoleSetup(
+            mission.title,
+            mission.description,
+            missionSetup
+                ? {
+                      environment: missionSetup.environment,
+                      partnerRole: missionSetup.partner_role,
+                      partnerGender: missionSetup.partner_gender,
+                      partnerAgeGroup: missionSetup.partner_age_group,
+                      intimacyLevel: missionSetup.intimacy_level,
+                      formalityLevel: missionSetup.formality_level,
+                  }
+                : null
+        ),
         this.ensureMissionPlaybook(mission),
-        ]);
-        const conversation = await this.conversationRepository.createConversation(userId, dto, roleSetup);
+    ]);
+    const conversation = await this.conversationRepository.createConversation(
+        userId,
+        dto,
+        roleSetup,
+        verifiedMissionSetupId
+    );
 
-        // 첫 안내를 guide 메시지로 저장해 둔다. 앱이 응답에서 바로 띄울 수도 있고,
-        // 나중에 대화 기록을 다시 열었을 때도 같은 안내가 남아 있어야 하기 때문이다.
-        const openingMessage = buildOpeningMessage(mission.title);
-        await this.conversationRepository.createMessage(conversation.id, "guide", openingMessage);
+    const openingMessage = buildOpeningMessage(mission.title);
+    await this.conversationRepository.createMessage(conversation.id, "guide", openingMessage);
 
-        return {
+    return {
         conversationId: conversation.id,
         missionId: mission.id,
         missionTitle: mission.title,
@@ -80,8 +108,8 @@ const MOCK_GUIDE_RESPONSES = [
         status: "in_progress",
         startedAt: conversation.started_at.toISOString(),
         openingMessage,
-        };
-    }
+    };
+}
 
     async getConversation(
         userId: string,
@@ -174,14 +202,24 @@ const MOCK_GUIDE_RESPONSES = [
         id: string;
         title: string;
         description: string | null;
+        category: string;
+        difficulty: number;
+        setup_guideline: unknown;
         playbook: { data: unknown } | null;
     }): Promise<void> {
         if (parseStoredPlaybook(mission.playbook?.data)) return;
 
-        const playbook = await generatePlaybook(mission.title, mission.description);
-        if (!playbook) return;
+        try {
+            const playbook = await generatePlaybook(toPlaybookMissionContext(mission));
+            if (!playbook) return;
 
-        await upsertPlaybook(mission.id, playbook);
+            await upsertPlaybook(mission.id, playbook);
+        } catch (error) {
+            logger.warn(
+                { err: error, missionId: mission.id },
+                "대화 시작 중 플레이북 자동 생성 실패 — 플레이북 없이 진행"
+            );
+        }
     }
 
     // 이 대화에서 지금까지 오간 사용자 발화 수. advanceFlow가 단계별 턴 상한을 계산하는 데 쓴다.

@@ -55,6 +55,8 @@ export const markFeedbackReady = (
     missionSummary: string[];
     summaryChips: string[]; // 대화 요약 키워드 칩 3개(단어 형태)
     conversationSummary: string; // 대화 전체 2~3문장 요약
+    cardSummary: string; // 대화 카드(목록)용 1~2줄 축약 요약 (#169)
+    conversationHighlights: string[]; // 대화 상세 "주요 내용" — 실제 흐름 2~3개 (#169)
     savedPhrase: string;
   }
 ) =>
@@ -69,7 +71,16 @@ export const markFeedbackReady = (
       mission_summary: data.missionSummary as unknown as Prisma.InputJsonValue,
       summary_chips: data.summaryChips as unknown as Prisma.InputJsonValue,
       conversation_summary: data.conversationSummary,
+      card_summary: data.cardSummary,
+      conversation_highlights: data.conversationHighlights as unknown as Prisma.InputJsonValue,
       saved_phrase: data.savedPhrase,
       status: "ready",
+      // status와 같은 update로 함께 기록한다. 성장 프로필(User_Growth_Profiles)의 증분 갱신이
+      // 이 값을 커서로 쓰므로, 여기서 빠지면 새로 ready가 된 피드백이 영영 집계되지 않는다.
+      //
+      // 재전환으로 값이 덮이는 경우: feedback.service.ts가 이미 ready인 피드백은 조회 후
+      // 바로 반환하므로 정상 흐름에서는 발생하지 않는다. 설령 덮이더라도 ready_at은 앞으로만
+      // 이동하므로 커서 뒤로 밀려 다시 읽힐 뿐이고(재요약은 멱등), 뒤로 가서 건너뛰는 일은 없다.
+      ready_at: new Date(),
     },
   });

@@ -25,6 +25,24 @@ const envSchema = z.object({
   // 같은 모델로 양쪽을 임베딩하면 유사도가 제대로 나오지 않는다.
   UPSTAGE_EMBEDDING_PASSAGE_MODEL: z.string().default("embedding-passage"),
   UPSTAGE_EMBEDDING_QUERY_MODEL: z.string().default("embedding-query"),
+  // 푸시 발송(FCM, Firebase Admin SDK). 셋 다 없으면 발송 없이 로그만 남긴다
+  // (RESEND_API_KEY와 같은 패턴 — 키 없이도 로컬 개발/테스트가 동작).
+  FIREBASE_PROJECT_ID: z.string().optional(),
+  FIREBASE_CLIENT_EMAIL: z.string().optional(),
+  FIREBASE_PRIVATE_KEY: z.string().optional(),
+}).superRefine((data, ctx) => {
+  // 셋 다 비어 있으면 정상(발송 기능 비활성). 하나라도 있으면 셋 다 있어야 한다 —
+  // 부분 설정(오타 등으로 하나만 빠짐)이 "발송 비활성"으로 조용히 흡수되는 것을 막는다.
+  const values = [data.FIREBASE_PROJECT_ID, data.FIREBASE_CLIENT_EMAIL, data.FIREBASE_PRIVATE_KEY];
+  const presentCount = values.filter((v) => !!v).length;
+  if (presentCount > 0 && presentCount < values.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY는 셋 다 설정하거나 셋 다 비워야 합니다",
+      path: ["FIREBASE_PROJECT_ID"],
+    });
+  }
 });
 
 const parsed = envSchema.safeParse(process.env);

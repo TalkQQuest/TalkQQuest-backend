@@ -12,6 +12,10 @@ export class ConversationRepository {
             title: true,
             // 세션 생성 시 배역을 정하는 데 쓴다(상황 설명이 있어야 구체적인 배역이 나온다).
             description: true,
+            category: true,
+            difficulty: true,
+            // 플레이북 생성에는 미션 공통 가이드라인의 tags만 방어적으로 추출해 사용한다.
+            setup_guideline: true,
             // 플레이북은 1MB 넘는 임베딩을 들고 있어 별도 테이블에 있다. 필요한 곳에서만 join한다.
             playbook: { select: { data: true } },
             preparation_tip: true,
@@ -24,23 +28,40 @@ export class ConversationRepository {
     }
 
     async createConversation(
-        userId: string,
-        dto: CreateConversationDto,
-        roleSetup: { persona: string | null; userTask: string | null }
-    ) {
-        return this.prisma.conversations.create({
-        data: {
-            user_id: userId,
-            mission_id: dto.missionId,
-            mode: dto.mode,
-            selected_topic: dto.selectedTopic ?? null,
-            // 배역과 "사용자의 몫"은 세션 생성 시 한 번 정해 굳힌다. 매 턴 프롬프트에 다시
-            // 주입해, 이력이 잘려도 배역이 흔들리거나 AI가 과제를 먼저 하지 않게 한다.
-            persona: roleSetup.persona,
-            user_task: roleSetup.userTask,
-            status: "in_progress",
-            started_at: new Date(),
-        },
+    userId: string,
+    dto: CreateConversationDto,
+    roleSetup: { persona: string | null; userTask: string | null },
+    verifiedMissionSetupId: string | null
+) {
+    return this.prisma.conversations.create({
+    data: {
+        user_id: userId,
+        mission_id: dto.missionId,
+        mode: dto.mode,
+        selected_topic: dto.selectedTopic ?? null,
+        // 서비스 레이어에서 소유권 검증까지 끝난 ID만 받는다 — dto.missionSetupId를
+        // 직접 쓰지 않는다(검증 안 된 값이 그대로 저장되는 걸 막기 위함).
+        mission_setup_id: verifiedMissionSetupId,
+        persona: roleSetup.persona,
+        user_task: roleSetup.userTask,
+        status: "in_progress",
+        started_at: new Date(),
+    },
+    });
+}
+
+    // Mission_Setups 조회. 본인 것만, 해당 미션 것만 쓸 수 있도록 mission_id/user_id로 좁힌다.
+    async findMissionSetupById(missionSetupId: string, userId: string, missionId: string) {
+        return this.prisma.mission_Setups.findFirst({
+            where: { id: missionSetupId, user_id: userId, mission_id: missionId },
+            select: {
+                environment: true,
+                partner_role: true,
+                partner_gender: true,
+                partner_age_group: true,
+                intimacy_level: true,
+                formality_level: true,
+            },
         });
     }
 

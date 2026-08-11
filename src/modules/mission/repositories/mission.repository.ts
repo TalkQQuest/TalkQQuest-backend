@@ -1,5 +1,14 @@
 // modules/mission/repositories/mission.repository.ts
-import { PersonalityType, Prisma, PrepItemType, RecommendationSource } from "@prisma/client";
+import {
+  MissionEnvironment,
+  MissionPartnerAgeGroup,
+  MissionPartnerGender,
+  MissionPartnerRole,
+  PersonalityType,
+  Prisma,
+  PrepItemType,
+  RecommendationSource,
+} from "@prisma/client";
 import { prisma } from "../../../config/database";
 import { MissionOrigin } from "../dtos/mission.constants";
 
@@ -204,6 +213,44 @@ export const upsertPlaybook = (missionId: string, data: unknown) =>
 export const deletePlaybook = (missionId: string) =>
   prisma.mission_Playbooks.deleteMany({ where: { mission_id: missionId } });
 
+// ── 미션 준비 정보 (Mission_Setups) — #152 ──
+// Missions.setup_guideline은 여기서 절대 쓰지 않는다. 그건 미션 하나당 1벌, 여러 사용자가
+// 공유하는 정적 가이드라인(#148-150)이고, Mission_Setups는 그걸 참고해서 사용자가 고른
+// 대화 1회짜리 개인 설정이다 — 정보는 가이드라인 → 사용자 설정으로만 흐르고 반대로 쓰지 않는다.
+
+// GET /missions/today의 추천 결과는 Recommendation_Logs 캐시에서 오므로, 가이드라인은
+// missionId로 Missions을 다시 조회해야 얻을 수 있다.
+export const findMissionSetupGuideline = (missionId: string) =>
+  prisma.missions.findUnique({
+    where: { id: missionId },
+    select: { setup_guideline: true },
+  });
+
+export const createMissionSetup = (
+  userId: string,
+  missionId: string,
+  data: {
+    environment: MissionEnvironment;
+    partnerRole: MissionPartnerRole;
+    partnerGender: MissionPartnerGender;
+    partnerAgeGroup: MissionPartnerAgeGroup;
+    intimacyLevel: number;
+    formalityLevel: number;
+  }
+) =>
+  prisma.mission_Setups.create({
+    data: {
+      user_id: userId,
+      mission_id: missionId,
+      environment: data.environment,
+      partner_role: data.partnerRole,
+      partner_gender: data.partnerGender,
+      partner_age_group: data.partnerAgeGroup,
+      intimacy_level: data.intimacyLevel,
+      formality_level: data.formalityLevel,
+    },
+  });
+
 // ── AI 미션 추천 파이프라인용 조회 (recommendation/difficulty/template.service) ──
 
 export const findUserProfileByUserId = (userId: string) =>
@@ -333,6 +380,7 @@ export const createMissionFromRecommendation = (data: {
   estimatedMinutes: number;
   rewardXp: number;
   category: string;
+  setupGuideline: unknown | null;
   createdByUserId: string;
   creatorPersonalityType: PersonalityType | null;
 }) =>
@@ -344,6 +392,10 @@ export const createMissionFromRecommendation = (data: {
       estimated_minutes: data.estimatedMinutes,
       reward_xp: data.rewardXp,
       category: data.category,
+      setup_guideline:
+        data.setupGuideline === null
+          ? Prisma.DbNull
+          : (data.setupGuideline as Prisma.InputJsonValue),
       is_template: false,
       created_by_user_id: data.createdByUserId,
       creator_personality_type: data.creatorPersonalityType,
@@ -375,6 +427,7 @@ export const createMissionForRecommendationLog = (
     estimatedMinutes: number;
     rewardXp: number;
     category: string;
+    setupGuideline: unknown | null;
     createdByUserId: string;
     creatorPersonalityType: PersonalityType | null;
   }
@@ -394,6 +447,10 @@ export const createMissionForRecommendationLog = (
         estimated_minutes: data.estimatedMinutes,
         reward_xp: data.rewardXp,
         category: data.category,
+        setup_guideline:
+          data.setupGuideline === null
+            ? Prisma.DbNull
+            : (data.setupGuideline as Prisma.InputJsonValue),
         is_template: false,
         created_by_user_id: data.createdByUserId,
         creator_personality_type: data.creatorPersonalityType,

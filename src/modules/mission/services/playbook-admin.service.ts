@@ -20,6 +20,7 @@ import {
   embedPlaybook,
   generatePlaybook,
   parseStoredPlaybook,
+  toPlaybookMissionContext,
   toPlaybookView,
   PlaybookInput,
   PlaybookView,
@@ -76,7 +77,7 @@ export const regeneratePlaybook = async (missionId: string): Promise<PlaybookRes
   const mission = await missionRepository.findMissionById(missionId);
   if (!mission) throw new MissionNotFoundError();
 
-  const generated = await generatePlaybook(mission.title, mission.description);
+  const generated = await generatePlaybook(toPlaybookMissionContext(mission));
   // 여기서는 실패를 조용히 넘기지 않는다 — 사용자가 의도적으로 요청한 작업이므로
   // 실패했다는 사실을 알려줘야 한다(자동 생성 경로와 다른 점).
   if (!generated) throw new PlaybookGenerationFailedError();

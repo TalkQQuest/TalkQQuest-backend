@@ -173,6 +173,27 @@ describe("recommendMission (1→2→3→4 통합)", () => {
         reason: "이유",
         expectedEffect: "효과",
         source: "llm",
+        setupGuideline: {
+          defaults: {
+            environment: "daily_place",
+            partnerRole: "other",
+            intimacyLevel: 2,
+            formalityLevel: 4,
+            partnerGender: "female",
+            partnerAgeGroup: "twenties",
+          },
+          disabled: {
+            environment: [],
+            partnerRole: [],
+            intimacyLevel: [],
+            formalityLevel: [],
+            partnerGender: [],
+            partnerAgeGroup: [],
+          },
+          note: null,
+          recommendedTopics: [],
+          tags: ["첫 만남"],
+        },
       },
       llmModel: "solar-pro",
       promptInput: [{ role: "user", content: "..." }],
@@ -235,6 +256,9 @@ describe("recommendMission (1→2→3→4 통합)", () => {
       source: "llm",
       parseSuccess: true,
       fallbackReason: null,
+      recommendedMission: {
+        setupGuideline: expect.objectContaining({ tags: ["첫 만남"] }),
+      },
     });
   });
 

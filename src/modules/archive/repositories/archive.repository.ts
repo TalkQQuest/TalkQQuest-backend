@@ -153,6 +153,20 @@ export const findConversationTitle = (conversationId: string) =>
         select: { mission: { select: { title: true } } },
     });
 
+// #155/#169 — 아카이브의 대화 카드에 AI 요약(칩/설명)을 함께 보여주기 위한 일괄 조회.
+// 결과 목록의 대화 개수만큼 개별 조회(N+1)하지 않도록, conversationId 목록을 한 번에 받아
+// Feedbacks를 IN 절 하나로 조회한다. 피드백이 없는(status: pending) 대화는 결과에서 빠진다 —
+// 호출부에서 Map.get()이 undefined면 null/빈 배열로 처리한다.
+// card_summary는 카드용 축약 요약(1~2줄) — 상세용 conversation_summary와 별개 컬럼(#169).
+export const findConversationSummaryInfoByIds = (conversationIds: string[]) =>
+    prisma.feedbacks.findMany({
+        // 재시도(retryFeedback)는 status만 pending으로 되돌리고 이전 conversation_summary/
+        // summary_chips는 지우지 않는다. status: "ready"로 걸지 않으면 재생성 중인 대화에서
+        // 낡은 요약이 그대로 노출된다.
+        where: { conversation_id: { in: conversationIds }, status: "ready" },
+        select: { conversation_id: true, card_summary: true, summary_chips: true },
+    });
+
 export const findSavedPhraseContent = (phraseId: string) =>
     prisma.saved_Phrases.findUnique({
         where: { id: phraseId },
@@ -186,8 +200,9 @@ export const findPhraseById = (phraseId: string, userId: string) =>
         },
     });
 
-export const createSavedPhrase = (data: Prisma.Saved_PhrasesCreateInput) =>
-    prisma.saved_Phrases.create({ data });
+export const createSavedPhrase = (
+    data: Prisma.Saved_PhrasesCreateInput
+) => prisma.saved_Phrases.create({ data });
 
 export const deleteSavedPhrase = (phraseId: string) =>
     prisma.saved_Phrases.delete({ where: { id: phraseId } });
@@ -213,7 +228,28 @@ export const findConversationDetail = (conversationId: string, userId: string) =
 
 // Conversations 존재 여부 확인용
 export const findConversationById = (conversationId: string, userId: string) =>
-    prisma.conversations.findFirst({ where: { id: conversationId, user_id: userId } });
+    prisma.conversations.findFirst({
+        where: { id: conversationId, user_id: userId },
+        include: { mission: true },
+    });
+
+// 문장 평가 AI 프롬프트용 — 해당 대화의 최근 메시지를 시간순으로 가져온다.
+// system 메시지는 실제 대화 교환이 아니므로 제외한다.
+// 전체 대화가 아니라 최근 일부만 쓰는 이유: 프롬프트 길이 제한 + 저장 시점 근처 맥락이 평가에 더 유의미.
+const PHRASE_EVALUATION_CONTEXT_LIMIT = 10;
+
+export const findRecentConversationMessages = (conversationId: string) =>
+    prisma.conversation_Messages
+        .findMany({
+            where: {
+                conversation_id: conversationId,
+                role: { in: ["user", "guide"] },
+            },
+            orderBy: { created_at: "desc" },
+            take: PHRASE_EVALUATION_CONTEXT_LIMIT,
+            select: { role: true, content: true },
+        })
+        .then((rows) => rows.reverse()); // 시간순(오래된 → 최신)으로 뒤집는다
 
 // Archive Items (conversation/phrase/report 전용)
 export const createArchiveItem = (

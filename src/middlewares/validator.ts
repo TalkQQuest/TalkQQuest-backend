@@ -8,7 +8,10 @@ export const validate = (schema: ZodSchema) =>
   (req: Request, _res: Response, next: NextFunction) => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      return next(new ValidationError(undefined, result.error.issues));
+      // 첫 번째 zod 이슈의 메시지를 그대로 노출한다 — 각 스키마의 .min(1, "...")에서
+      // 정의한 필드별 구체적 안내 문구가 응답에 그대로 실리도록.
+      const firstIssueMessage = result.error.issues[0]?.message;
+      return next(new ValidationError(firstIssueMessage, result.error.issues));
     }
     req.body = result.data;
     next();

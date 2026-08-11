@@ -9,9 +9,27 @@ import { OAuthLoginRequestDto, OAuthLoginResponseDto } from "../dtos/oauth.dto";
 import { verifyKakaoToken, verifyNaverToken } from "./provider.service";
 import { issueTokens } from "./token.service";
 import { WithdrawnAccountError } from "../errors/auth.error";
+import { upsertDeviceToken } from "../../device/repositories/device.repository";
+import { logger } from "../../../config/logger";
 
 const isUniqueConstraintError = (error: unknown): boolean =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+
+// #159 — 소셜 로그인 요청에 이미 실려 오는 deviceInfo.fcmToken을 Device_Tokens에도 반영한다.
+// 전용 등록 API(POST /devices/fcm-token)가 모든 로그인 방식을 이미 커버하므로 이건 필수 경로는
+// 아니고, 앱이 등록 API 호출을 놓치거나 타이밍이 어긋나도 로그인 시점에 한 번 더 반영되게 하는
+// 보험이다. 실패해도 로그인 자체를 막으면 안 되므로 흡수한다.
+const registerDeviceTokenIfPresent = async (
+  userId: string,
+  deviceInfo?: OAuthLoginRequestDto["deviceInfo"]
+): Promise<void> => {
+  if (!deviceInfo?.fcmToken) return;
+  try {
+    await upsertDeviceToken(userId, deviceInfo.fcmToken, "android");
+  } catch (error) {
+    logger.warn({ err: error, userId }, "로그인 시점 FCM 토큰 등록 실패 (로그인은 정상 처리)");
+  }
+};
 
 const loginExistingIdentity = async (
   provider: Provider,
@@ -24,6 +42,7 @@ const loginExistingIdentity = async (
 
   await touchLastLogin(identity.user_id);
   const tokens = await issueTokens(identity.user_id, identity.email, deviceInfo);
+  await registerDeviceTokenIfPresent(identity.user_id, deviceInfo);
   return {
     ...tokens,
     isNewUser: false,
@@ -85,6 +104,7 @@ const loginWithProvider = async (
       profile.email
     );
     const tokens = await issueTokens(user.id, identity.email, request.deviceInfo);
+    await registerDeviceTokenIfPresent(user.id, request.deviceInfo);
 
     return {
       ...tokens,

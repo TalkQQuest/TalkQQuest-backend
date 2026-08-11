@@ -14,7 +14,12 @@ import * as reportRepository from "../repositories/report.repository";
 import * as archiveRepository from "../../archive/repositories/archive.repository";
 import * as notificationRepository from "../../notification/repositories/notification.repository";
 import * as growthService from "../services/growth.service";
-import { saveReport, saveWeeklyCompareReport, deleteWeeklyCompareReport } from "../services/report.service";
+import {
+  saveReport,
+  saveWeeklyCompareReport,
+  deleteWeeklyCompareReport,
+  getWeeklyCompareReportDetail,
+} from "../services/report.service";
 import { ReportConversationNotFoundError, WeeklyCompareReportNotFoundError } from "../errors/report.error";
 
 const mockedRepo = jest.mocked(reportRepository);
@@ -154,6 +159,72 @@ describe("saveReport", () => {
 
     expect(result.reportId).toBe("r-new");
     expect(mockedArchive.findArchiveItemByReference).toHaveBeenCalledTimes(2);
+  });
+});
+
+// #177 — 이전/다음 주간 비교 리포트로 넘어갈 수 있게 인접 week_index 리포트의 id를 함께 내려준다.
+// isSaved(Archive 저장 여부)와 무관하게 자동 생성된 스냅샷이 존재하기만 하면 이동 가능해야 한다.
+describe("getWeeklyCompareReportDetail — 이전/다음 리포트 탐색(#177)", () => {
+  it("존재하지 않는 리포트면 거부한다", async () => {
+    mockedRepo.findWeeklyCompareReportByIdAndUserId.mockResolvedValue(null);
+
+    await expect(getWeeklyCompareReportDetail("u1", "w1")).rejects.toBeInstanceOf(
+      WeeklyCompareReportNotFoundError
+    );
+  });
+
+  it("이전/다음 리포트가 모두 있으면 두 id를 반환한다", async () => {
+    mockedRepo.findWeeklyCompareReportByIdAndUserId.mockResolvedValue({
+      id: "w2",
+      week_index: 2,
+      data: {},
+      created_at: new Date("2026-08-08T00:00:00Z"),
+    } as never);
+    mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
+    mockedRepo.findWeeklyCompareReportByWeekIndex.mockImplementation(((_userId: string, weekIndex: number) => {
+      if (weekIndex === 1) return Promise.resolve({ id: "w1" });
+      if (weekIndex === 3) return Promise.resolve({ id: "w3" });
+      return Promise.resolve(null);
+    }) as never);
+
+    const result = await getWeeklyCompareReportDetail("u1", "w2");
+
+    expect(result.previousReportId).toBe("w1");
+    expect(result.nextReportId).toBe("w3");
+    expect(mockedRepo.findWeeklyCompareReportByWeekIndex).toHaveBeenCalledWith("u1", 1);
+    expect(mockedRepo.findWeeklyCompareReportByWeekIndex).toHaveBeenCalledWith("u1", 3);
+  });
+
+  it("이전/다음 리포트가 없으면 null을 반환한다", async () => {
+    mockedRepo.findWeeklyCompareReportByIdAndUserId.mockResolvedValue({
+      id: "w1",
+      week_index: 1,
+      data: {},
+      created_at: new Date("2026-08-08T00:00:00Z"),
+    } as never);
+    mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
+    mockedRepo.findWeeklyCompareReportByWeekIndex.mockResolvedValue(null as never);
+
+    const result = await getWeeklyCompareReportDetail("u1", "w1");
+
+    expect(result.previousReportId).toBeNull();
+    expect(result.nextReportId).toBeNull();
+  });
+
+  it("Archive에 저장되지 않은(isSaved: false) 리포트로도 이동 가능하다", async () => {
+    mockedRepo.findWeeklyCompareReportByIdAndUserId.mockResolvedValue({
+      id: "w2",
+      week_index: 2,
+      data: {},
+      created_at: new Date("2026-08-08T00:00:00Z"),
+    } as never);
+    mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
+    mockedRepo.findWeeklyCompareReportByWeekIndex.mockResolvedValue({ id: "w1" } as never);
+
+    const result = await getWeeklyCompareReportDetail("u1", "w2");
+
+    expect(result.isSaved).toBe(false);
+    expect(result.previousReportId).toBe("w1");
   });
 });
 

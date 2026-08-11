@@ -46,6 +46,14 @@ export const updateNotificationSettings = (
         data,
     });
 
+// 스케줄러(#172)가 매 분 "지금 몇 시인지"에 맞는 유저를 찾을 때 쓴다. mission_reminder_time은
+// "HH:mm" 문자열로 저장돼 있어 타임존 변환 없이 그대로 동등 비교한다.
+export const findUsersForMissionReminder = (hhmm: string) =>
+    prisma.notification_Settings.findMany({
+        where: { mission_reminder: true, mission_reminder_time: hhmm },
+        select: { user_id: true },
+    });
+
 export const createNotification = (
     userId: string,
     type: string,

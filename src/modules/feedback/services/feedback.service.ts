@@ -5,6 +5,7 @@ import { checkAndAwardBadges } from "../../badge/services/badge.service";
 import { findUserCreatedAt } from "../../user/repositories/user.repository";
 import { generateMissingWeeklyReports } from "../../report/services/weekly-compare.service";
 import { notifyNewWeeklyCompareReports } from "../../report/services/report.service";
+import { parseStoredPlaybook } from "../../mission/services/playbook.service";
 import * as feedbackRepository from "../repositories/feedback.repository";
 import {
   FeedbackConversationNotFoundError,
@@ -23,6 +24,7 @@ import {
 } from "../dtos/feedback.dto";
 import {
   FeedbackLlmResult,
+  FeedbackMissionContext,
   FeedbackTranscriptMessage,
   generateFeedbackWithLlm,
 } from "./feedback-llm.service";
@@ -113,15 +115,41 @@ const buildMetricsArray = (metrics: FeedbackLlmResult["metrics"]): FeedbackMetri
     bestSentence: metrics[key].bestSentence,
   }));
 
+const buildFeedbackMissionContext = (rawPlaybook: unknown): FeedbackMissionContext | undefined => {
+  try {
+    const playbook = parseStoredPlaybook(rawPlaybook);
+    if (!playbook) return undefined;
+
+    const context: FeedbackMissionContext = {
+      ...(playbook.objective ? { objective: playbook.objective } : {}),
+      ...(playbook.successCriteria?.length
+        ? { successCriteria: playbook.successCriteria }
+        : {}),
+      ...(playbook.feedbackFocus?.length ? { feedbackFocus: playbook.feedbackFocus } : {}),
+    };
+
+    return Object.keys(context).length > 0 ? context : undefined;
+  } catch (error) {
+    logger.warn({ err: error }, "피드백용 플레이북 파싱 실패 — 기존 미션 정보로 생성");
+    return undefined;
+  }
+};
+
 // LLM 호출 + 결과 저장. 실패해도 예외를 던지지 않고 status=failed로 남긴다(호출부가 응답 형태 결정).
 // 가짜 점수/분석으로 대체하지 않는다 — 실패는 재시도(POST /feedback/{id}/retry)로 유도한다.
 const runGeneration = async (
   feedbackId: string,
   transcript: FeedbackTranscriptMessage[],
   missionTitle: string,
-  missionDescription: string | null
+  missionDescription: string | null,
+  missionContext?: FeedbackMissionContext
 ): Promise<void> => {
-  const result = await generateFeedbackWithLlm(transcript, missionTitle, missionDescription);
+  const result = await generateFeedbackWithLlm(
+    transcript,
+    missionTitle,
+    missionDescription,
+    missionContext
+  );
 
   if (!result) {
     await feedbackRepository.markFeedbackFailed(feedbackId);
@@ -200,7 +228,8 @@ export const createFeedback = async (
     feedbackId,
     conversation.messages as FeedbackTranscriptMessage[],
     conversation.mission.title,
-    conversation.mission.description
+    conversation.mission.description,
+    buildFeedbackMissionContext(conversation.mission.playbook?.data)
   );
 
   const saved = await feedbackRepository.findFeedbackByIdAndUserId(feedbackId, userId);
@@ -246,7 +275,8 @@ export const retryFeedback = async (
     feedbackId,
     conversation.messages as FeedbackTranscriptMessage[],
     conversation.mission.title,
-    conversation.mission.description
+    conversation.mission.description,
+    buildFeedbackMissionContext(conversation.mission.playbook?.data)
   ).catch((error: unknown) => {
     logger.error({ err: error, feedbackId }, "피드백 재생성 중 예기치 못한 오류");
     void feedbackRepository.markFeedbackFailed(feedbackId).catch(() => {});

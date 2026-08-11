@@ -1,11 +1,13 @@
 import { Body, Controller, Get, Middlewares, Patch, Path, Query, Request, Route, Security, Tags } from "tsoa";
 import type { Request as ExpressRequest } from "express";
 import { authorizeUser } from "../../../middlewares/auth";
+import { validate } from "../../../middlewares/validator";
 import { success, ApiResponse } from "../../../shared/utils/response";
 import {
     NotificationsResponseDto,
     NotificationSettingsResponseDto,
     UpdateNotificationSettingsRequestDto,
+    updateNotificationSettingsRequestSchema,
 } from "../dtos/notification.dto";
 import {
     getNotifications,
@@ -84,7 +86,7 @@ export class NotificationController extends Controller {
      */
     @Patch("settings")
     @Security("bearerAuth")
-    @Middlewares(authorizeUser())
+    @Middlewares(authorizeUser(), validate(updateNotificationSettingsRequestSchema))
     public async updateNotificationSettings(
         @Body() body: UpdateNotificationSettingsRequestDto,
         @Request() req: ExpressRequest

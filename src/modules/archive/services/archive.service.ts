@@ -28,7 +28,7 @@ import {
 } from "../dtos/archive.dto";
 import { DuplicatedError } from "../../../shared/errors/common.error";
 import { DIFFICULTY_TO_LABEL } from "../../mission/dtos/mission.constants";
-import { durationMinutes } from "../../../shared/utils/date";
+import { formatDuration } from "../../../shared/utils/date";
 import { evaluatePhrase } from "./phrase-evaluation.service";
 
 // Feedbacks.summary_chips(Json)를 안전하게 string[]로 변환한다. 없거나 형식이 다르면 빈 배열.
@@ -82,13 +82,17 @@ const resolveItemTitle = async (itemType: ArchiveDbItemType, referenceId: string
     }
 };
 
-type ConversationExtras = { tags: string[]; description: string | null };
+type ConversationExtras = { tags: string[]; description: string | null; duration: string | null };
 
 // #154/#155 — 대화 카드에 AI 요약을 함께 보여준다. tags는 아카이브 전체에서 지금까지 아무도
 // 채워주지 않던 필드였는데(항상 빈 배열), conversation 타입에 한해 여기서 처음 값을 채운다 —
 // DB 컬럼(Archive_Items.tags)에는 쓰지 않고 조회 시점에 Feedbacks에서 계산만 한다. 피드백이
 // 아직 없으면(대화가 막 끝나 요약 생성 중인 경우) tags는 빈 배열, description은 null로
 // 내려간다 — 에러 아님.
+//
+// #175 — 소요 시간(duration)은 Feedbacks가 아니라 Conversations.started_at/finished_at에서
+// 계산한다. 피드백 준비 여부와 무관하게(대화만 끝났으면) 항상 값을 내려줘야 하므로 별도 배치로
+// 조회해 병합한다.
 //
 // 결과 목록의 conversation 개수만큼 개별 조회하면 N+1이 되므로(#155 코드래빗 리뷰), 목록에
 // 등장하는 conversationId를 모아 한 번의 IN 쿼리로 조회해 Map으로 돌려준다.
@@ -97,19 +101,32 @@ const resolveConversationExtrasBatch = async (
 ): Promise<Map<string, ConversationExtras>> => {
     if (conversationIds.length === 0) return new Map();
 
-    const feedbacks = await archiveRepository.findConversationSummaryInfoByIds(conversationIds);
-    return new Map(
-        feedbacks.map((feedback) => [
-            feedback.conversation_id,
-            {
-                tags: toSummaryChips(feedback.summary_chips).slice(0, 2),
-                description: feedback.conversation_summary,
-            },
+    const [feedbacks, conversations] = await Promise.all([
+        archiveRepository.findConversationSummaryInfoByIds(conversationIds),
+        archiveRepository.findConversationDurationInfoByIds(conversationIds),
+    ]);
+
+    const map = new Map<string, ConversationExtras>(
+        conversations.map((conversation) => [
+            conversation.id,
+            { tags: [], description: null, duration: formatDuration(conversation.started_at, conversation.finished_at) },
         ])
     );
+
+    for (const feedback of feedbacks) {
+        const existing = map.get(feedback.conversation_id) ?? EMPTY_CONVERSATION_EXTRAS;
+        map.set(feedback.conversation_id, {
+            ...existing,
+            tags: toSummaryChips(feedback.summary_chips).slice(0, 2),
+            // 카드에는 상세용 conversation_summary가 아니라 카드 전용 축약 요약을 쓴다(#169).
+            description: feedback.card_summary,
+        });
+    }
+
+    return map;
 };
 
-const EMPTY_CONVERSATION_EXTRAS: ConversationExtras = { tags: [], description: null };
+const EMPTY_CONVERSATION_EXTRAS: ConversationExtras = { tags: [], description: null, duration: null };
 
 // Archive_Items.item_type("report"/"weekly_compare")을 API 레벨 type("report")과
 // 구분 필드(reportType)로 변환한다 — 미션이 missionStatus로 완료/진행중을 나누는 것과 같은 방식.
@@ -173,6 +190,7 @@ export const getArchiveSummary = async (userId: string): Promise<ArchiveSummaryR
                 title: await resolveItemTitle(dbType, row.reference_id),
                 tags: extras ? extras.tags : ((row.tags as string[] | null) ?? []),
                 description: extras?.description,
+                duration: extras?.duration,
                 isBookmarked: true,
                 missionId: null,
                 conversationId: null,
@@ -291,6 +309,7 @@ export const searchArchives = async (
                 title: await resolveItemTitle(dbType, row.reference_id),
                 tags: extras ? extras.tags : ((row.tags as string[] | null) ?? []),
                 description: extras?.description,
+                duration: extras?.duration,
                 folderId: row.folder_id,
                 isBookmarked: true,
                 missionId: null,
@@ -423,29 +442,39 @@ export const getConversationDetail = async (
     const conversation = await archiveRepository.findConversationDetail(conversationId, userId);
     if (!conversation) throw new ArchiveConversationNotFoundError();
 
-    const feedback = conversation.feedbacks[0];
+    const feedbackRow = conversation.feedbacks[0];
+    // 재시도(retryFeedback)는 status만 pending으로 되돌리고 이전 conversation_summary/
+    // summary_chips/conversation_highlights는 지우지 않는다. status가 ready일 때만
+    // 요약 관련 필드를 노출해야, 재생성 중인 대화에서 낡은 요약/주요 내용이 보이지 않는다.
+    // (findConversationSummaryInfoByIds가 카드 목록에서 이미 쓰는 것과 같은 기준.)
+    const feedback = feedbackRow?.status === "ready" ? feedbackRow : undefined;
 
     return {
         conversationId: conversation.id,
         missionTitle: conversation.mission?.title ?? null,
         // 대화 요약은 피드백 생성 시 함께 만들어 저장한다(Feedbacks.conversation_summary).
-        // 피드백 생성 전이면 빈 문자열.
+        // 피드백 생성 전이거나 재생성 중(status != ready)이면 빈 문자열.
         summary: feedback?.conversation_summary ?? "",
-        durationMinutes: durationMinutes(conversation.started_at, conversation.finished_at),
+        duration: formatDuration(conversation.started_at, conversation.finished_at),
         // 대화 요약 칩은 피드백 생성 시 저장된다(Feedbacks.summary_chips).
         summaryChips: toSummaryChips(feedback?.summary_chips),
+        // "주요 내용" — 실제 대화 흐름 2~3개(Feedbacks.conversation_highlights).
+        // 요약(summary)과 달리 사건 단위 서술이다. 피드백 생성 전/재생성 중이면 빈 배열(#169).
+        keyPoints: toSummaryChips(feedback?.conversation_highlights),
         messages: conversation.messages.map((m) => ({
             sender: m.role === "user" ? "USER" : "AI",
             content: m.content,
             sentAt: m.created_at.toISOString(),
         })),
-        feedback: feedback
+        // feedback 객체(점수) 노출 여부는 기존 정책대로 feedbackRow 존재 여부만 본다 —
+        // pending/failed여도 피드백 존재 자체(재시도 가능 여부 등)는 프론트가 알아야 할 수 있다.
+        feedback: feedbackRow
             ? {
-                feedbackId: feedback.id,
-                kindnessScore: feedback.kindness_score ?? 0,
-                initiativeScore: feedback.initiative_score ?? 0,
-                empathyScore: feedback.empathy_score ?? 0,
-                questionLinkScore: feedback.question_link_score ?? 0,
+                feedbackId: feedbackRow.id,
+                kindnessScore: feedbackRow.kindness_score ?? 0,
+                initiativeScore: feedbackRow.initiative_score ?? 0,
+                empathyScore: feedbackRow.empathy_score ?? 0,
+                questionLinkScore: feedbackRow.question_link_score ?? 0,
             }
             : null,
     };
@@ -468,6 +497,9 @@ export const getPhraseDetail = async (
         conversationId: phrase.conversation_id,
         folderId: archiveItem?.folder_id ?? null,
         summaryChips: toSummaryChips(phrase.conversation?.feedbacks?.[0]?.summary_chips),
+        duration: phrase.conversation
+            ? formatDuration(phrase.conversation.started_at, phrase.conversation.finished_at)
+            : null,
         createdAt: phrase.created_at.toISOString(),
     };
 };

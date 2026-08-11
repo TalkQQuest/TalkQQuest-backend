@@ -4,16 +4,19 @@ export const CreateConversationSchema = z.object({
     missionId: z.string().uuid({ message: "missionId는 UUID 형식이어야 합니다." }),
     mode: z.enum(["text", "voice"], { message: "mode 값이 올바르지 않습니다." }),
     selectedTopic: z.string().optional(),
-    });
+    // 미션 창에서 사용자가 고른 상황 설정(Mission_Setups)의 ID. 없으면 예전처럼
+    // 미션 제목/설명만으로 배역을 잡는다.
+    missionSetupId: z.string().uuid({ message: "missionSetupId는 UUID 형식이어야 합니다." }).optional(),
+});
 
-    export type CreateConversationDto = z.infer<typeof CreateConversationSchema>;
+export type CreateConversationDto = z.infer<typeof CreateConversationSchema>;
 
-    // tsoa가 인식할 수 있는 명시적 인터페이스 (Body 타입으로 사용)
-    export interface CreateConversationBody {
+export interface CreateConversationBody {
     missionId: string;
     mode: "text" | "voice";
     selectedTopic?: string;
-    }
+    missionSetupId?: string;
+}
 
     export interface CreateConversationResponse {
     conversationId: string;

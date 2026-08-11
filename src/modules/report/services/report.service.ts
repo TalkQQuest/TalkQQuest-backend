@@ -207,7 +207,11 @@ export const getWeeklyCompareReportDetail = async (
   const row = await reportRepository.findWeeklyCompareReportByIdAndUserId(id, userId);
   if (!row) throw new WeeklyCompareReportNotFoundError();
 
-  const archiveItem = await findArchiveItemByReference(userId, "weekly_compare", id);
+  const [archiveItem, previous, next] = await Promise.all([
+    findArchiveItemByReference(userId, "weekly_compare", id),
+    reportRepository.findWeeklyCompareReportByWeekIndex(userId, row.week_index - 1),
+    reportRepository.findWeeklyCompareReportByWeekIndex(userId, row.week_index + 1),
+  ]);
 
   return {
     id: row.id,
@@ -215,6 +219,8 @@ export const getWeeklyCompareReportDetail = async (
     isSaved: !!archiveItem,
     data: row.data as unknown as WeeklyCompareReportDto,
     createdAt: row.created_at.toISOString(),
+    previousReportId: previous?.id ?? null,
+    nextReportId: next?.id ?? null,
   };
 };
 

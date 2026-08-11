@@ -134,6 +134,10 @@ export interface WeeklyCompareReportDetailResponseDto {
   isSaved: boolean;
   data: WeeklyCompareReportDto;
   createdAt: string;
+  /** 이전 주차(week_index - 1) 리포트 id. 없으면 null(#177). isSaved와 무관하게 존재 여부만 본다. */
+  previousReportId: string | null;
+  /** 다음 주차(week_index + 1) 리포트 id. 없으면 null(#177). isSaved와 무관하게 존재 여부만 본다. */
+  nextReportId: string | null;
 }
 
 // POST /reports/weekly-compare/{id}/save

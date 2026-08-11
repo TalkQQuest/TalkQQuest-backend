@@ -7,11 +7,12 @@
 import { z } from "zod";
 import { callUpstageChat, parseJsonResponse } from "../../../shared/ai";
 import { logger } from "../../../config/logger";
-
-// ── 배역·과제 설정 (세션 생성 시 1회) ──
-// 미션 제목만으로는 매 턴 다른 사람이 말하는 것처럼 흔들려서, 배역을 한 번 정해 굳힌다.
-// 동시에 "사용자가 해야 할 일"도 한 줄로 뽑는다 — Missions.description은 "…해 보세요"처럼
-// 사용자에게 하는 명령문이라, 그대로 두면 AI가 자기 지시로 읽고 과제를 먼저 수행해버린다.
+import {
+    MissionSetupEnvironment,
+    MissionSetupPartnerAgeGroup,
+    MissionSetupPartnerGender,
+    MissionSetupPartnerRole,
+} from "../../mission/dtos/mission.dto";
 
 const ROLE_SETUP_MAX_TOKENS = 200;
 const ROLE_SETUP_MAX_LENGTH = 100; // 두 컬럼 모두 VARCHAR(255)라 넉넉히 잡아도 안전
@@ -21,33 +22,103 @@ export interface RoleSetup {
   userTask: string | null;
 }
 
+// 사용자가 미션 창에서 고른 상황 설정(Mission_Setups). 구조화된 축이라 라벨 매핑을 거쳐
+// 프롬프트에 자연어로 풀어 넣는다 — enum/정수 그대로 넣으면 LLM이 못 알아듣는다.
+export interface MissionSetupContext {
+  environment: MissionSetupEnvironment;
+  partnerRole: MissionSetupPartnerRole;
+  partnerGender: MissionSetupPartnerGender;
+  partnerAgeGroup: MissionSetupPartnerAgeGroup;
+  intimacyLevel: number;
+  formalityLevel: number;
+}
+
+const ENVIRONMENT_LABEL: Record<MissionSetupEnvironment, string> = {
+  school: "학교/대학교",
+  workplace: "직장",
+  daily_place: "동네·일상 공간(카페, 헬스장, 편의점 등)",
+  community: "모임·커뮤니티(동아리, 스터디, 소모임)",
+  online: "온라인(SNS, 채팅)",
+};
+
+const PARTNER_ROLE_LABEL: Record<MissionSetupPartnerRole, string> = {
+  friend: "친구",
+  senior: "선배",
+  junior: "후배",
+  peer: "동기·동료",
+  other: "초면이거나 아는 지인 정도의 사이",
+};
+
+const PARTNER_GENDER_LABEL: Record<MissionSetupPartnerGender, string> = {
+  male: "남성",
+  female: "여성",
+};
+
+const PARTNER_AGE_GROUP_LABEL: Record<MissionSetupPartnerAgeGroup, string> = {
+  teens: "10대",
+  twenties: "20대",
+  thirties: "30대",
+  forties: "40대",
+  fifties: "50대",
+  sixties_plus: "60대 이상",
+};
+
+const INTIMACY_LABEL: Record<number, string> = {
+  1: "매우 낯선 사이",
+  2: "약간 낯선 사이",
+  3: "보통 사이",
+  4: "친한 사이",
+  5: "매우 친한 사이",
+};
+
+const FORMALITY_LABEL: Record<number, string> = {
+  1: "편한 반말",
+  2: "부드러운 반말",
+  3: "보통 존댓말",
+  4: "정중한 존댓말",
+  5: "매우 격식 있는 존댓말",
+};
+
 const roleSetupSchema = z.object({
   persona: z.string().min(1).max(ROLE_SETUP_MAX_LENGTH),
   userTask: z.string().min(1).max(ROLE_SETUP_MAX_LENGTH),
 });
 
-// 배역·과제는 매 턴 프롬프트에 들어가므로 여기에 잡소리가 섞이면 모든 턴이 오염된다.
-// 형식이 어긋나면 저장하지 않고 null로 둔다(그 경우 일반 규칙만 적용된다).
 const parseRoleSetup = (raw: string): RoleSetup => {
   const parsed = parseJsonResponse(raw, roleSetupSchema, "배역 설정");
   if (!parsed) return { persona: null, userTask: null };
 
-  // 여러 줄이 섞여 들어오면 첫 줄만 쓴다.
   return {
     persona: parsed.persona.split("\n")[0].trim(),
     userTask: parsed.userTask.split("\n")[0].trim(),
   };
 };
 
+const buildMissionSetupLines = (setup: MissionSetupContext): string[] => [
+  `- 장소/환경: ${ENVIRONMENT_LABEL[setup.environment]}`,
+  `- 상대방과의 관계: ${PARTNER_ROLE_LABEL[setup.partnerRole]}`,
+  `- 상대방 성별: ${PARTNER_GENDER_LABEL[setup.partnerGender]}`,
+  `- 상대방 나이대: ${PARTNER_AGE_GROUP_LABEL[setup.partnerAgeGroup]}`,
+  `- 친밀도: ${INTIMACY_LABEL[setup.intimacyLevel] ?? "보통 사이"}`,
+  `- 말투 수준: ${FORMALITY_LABEL[setup.formalityLevel] ?? "보통 존댓말"}`,
+];
+
 // 미션 상황에 맞는 배역과 사용자 과제를 한 번에 만든다.
+// missionSetup이 있으면 사용자가 고른 상황 설정(관계/친밀도/말투 등)을 반영해 더 구체적으로 잡는다.
 // 실패해도 예외를 던지지 않는다 — 대화 시작 자체가 막히면 안 되므로 null로 진행한다.
 export const generateRoleSetup = async (
   missionTitle: string,
-  missionDescription: string | null
+  missionDescription: string | null,
+  missionSetup?: MissionSetupContext | null
 ): Promise<RoleSetup> => {
-  const context = missionDescription
-    ? `미션 제목: ${missionTitle}\n미션 설명: ${missionDescription}`
-    : `미션 제목: ${missionTitle}`;
+  const contextLines = [
+    `미션 제목: ${missionTitle}`,
+    missionDescription ? `미션 설명: ${missionDescription}` : null,
+  ].filter((line): line is string => line !== null);
+
+  if (missionSetup) {
+    contextLines.push("", "사용자가 고른 상황 설정:", ...buildMissionSetupLines(missionSetup));
+  }
 
   const result = await callUpstageChat(
     [
@@ -60,6 +131,8 @@ export const generateRoleSetup = async (
           "1) persona — 사용자의 대화 상대가 될 인물.",
           '   나이대/관계/말투가 드러나는 짧은 한 줄. 예: "동아리 1년차 선배, 친근한 존댓말"',
           "   이름은 짓지 않습니다.",
+          "   '사용자가 고른 상황 설정'이 주어졌다면 그 관계·성별·나이대·친밀도·말투 수준을",
+          "   반드시 반영해서 배역을 잡으세요. 주어지지 않았다면 미션 상황에 맞게 자유롭게 정하세요.",
           "",
           "2) userTask — 이 미션에서 **사용자가** 해내야 할 행동.",
           "   미션 설명은 사용자에게 하는 지시문이므로, 그 핵심 행동을 명사형 한 줄로 바꿔 씁니다.",
@@ -71,7 +144,7 @@ export const generateRoleSetup = async (
           '{ "persona": "string", "userTask": "string" }',
         ].join("\n"),
       },
-      { role: "user", content: `${context}\n\n이 미션의 배역과 사용자 과제를 정해주세요.` },
+      { role: "user", content: `${contextLines.join("\n")}\n\n이 미션의 배역과 사용자 과제를 정해주세요.` },
     ],
     { temperature: 0.7, maxTokens: ROLE_SETUP_MAX_TOKENS, jsonMode: true }
   );

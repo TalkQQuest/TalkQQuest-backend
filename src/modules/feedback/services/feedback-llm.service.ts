@@ -23,6 +23,12 @@ export interface FeedbackTranscriptMessage {
   content: string;
 }
 
+export interface FeedbackMissionContext {
+  objective?: string;
+  successCriteria?: string[];
+  feedbackFocus?: string[];
+}
+
 // bestSentence/savedPhrase를 문장 그대로 쓰게 했더니 사용자가 하지 않은 말이 올라왔다:
 // 미션 설명의 예시 문장("오늘 어떤 음료가 인기 있어요?")이나 상대(AI) 발화가 그대로 잡혔다.
 // 베스트 문장은 문장 저장에도 쓰여서 신뢰 문제로 직결되므로, 프롬프트 지시로 막는 대신
@@ -52,6 +58,11 @@ const feedbackLlmSchema = z.object({
   summaryChips: summaryChipSchema,
   // 대화 전체를 2~3문장으로 요약한 텍스트(칩과 달리 문장형).
   conversationSummary: z.string().min(1).max(500),
+  // 대화 카드(목록)용 1~2줄 축약 요약. conversationSummary와 같은 대화 내용을 기반으로 하되
+  // 짧은 버전으로 함께 생성한다(#169).
+  cardSummary: z.string().min(1).max(100),
+  // "주요 내용" — 대화에서 실제 있었던 흐름을 시간 순으로 2~3개(#169).
+  conversationHighlights: z.array(z.string().min(1).max(80)).min(2).max(3),
   savedPhraseIndex: userUtteranceIndexSchema,
 });
 
@@ -70,6 +81,8 @@ export interface FeedbackLlmResult {
   missionSummary: string[];
   summaryChips: string[];
   conversationSummary: string;
+  cardSummary: string;
+  conversationHighlights: string[];
   savedPhrase: string;
 }
 
@@ -101,18 +114,37 @@ const collectUserUtterances = (transcript: FeedbackTranscriptMessage[]): string[
 const SYSTEM_PROMPT = `당신은 사용자의 실제 대화 연습을 분석하는 코치입니다.
 아래 대화 기록을 바탕으로 사용자(user)의 발화만 평가합니다. guide/system 메시지는 상대방 또는 안내이므로 평가 대상이 아닙니다.
 
+평가 우선순위:
+1. 먼저 미션 제목·설명과 제공된 미션 상위 목적(objective), 미션 수행 기준(successCriteria), 미션별 피드백 관찰 포인트(feedbackFocus)를 확인합니다.
+2. 실제 대화 기록을 보고 해당 미션을 자연스럽게 수행하는 방식의 범위를 판단합니다.
+3. 공통 지표는 그 자연스러운 수행 범위 안에서 평가합니다.
+4. 공통 지표를 보여주기 위해 미션 목적에 없거나 대화를 불필요하게 늘리는 행동을 새로 요구하지 않습니다.
+5. 공통 지표의 일반적인 행동 예시와 미션 목적이 충돌하면 미션 목적과 실제 상황의 자연스러움을 우선합니다.
+Playbook 평가 문맥이 제공되지 않은 경우에는 미션 제목·설명과 실제 대화 기록을 같은 우선순위로 사용합니다.
+
 다음 4개 지표를 각각 0~100점으로 채점합니다:
 - kindness (친절한 태도): 존중·배려가 담긴 표현을 썼는가
-- initiative (대화 주도): 먼저 화제를 꺼내거나 대화를 이끌었는가
-- empathy (공감 능력): 상대의 말에 공감을 표현했는가
-- questionLink (질문 연결성): 상대의 답변에 이어지는 질문을 했는가
+- initiative (대화 주도): 상황에 필요한 말을 먼저 시작하거나 필요한 정보와 응답을 주고받으며 목적을 향해 대화를 진행했는가. 주도성은 반드시 대화를 길게 확장하는 것을 뜻하지 않습니다. 짧은 미션에서도 먼저 인사·주문·요청하고 필요한 응답을 제공했다면 주도성을 보인 것으로 평가할 수 있습니다.
+- empathy (공감·사회적 배려): 상대의 말과 상황을 이해하고 그에 맞는 배려 있는 반응을 했는가. 감정적인 공감 문장이 항상 필요한 것은 아닙니다. 단순 서비스 상황에서는 공손한 응답, 상대 요청에 맞는 정보 제공, 감사 표현도 충분한 사회적 배려가 될 수 있습니다.
+- questionLink (질문 연결성): 대화 맥락상 후속 질문이 자연스럽거나 필요한 경우 상대의 답변과 연결되는 질문을 했는가. 모든 대화에서 후속 질문을 요구하는 지표가 아닙니다. 질문 없이 자연스럽게 완료되는 주문·인사·요청 미션에서는 질문하지 않은 사실 자체를 감점 근거로 사용하지 않습니다. 후속 질문 기회가 없었다면 상대의 질문이나 안내에 맥락에 맞게 반응하며 대화 흐름을 자연스럽게 이어갔는지도 함께 봅니다.
 
 규칙:
 - 각 지표마다 strengths(잘한 점)와 improvements(개선 제안)를 1~3개씩 씁니다.
+- 각 지표를 평가하기 전에 미션 목적과 실제 대화 흐름에서 그 역량을 보여줄 합리적인 기회가 있었는지 먼저 판단합니다. 특정 행동을 하지 않았다는 사실만으로 부족하다고 판단하지 말고, 그 행동이 실제로 필요하거나 자연스러운 상황이었는지 확인합니다.
+- 합리적인 기회가 있었다면 실제 수행을 평가합니다. 기회가 있었는데 놓쳤거나 관련 행동이 부자연스러웠다는 대화 근거가 있을 때만 그 부족함을 점수와 improvements에 반영합니다.
+- 합리적인 기회가 없었다면 기회 부족 자체를 낮은 수행의 근거로 삼지 않습니다. 특히 질문이 필요하지 않거나 추가 질문이 대화를 불필요하게 늘리는 미션에서는 질문하지 않았다는 이유만으로 questionLink를 감점하거나 불필요한 질문을 요구하지 않습니다. 단, successCriteria에 질문이 없더라도 실제 대화에서 자연스러운 후속 질문 기회가 있었다면 questionLink를 기존 정의대로 평가합니다.
+- strengths는 실제 사용자 발화에서 확인되는 긍정 행동을 최소 1개 구체적으로 씁니다. 작은 행동도 인정하되, 하지 않은 행동을 했다고 칭찬하지 않습니다. 해당 지표의 관찰 기회가 부족했다면 대화를 미션에 맞게 자연스럽게 수행한 점을 인정하되 그 지표를 잘 수행했다고 과장하지 않습니다.
+- improvements는 현재 미션에서 실제로 확인된 부족함이 있으면 구체적인 개선점을 씁니다. 특별한 부족함이나 관찰 기회가 없다면 현재 수행의 결함을 지어내지 말고, "다음에 실제로 해당 상황이 생긴다면"처럼 적용 조건을 밝힌 동기부여형 확장 팁을 최소 1개 씁니다. 확장 팁을 현재 미션에서 했어야 할 행동처럼 표현하거나, 팁을 만들기 위해 현재 미션과 무관한 행동을 새로 제안하지 않습니다.
+- 어떤 행동이 현재 미션의 objective, successCriteria, feedbackFocus에 필요하지 않고 실제 대화에서도 그 행동의 필요성이 발생하지 않았다면, 그 행동을 "하면 더 높은 점수를 받을 수 있다"는 의미의 improvements로 제안하지 않습니다.
+- 관찰 기회가 없었던 지표의 improvements는 현재 미션을 더 길게 확장하는 행동이 아니라, 같은 역량이 실제로 필요한 다른 상황에서 사용할 수 있는 조건부 팁으로 작성합니다. 현재 미션을 다시 수행하거나 불필요하게 이어가라는 의미가 되어서는 안 됩니다.
+- 사용자가 미션을 자연스럽게 완료했다면 다음을 improvements로 만들지 않습니다: 대화를 더 길게 이어가라는 요구, 미션 수행에 필요하지 않은 추가 요청, 추천 메뉴나 결제 방법처럼 불필요한 후속 질문, 단순 주문 상황에 어울리지 않는 감정적 공감 문장, 이미 완료된 목적을 다시 확인하거나 반복하게 하는 발화.
 - bestSentenceIndex: 그 지표를 가장 잘 보여주는 발화를 "사용자 발화 목록"에서 골라 그 **번호만** 적습니다. 문장을 직접 쓰지 말고, 목록에 있는 번호 중 하나를 정수로만 적습니다. 목록에 없는 문장(미션 설명의 예시 문장, 상대 발화 등)은 절대 고르면 안 됩니다.
+- 해당 지표의 관찰 기회가 부족한 경우 bestSentenceIndex는 가장 관련 있거나 대화를 자연스럽게 수행한 사용자 발화를 고릅니다. 그 문장이 해당 지표를 잘 수행했다는 식으로 strengths를 과장하지 않습니다.
 - missionSummary: 미션 완료 화면에 보여줄 짧은 요약 태그를 1~3개 생성합니다 (예: "장소 경험을 공유했어요").
 - summaryChips: 이 대화 전체를 대표하는 키워드 칩을 정확히 3개 생성합니다. 반드시 문장이 아니라 단어/짧은 명사구여야 하며(예: "자기성장", "첫 만남", "스몰토크"), 각 칩은 최대 12자, 마침표나 서술형 어미를 쓰지 않습니다.
 - conversationSummary: 이 대화가 어떤 내용이었는지 2~3문장으로 요약합니다. 나중에 대화 기록을 다시 볼 때 한눈에 파악할 수 있도록 무엇에 대해 이야기했는지 중심으로 쓰고, 평가나 점수는 넣지 않습니다.
+- cardSummary: conversationSummary와 같은 대화 내용을 바탕으로, 목록 카드에 보여줄 1~2줄(50자 내외)의 축약 버전을 씁니다. 새로운 내용을 넣지 말고 conversationSummary를 짧게 줄인 버전이어야 합니다.
+- conversationHighlights: 이 대화에서 실제로 있었던 흐름을 시간 순서대로 2~3개의 짧은 문장으로 씁니다 (예: "먼저 인사를 건네며 대화를 시작했어요", "상대의 질문에 답하며 대화를 이어갔어요"). missionSummary(평가 태그)나 conversationSummary(전체 요약)와 달리, 대화 중 실제로 일어난 행동을 순서대로 나열하는 것입니다.
 - savedPhraseIndex: 사용자가 나중에 다시 쓰기 좋은 발화를 "사용자 발화 목록"에서 골라 그 **번호만** 적습니다. bestSentenceIndex와 같은 규칙입니다.
 - 근거 없이 과장하지 말고, 실제 대화 내용에 기반해 구체적으로 씁니다.
 - 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
@@ -124,6 +156,8 @@ const SYSTEM_PROMPT = `당신은 사용자의 실제 대화 연습을 분석하�
   "missionSummary": ["string"],
   "summaryChips": ["단어", "단어", "단어"],
   "conversationSummary": "string",
+  "cardSummary": "string",
+  "conversationHighlights": ["string", "string"],
   "savedPhraseIndex": 정수
 }`;
 
@@ -131,7 +165,8 @@ const SYSTEM_PROMPT = `당신은 사용자의 실제 대화 연습을 분석하�
 export const buildFeedbackMessages = (
   transcript: FeedbackTranscriptMessage[],
   missionTitle: string,
-  missionDescription: string | null
+  missionDescription: string | null,
+  missionContext?: FeedbackMissionContext
 ): UpstageChatMessage[] => {
   // 후보 목록과 같은 정규화를 거친 기록을 쓴다. 번호가 어긋나면 안 되기 때문이다.
   const trimmed = normalizeTranscript(transcript);
@@ -158,12 +193,45 @@ export const buildFeedbackMessages = (
     contextLines.push(`미션 설명(참고용 — 여기 있는 예시 문장은 사용자가 한 말이 아닙니다): ${missionDescription}`);
   }
 
+  const evaluationContextLines: string[] = [];
+  if (missionContext?.objective) {
+    evaluationContextLines.push(
+      "미션 상위 목적(평가 항목이 아니라 수행 기준을 이해하기 위한 참고 문맥):",
+      `- ${missionContext.objective}`
+    );
+  }
+  if (missionContext?.successCriteria?.length) {
+    evaluationContextLines.push(
+      "미션 수행 기준:",
+      ...missionContext.successCriteria.map((criterion, index) => `${index + 1}. ${criterion}`)
+    );
+  }
+  if (missionContext?.feedbackFocus?.length) {
+    evaluationContextLines.push(
+      "미션별 피드백 관찰 포인트:",
+      ...missionContext.feedbackFocus.map((focus, index) => `${index + 1}. ${focus}`)
+    );
+  }
+
+  if (evaluationContextLines.length > 0) {
+    evaluationContextLines.push(
+      "평가 적용 규칙:",
+      "- 미션 수행 기준은 실제 대화 기록과 비교하고, 기록에서 확인할 수 없는 행동을 수행했다고 추정하지 마세요.",
+      "- 미션 수행 기준의 달성 여부는 주로 missionSummary에 반영하세요.",
+      "- 미션별 피드백 관찰 포인트는 실제 사용자 발화에서 관찰 가능하고 해당 공통 지표와 관련 있을 때만 strengths 또는 improvements에 반영하세요.",
+      "- kindness, initiative, empathy, questionLink의 기존 정의를 유지하고, 미션 성공 또는 실패 자체를 이유로 네 점수를 일괄적으로 올리거나 내리지 마세요.",
+      "- strengths와 improvements는 미션 상위 목적, 미션 수행 기준, 미션별 피드백 관찰 포인트와 모순되면 안 됩니다.",
+      "- 사용자가 미션을 이미 자연스럽게 완료했다면 공통 지표를 보여주기 위한 불필요한 행동을 추가로 요구하지 마세요."
+    );
+  }
+
   return [
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
       content: [
         contextLines.join("\n"),
+        ...(evaluationContextLines.length > 0 ? ["", evaluationContextLines.join("\n")] : []),
         "",
         "대화 기록:",
         transcriptText,
@@ -217,6 +285,8 @@ const parseFeedbackLlm = (
     missionSummary: data.missionSummary,
     summaryChips: data.summaryChips,
     conversationSummary: data.conversationSummary,
+    cardSummary: data.cardSummary,
+    conversationHighlights: data.conversationHighlights,
     savedPhrase,
   };
 };
@@ -242,9 +312,15 @@ const callOnce = async (
 export const generateFeedbackWithLlm = (
   transcript: FeedbackTranscriptMessage[],
   missionTitle: string,
-  missionDescription: string | null
+  missionDescription: string | null,
+  missionContext?: FeedbackMissionContext
 ): Promise<FeedbackLlmResult | null> => {
-  const messages = buildFeedbackMessages(transcript, missionTitle, missionDescription);
+  const messages = buildFeedbackMessages(
+    transcript,
+    missionTitle,
+    missionDescription,
+    missionContext
+  );
   const userUtterances = collectUserUtterances(transcript);
 
   return generateWithRetry(() => callOnce(messages, userUtterances), { label: "피드백" });

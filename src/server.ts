@@ -3,6 +3,7 @@ import { env } from "./config/env";
 import { logger } from "./config/logger";
 import { createApp } from "./app";
 import { initChatSocket } from "./modules/community/realtime/chat.socket";
+import { startMissionReminderScheduler } from "./modules/notification/services/mission-reminder-scheduler.service";
 
 const app = createApp();
 // Socket.IO는 express app이 아니라 그 밑의 raw http.Server에 붙어야 해서
@@ -10,6 +11,7 @@ const app = createApp();
 const httpServer = http.createServer(app);
 
 initChatSocket(httpServer);
+startMissionReminderScheduler();
 
 httpServer.listen(env.PORT, () => {
   logger.info(`TalkQuest API listening on http://localhost:${env.PORT}`);

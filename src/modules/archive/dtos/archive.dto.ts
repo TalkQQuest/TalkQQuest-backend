@@ -156,6 +156,11 @@ export interface PhraseDetailResponseDto {
      * (Figma상 대화 요약 칩과 메모 칩이 구분되지 않아 추후 확정 필요 — 이슈 #83)
      */
     summaryChips: string[];
+    /**
+     * 저장 문장 상세의 대화 카드에 보여줄 AI 요약. 대화 카드 요약(Feedbacks.card_summary)을
+     * 재사용한다. 피드백 생성 전이거나 재생성 중(status != ready)이면 null(이슈 #183).
+     */
+    description: string | null;
     /** 저장된 문장이 속한 대화의 소요 시간 "mm:ss". 대화가 아직 종료되지 않았으면 null(#175). */
     duration: string | null;
     createdAt: string;

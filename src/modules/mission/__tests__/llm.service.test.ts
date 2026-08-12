@@ -33,16 +33,17 @@ const context: UserContext = {
   baseDifficulty: 2,
   recentMissions: [],
   isColdStart: true,
+  suggestedDifficulty: null,
+  growth: null,
 };
 
 const criteria: RecommendationCriteria = {
   userId: "u1",
   targetDifficulty: 2,
-  avoidedCategories: ["stranger"],
   preferredInterests: ["카페"],
   personalityType: "introvert",
   isColdStart: true,
-  difficultyAdjustment: { baseDifficulty: 2, adjustedDifficulty: 2, reason: "kept" },
+  difficulty: { baseDifficulty: 2, targetDifficulty: 2, source: "base" },
 };
 
 const setupGuideline = {
@@ -118,12 +119,56 @@ describe("buildLlmMessages", () => {
     expect(systemContent).toContain("disabled.partnerRole을 빈 배열로 둡니다");
   });
 
-  it("user 메시지에 목표 난이도와 회피 카테고리 힌트를 담는다", () => {
+  it("user 메시지에 목표 난이도와 연습 유형 힌트를 담는다", () => {
     const userContent = buildLlmMessages(context, criteria)[1].content;
     expect(userContent).toContain("targetDifficulty");
-    expect(userContent).toContain("stranger");
     expect(userContent).toContain("practiceTypes");
     expect(userContent).toContain("가벼운 잡담");
+  });
+
+  // #150 — 성장 프로필이 있으면 프롬프트에 실린다. 이게 result를 대체하는 신호다.
+  it("성장 프로필이 있으면 growth 힌트로 담는다", () => {
+    const userContent = buildLlmMessages(
+      {
+        ...context,
+        growth: {
+          summary: "질문은 잘 하지만 답변을 이어받는 부분이 아쉬워요",
+          strengths: ["먼저 인사를 건넴"],
+          improvements: ["상대 답변에 되묻기"],
+          struggleSituations: [
+            { environment: "school", partnerRole: "senior", category: "짧은 대화" },
+          ],
+        },
+      },
+      criteria
+    )[1].content;
+
+    expect(userContent).toContain("growth");
+    expect(userContent).toContain("되묻기");
+    expect(userContent).toContain("senior");
+  });
+
+  // 미션에 실패 개념이 없어 result에는 항상 success가 들어온다.
+  // 그대로 넣으면 모델에게 "전부 성공했다"는 잘못된 신호만 준다.
+  it("최근 미션 이력에 result를 담지 않는다", () => {
+    const userContent = buildLlmMessages(
+      {
+        ...context,
+        recentMissions: [
+          {
+            missionId: "m1",
+            title: "카페에서 주문하기",
+            category: "짧은 대화",
+            difficulty: 2,
+            createdAt: new Date(),
+          },
+        ],
+      },
+      criteria
+    )[1].content;
+
+    expect(userContent).toContain("카페에서 주문하기");
+    expect(userContent).not.toContain("result");
   });
 
   it("빈 값은 힌트에서 아예 제외한다 (모델이 빈 값을 인용/해설하지 않도록)", () => {
@@ -136,7 +181,6 @@ describe("buildLlmMessages", () => {
     };
     const emptyCriteria: RecommendationCriteria = {
       ...criteria,
-      avoidedCategories: [],
       preferredInterests: [],
     };
 

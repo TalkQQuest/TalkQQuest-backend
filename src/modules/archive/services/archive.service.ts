@@ -489,6 +489,8 @@ export const getPhraseDetail = async (
 
     const archiveItem = await archiveRepository.findArchiveItemByReference(userId, "phrase", phraseId);
 
+    const feedbackRow = phrase.conversation?.feedbacks?.[0];
+
     return {
         id: phrase.id,
         content: phrase.content,
@@ -496,7 +498,10 @@ export const getPhraseDetail = async (
         missionTitle: phrase.conversation?.mission?.title ?? null,
         conversationId: phrase.conversation_id,
         folderId: archiveItem?.folder_id ?? null,
-        summaryChips: toSummaryChips(phrase.conversation?.feedbacks?.[0]?.summary_chips),
+        summaryChips: toSummaryChips(feedbackRow?.summary_chips),
+        // 저장 문장 상세의 대화 카드에 보여줄 AI 요약(Feedbacks.card_summary 재사용, #183).
+        // 재생성 중(status != ready)에는 이전 요약이 노출되지 않도록 status를 확인한다.
+        description: feedbackRow?.status === "ready" ? feedbackRow.card_summary : null,
         duration: phrase.conversation
             ? formatDuration(phrase.conversation.started_at, phrase.conversation.finished_at)
             : null,

@@ -3,7 +3,7 @@ import {
   RecommendedMission,
   TemplateMissionCandidate,
 } from "../dtos/recommendation.dto";
-import { findTemplateMissionsExcluding } from "../repositories/mission.repository";
+import { findTemplateMissions } from "../repositories/mission.repository";
 
 // 3단계 — 템플릿 기반 추천 + 최종 폴백.
 // 규칙 기반 criteria(2단계)로 미리 시드된 미션 중 하나를 고른다.
@@ -38,17 +38,18 @@ const matchesInterest = (
 
 // 후보 중 하나를 고른다. 정렬 우선순위:
 // 1) 목표 난이도에 가까운 것  2) 관심사와 맞는 것  3) 원래 순서(안정 정렬)
-// 회피 카테고리는 repository에서 이미 걸러지지만, 순수 함수 단독 사용을 위해 여기서도 방어적으로 제외한다.
+//
+// #150 — 회피 카테고리 제외가 사라졌다. 그 목록은 Mission_Records.result로 만들어졌는데
+// result에는 항상 success가 들어와 한 번도 채워지지 않았다(항상 빈 배열).
 export const pickTemplateMission = (
   candidates: TemplateMissionCandidate[],
   criteria: RecommendationCriteria
 ): TemplateMissionCandidate | null => {
-  const pool = candidates.filter((c) => !criteria.avoidedCategories.includes(c.category));
-  if (pool.length === 0) {
+  if (candidates.length === 0) {
     return null;
   }
 
-  const scored = pool.map((candidate, index) => ({
+  const scored = candidates.map((candidate, index) => ({
     candidate,
     index,
     difficultyGap: Math.abs(candidate.difficulty - criteria.targetDifficulty),
@@ -70,15 +71,15 @@ export const buildTemplateReason = (criteria: RecommendationCriteria): string =>
   if (criteria.isColdStart) {
     return "온보딩에서 고른 성향을 반영한 첫 미션이에요.";
   }
-  switch (criteria.difficultyAdjustment.reason) {
-    case "lowered_repeated_avoidance":
-      return "최근 회피가 잦아 난이도를 한 단계 낮춘 미션이에요.";
-    case "raised_streak_success":
-      return "최근 연속 성공으로 난이도를 한 단계 올린 미션이에요.";
-    case "kept":
-    default:
-      return "지금 수준에 맞춰 고른 미션이에요.";
+  // 난이도가 성장 프로필 제안으로 움직였을 때만 그 사실을 알린다.
+  // 방향까지 문구에 담는 이유 — "낮췄다"만 보이면 사용자가 후퇴로 읽을 수 있어,
+  // 무엇을 근거로 조정했는지 함께 말한다.
+  if (criteria.difficulty.source === "growth_profile") {
+    return criteria.difficulty.targetDifficulty < criteria.difficulty.baseDifficulty
+      ? "최근 대화 피드백을 반영해 조금 편한 난이도로 골랐어요."
+      : "최근 대화 피드백이 좋아 한 단계 올린 미션이에요.";
   }
+  return "지금 수준에 맞춰 고른 미션이에요.";
 };
 
 const toRecommendedMission = (
@@ -118,11 +119,11 @@ const toCandidate = (row: {
   category: row.category,
 });
 
-// 3단계 진입점: 회피 카테고리를 뺀 템플릿을 가져와 하나 고르고, 없으면 입문 폴백을 반환.
+// 3단계 진입점: 템플릿 미션을 가져와 하나 고르고, 없으면 입문 폴백을 반환.
 export const recommendFromTemplate = async (
   criteria: RecommendationCriteria
 ): Promise<RecommendedMission> => {
-  const rows = await findTemplateMissionsExcluding(criteria.avoidedCategories);
+  const rows = await findTemplateMissions();
   const picked = pickTemplateMission(rows.map(toCandidate), criteria);
 
   if (!picked) {

@@ -1,6 +1,5 @@
 import {
-  DifficultyAdjustmentReason,
-  RecommendationCriteria,
+    RecommendationCriteria,
   TemplateMissionCandidate,
 } from "../dtos/recommendation.dto";
 import * as repository from "../repositories/mission.repository";
@@ -32,11 +31,10 @@ const criteriaWith = (
 ): RecommendationCriteria => ({
   userId: "u1",
   targetDifficulty: 2,
-  avoidedCategories: [],
   preferredInterests: [],
   personalityType: "introvert",
   isColdStart: false,
-  difficultyAdjustment: { baseDifficulty: 2, adjustedDifficulty: 2, reason: "kept" },
+    difficulty: { baseDifficulty: 2, targetDifficulty: 2, source: "base" },
   ...overrides,
 });
 
@@ -85,17 +83,14 @@ describe("pickTemplateMission", () => {
         candidate({ id: "avoided", difficulty: 2, category: "stranger" }),
         candidate({ id: "ok", difficulty: 2, category: "짧은 대화" }),
       ],
-      criteriaWith({ targetDifficulty: 2, avoidedCategories: ["stranger"] })
+      criteriaWith({ targetDifficulty: 2 })
     );
-    expect(picked?.id).toBe("ok");
+    // #150 — 회피 카테고리 제외가 사라졌으므로 난이도·관심사 순위로만 고른다.
+    expect(picked?.id).toBe("avoided");
   });
 
-  it("모든 후보가 회피 카테고리면 null을 반환한다", () => {
-    const picked = pickTemplateMission(
-      [candidate({ category: "stranger" })],
-      criteriaWith({ avoidedCategories: ["stranger"] })
-    );
-    expect(picked).toBeNull();
+  it("후보가 하나도 없으면 null을 반환한다", () => {
+    expect(pickTemplateMission([], criteriaWith())).toBeNull();
   });
 
   it("조건이 같으면 원래 순서(안정 정렬)를 유지한다", () => {
@@ -112,19 +107,34 @@ describe("buildTemplateReason", () => {
     expect(buildTemplateReason(criteriaWith({ isColdStart: true }))).toContain("성향");
   });
 
-  const reasonCases: [DifficultyAdjustmentReason, string][] = [
-    ["lowered_repeated_avoidance", "낮춘"],
-    ["raised_streak_success", "올린"],
-    ["kept", "맞춰"],
-  ];
-  it.each(reasonCases)("조정 사유 %s에 맞는 문구를 준다", (reason, expected) => {
+  it("성장 프로필이 난이도를 낮췄으면 그 근거를 알린다", () => {
     const text = buildTemplateReason(
       criteriaWith({
         isColdStart: false,
-        difficultyAdjustment: { baseDifficulty: 2, adjustedDifficulty: 2, reason },
+        difficulty: { baseDifficulty: 3, targetDifficulty: 2, source: "growth_profile" },
       })
     );
-    expect(text).toContain(expected);
+    expect(text).toContain("편한 난이도");
+  });
+
+  it("성장 프로필이 난이도를 올렸으면 그 근거를 알린다", () => {
+    const text = buildTemplateReason(
+      criteriaWith({
+        isColdStart: false,
+        difficulty: { baseDifficulty: 1, targetDifficulty: 2, source: "growth_profile" },
+      })
+    );
+    expect(text).toContain("올린");
+  });
+
+  it("제안이 없어 기준 난이도를 그대로 썼으면 중립 문구를 준다", () => {
+    const text = buildTemplateReason(
+      criteriaWith({
+        isColdStart: false,
+        difficulty: { baseDifficulty: 2, targetDifficulty: 2, source: "base" },
+      })
+    );
+    expect(text).toContain("맞춰");
   });
 });
 
@@ -132,7 +142,7 @@ describe("recommendFromTemplate", () => {
   beforeEach(() => jest.clearAllMocks());
 
   it("매칭 템플릿이 있으면 그 미션을 추천 형태로 반환한다", async () => {
-    mockedRepo.findTemplateMissionsExcluding.mockResolvedValue([
+    mockedRepo.findTemplateMissions.mockResolvedValue([
       {
         id: "m2",
         title: "카페에서 음료 추천 물어보기",
@@ -153,7 +163,7 @@ describe("recommendFromTemplate", () => {
   });
 
   it("매칭 템플릿이 없으면 입문 폴백 미션을 반환한다", async () => {
-    mockedRepo.findTemplateMissionsExcluding.mockResolvedValue([] as never);
+    mockedRepo.findTemplateMissions.mockResolvedValue([] as never);
 
     const result = await recommendFromTemplate(criteriaWith());
 

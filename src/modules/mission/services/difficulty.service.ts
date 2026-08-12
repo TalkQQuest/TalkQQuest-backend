@@ -1,32 +1,32 @@
 import { PersonalityType } from "@prisma/client";
-import {
-  DifficultyAdjustment,
-  RecentMissionRecord,
-  RecommendationCriteria,
-  UserContext,
-} from "../dtos/recommendation.dto";
+import { DifficultyDecision, RecommendationCriteria, UserContext } from "../dtos/recommendation.dto";
 
-// 2단계 — 규칙 기반 난이도 조정 / 회피 유형 필터.
+// 2단계 — 난이도 결정.
 // 여기 있는 함수는 전부 순수 함수(부수효과·I/O 없음)라 단위 테스트가 쉽습니다.
-// 회피 패턴 판단 같은 민감한 로직은 AI에 맡기지 않고 서버가 결정론적으로 처리하고,
-// 그 결과를 이후 LLM 프롬프트에 "힌트"로만 넘깁니다.
+//
+// #150 이전에는 Mission_Records.result(success/failure/avoidance)를 근거로
+// "최근 3건 중 회피·실패 2건 이상이면 하향", "3건 모두 성공이면 상향" 규칙을 썼습니다.
+// 그런데 미션-대화에 실패라는 개념이 없어 result에는 항상 success가 들어옵니다.
+// 그래서 상향 조건이 매번 충족돼 3회 완료 시점부터 난이도가 3에 고정되고, 하향 규칙은
+// 한 번도 발동하지 않았습니다. 규칙이 안 쓰인 게 아니라 잘못 작동하고 있었습니다.
+//
+// 이제 실제 신호인 **피드백 지표**에서 뽑은 성장 프로필의 제안 난이도를 쓰되,
+// 아래 클램프로 한 번에 튀는 것을 막습니다.
 
 export const MIN_DIFFICULTY = 1; // 쉬움
 export const MAX_DIFFICULTY = 3; // 어려움 (Missions.difficulty 스케일)
 
-// 최근 몇 건까지 보고 난이도/회피를 판단할지.
-const RECENT_WINDOW = 3;
-// 이 횟수 이상 회피/실패가 쌓인 카테고리는 추천에서 제외.
-const AVOIDANCE_EXCLUDE_THRESHOLD = 2;
+// 성장 프로필의 제안 난이도가 최근 미션 난이도에서 한 번에 벗어날 수 있는 폭.
+// 요약은 LLM 파생 데이터라 한 번 어긋나면 그대로 굳는데, 클램프가 없으면 방금 걷어낸 문제
+// (난이도가 한쪽 끝에 고정)를 다른 경로로 되풀이하게 됩니다.
+export const SUGGESTION_MAX_STEP = 1;
 
 const clampDifficulty = (value: number): number =>
   Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, value));
 
 // 수행 기록이 아직 없는 신규 사용자의 시작 난이도.
 // 온보딩 성향을 반영해 내향형은 더 낮은 난이도에서 출발합니다.
-export const seedDifficultyFromPersonality = (
-  personality: PersonalityType | null
-): number => {
+export const seedDifficultyFromPersonality = (personality: PersonalityType | null): number => {
   switch (personality) {
     case "introvert":
       return MIN_DIFFICULTY; // 1
@@ -38,73 +38,45 @@ export const seedDifficultyFromPersonality = (
   }
 };
 
-// 최근 기록을 근거로 기준 난이도를 조정.
-// - 최근 3건 중 회피/실패가 2건 이상 → 한 단계 하향
-// - 최근 3건이 모두 성공 → 한 단계 상향
-// - 그 외 → 유지
-export const adjustDifficulty = (
-  recentMissions: RecentMissionRecord[],
-  baseDifficulty: number
-): DifficultyAdjustment => {
-  const recent = recentMissions.slice(0, RECENT_WINDOW);
+// 기준 난이도(최근 완료 미션 또는 성향 시드)에 성장 프로필의 제안을 반영한다.
+//
+// 제안이 없으면(프로필 없음·표본 부족·요약 실패) 기준 난이도를 그대로 쓴다 —
+// 근거가 없을 때 임의로 흔드는 것보다 유지하는 편이 낫다.
+export const decideDifficulty = (
+  baseDifficulty: number,
+  suggestedDifficulty: number | null
+): DifficultyDecision => {
+  const base = clampDifficulty(baseDifficulty);
 
-  const failOrAvoid = recent.filter(
-    (m) => m.result === "failure" || m.result === "avoidance"
-  ).length;
-  const successCount = recent.filter((m) => m.result === "success").length;
-
-  if (failOrAvoid >= 2) {
-    return {
-      baseDifficulty,
-      adjustedDifficulty: clampDifficulty(baseDifficulty - 1),
-      reason: "lowered_repeated_avoidance",
-    };
+  if (suggestedDifficulty === null) {
+    return { baseDifficulty: base, targetDifficulty: base, source: "base" };
   }
 
-  if (recent.length >= RECENT_WINDOW && successCount === RECENT_WINDOW) {
-    return {
-      baseDifficulty,
-      adjustedDifficulty: clampDifficulty(baseDifficulty + 1),
-      reason: "raised_streak_success",
-    };
-  }
+  // 먼저 기준 난이도 ±SUGGESTION_MAX_STEP으로 자른 뒤, 다시 전체 범위로 자른다.
+  // 순서가 중요하다 — 전체 범위로만 자르면 제안이 1에서 3으로 한 번에 뛸 수 있다.
+  const stepped = Math.min(
+    base + SUGGESTION_MAX_STEP,
+    Math.max(base - SUGGESTION_MAX_STEP, suggestedDifficulty)
+  );
+  const target = clampDifficulty(stepped);
 
   return {
-    baseDifficulty,
-    adjustedDifficulty: clampDifficulty(baseDifficulty),
-    reason: "kept",
+    baseDifficulty: base,
+    targetDifficulty: target,
+    source: target === base ? "base" : "growth_profile",
   };
-};
-
-// 최근 창(window) 안에서 회피/실패가 임계치 이상 쌓인 카테고리를 수집.
-// 반환된 카테고리는 추천 후보에서 제외합니다(반복 회피 유형 회피 → 대체 유형 유도).
-export const collectAvoidedCategories = (
-  recentMissions: RecentMissionRecord[]
-): string[] => {
-  const failCountByCategory = new Map<string, number>();
-
-  for (const m of recentMissions.slice(0, RECENT_WINDOW)) {
-    if (m.result === "failure" || m.result === "avoidance") {
-      failCountByCategory.set(m.category, (failCountByCategory.get(m.category) ?? 0) + 1);
-    }
-  }
-
-  return [...failCountByCategory.entries()]
-    .filter(([, count]) => count >= AVOIDANCE_EXCLUDE_THRESHOLD)
-    .map(([category]) => category);
 };
 
 // 1단계 컨텍스트 → 이후 단계(템플릿 조회 / LLM 프롬프트)로 넘길 최종 추천 기준.
 export const buildRecommendationCriteria = (context: UserContext): RecommendationCriteria => {
-  const difficultyAdjustment = adjustDifficulty(context.recentMissions, context.baseDifficulty);
+  const difficulty = decideDifficulty(context.baseDifficulty, context.suggestedDifficulty);
 
   return {
     userId: context.userId,
-    targetDifficulty: difficultyAdjustment.adjustedDifficulty,
-    avoidedCategories: collectAvoidedCategories(context.recentMissions),
+    targetDifficulty: difficulty.targetDifficulty,
     preferredInterests: context.interests,
     personalityType: context.personalityType,
     isColdStart: context.isColdStart,
-    difficultyAdjustment,
+    difficulty,
   };
 };

@@ -489,6 +489,12 @@ export const getPhraseDetail = async (
 
     const archiveItem = await archiveRepository.findArchiveItemByReference(userId, "phrase", phraseId);
 
+    const feedbackRow = phrase.conversation?.feedbacks?.[0];
+    // 재시도(retryFeedback)는 status만 pending으로 되돌리고 이전 summary_chips/card_summary는
+    // 지우지 않는다. status가 ready일 때만 노출해야 재생성 중인 대화에서 낡은 값이 보이지
+    // 않는다 (getConversationDetail과 동일 기준, #169).
+    const feedback = feedbackRow?.status === "ready" ? feedbackRow : undefined;
+
     return {
         id: phrase.id,
         content: phrase.content,
@@ -496,7 +502,9 @@ export const getPhraseDetail = async (
         missionTitle: phrase.conversation?.mission?.title ?? null,
         conversationId: phrase.conversation_id,
         folderId: archiveItem?.folder_id ?? null,
-        summaryChips: toSummaryChips(phrase.conversation?.feedbacks?.[0]?.summary_chips),
+        summaryChips: toSummaryChips(feedback?.summary_chips),
+        // 저장 문장 상세의 대화 카드에 보여줄 AI 요약(Feedbacks.card_summary 재사용, #183).
+        description: feedback?.card_summary ?? null,
         duration: phrase.conversation
             ? formatDuration(phrase.conversation.started_at, phrase.conversation.finished_at)
             : null,

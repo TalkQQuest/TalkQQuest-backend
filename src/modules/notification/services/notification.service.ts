@@ -6,11 +6,14 @@ import {
     findNotificationSettings,
     updateNotificationSettings,
     createNotification,
+    deleteNotification,
+    deleteAllNotifications,
 } from "../repositories/notification.repository";
 import {
     NotificationsResponseDto,
     NotificationSettingsResponseDto,
     UpdateNotificationSettingsRequestDto,
+    DeleteNotificationResponseDto,
 } from "../dtos/notification.dto";
 import { NotFoundError } from "../../../shared/errors/common.error";
 import { logger } from "../../../config/logger";
@@ -71,6 +74,23 @@ export const getNotifications = async (
 
     export const readAllNotifications = async (userId: string): Promise<void> => {
     await markAllNotificationsAsRead(userId);
+    };
+
+    export const deleteMyNotification = async (
+    userId: string,
+    notificationId: string
+    ): Promise<DeleteNotificationResponseDto> => {
+    const notification = await findNotificationById(notificationId, userId);
+    if (!notification) {
+        throw new NotFoundError("존재하지 않는 알림입니다.");
+    }
+
+    await deleteNotification(notificationId);
+    return { notificationId, deleted: true };
+    };
+
+    export const deleteAllMyNotifications = async (userId: string): Promise<void> => {
+    await deleteAllNotifications(userId);
     };
 
     export const getNotificationSettings = async (

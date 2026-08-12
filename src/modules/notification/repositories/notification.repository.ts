@@ -34,6 +34,14 @@ export const markAllNotificationsAsRead = (userId: string) =>
         data: { is_read: true },
     });
 
+// #199 — 알림 삭제. 소유권 확인(findNotificationById)은 서비스 레이어에서 먼저 하므로
+// 여기서는 id로 바로 지운다.
+export const deleteNotification = (notificationId: string) =>
+    prisma.notifications.delete({ where: { id: notificationId } });
+
+export const deleteAllNotifications = (userId: string) =>
+    prisma.notifications.deleteMany({ where: { user_id: userId } });
+
 export const findNotificationSettings = (userId: string) =>
     prisma.notification_Settings.findUnique({ where: { user_id: userId } });
 

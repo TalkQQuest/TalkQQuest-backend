@@ -95,11 +95,12 @@ describe("getLatestUnreadReportId(#193)", () => {
       reference_id: "w1",
     } as never);
 
-    const result = await getLatestUnreadReportId("u1", "weekly_compare");
+    const result = await getLatestUnreadReportId("u1", "report_ready", "weekly_compare");
 
     expect(result).toBe("w1");
     expect(mockedRepo.findLatestUnreadNotificationByReferenceType).toHaveBeenCalledWith(
       "u1",
+      "report_ready",
       "weekly_compare"
     );
   });
@@ -107,8 +108,23 @@ describe("getLatestUnreadReportId(#193)", () => {
   it("안 읽은 알림이 없으면 null을 반환한다", async () => {
     mockedRepo.findLatestUnreadNotificationByReferenceType.mockResolvedValue(null as never);
 
-    const result = await getLatestUnreadReportId("u1", "weekly_compare");
+    const result = await getLatestUnreadReportId("u1", "report_ready", "weekly_compare");
 
     expect(result).toBeNull();
+  });
+
+  // 회귀 테스트(코드래빗 리뷰): reference_type만 보고 type을 안 걸러내면, weekly_compare를
+  // 참조하는 report_ready 외 다른 종류의 알림도 "새 리포트 도착"으로 잘못 인식할 수 있다.
+  // repository 함수 호출에 type을 함께 넘기는지로 이 필터링이 실제로 적용됨을 검증한다.
+  it("type과 referenceType을 모두 repository에 함께 넘긴다", async () => {
+    mockedRepo.findLatestUnreadNotificationByReferenceType.mockResolvedValue(null as never);
+
+    await getLatestUnreadReportId("u1", "report_ready", "weekly_compare");
+
+    expect(mockedRepo.findLatestUnreadNotificationByReferenceType).toHaveBeenCalledWith(
+      "u1",
+      "report_ready",
+      "weekly_compare"
+    );
   });
 });

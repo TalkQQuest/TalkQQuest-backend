@@ -118,7 +118,11 @@ describe("getHomeSummary — newWeeklyCompareReport(#193)", () => {
     const result = await getHomeSummary("u1");
 
     expect(result.newWeeklyCompareReport).toEqual({ available: true, reportId: "w1" });
-    expect(mockedNotification.getLatestUnreadReportId).toHaveBeenCalledWith("u1", "weekly_compare");
+    expect(mockedNotification.getLatestUnreadReportId).toHaveBeenCalledWith(
+      "u1",
+      "report_ready",
+      "weekly_compare"
+    );
   });
 
   it("안 읽은 리포트 알림이 없으면 available: false를 반환한다", async () => {

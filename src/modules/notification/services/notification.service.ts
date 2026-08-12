@@ -42,9 +42,10 @@ export const notifyUser = async (
 // 안 읽은 주간 비교 리포트 알림이 있으면 그 리포트 id를, 없으면 null을 돌려준다.
 export const getLatestUnreadReportId = async (
     userId: string,
+    type: string,
     referenceType: string
 ): Promise<string | null> => {
-    const notification = await findLatestUnreadNotificationByReferenceType(userId, referenceType);
+    const notification = await findLatestUnreadNotificationByReferenceType(userId, type, referenceType);
     return notification?.reference_id ?? null;
 };
 

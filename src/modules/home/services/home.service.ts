@@ -10,6 +10,7 @@ import { kstDayStart } from "../../../shared/utils/date";
 
 const QUESTION_OF_DAY = "오늘 누군가에게 먼저 말을 걸어본 적 있나요?";
 const XP_PER_LEVEL = 100;
+const REPORT_READY_NOTIFICATION_TYPE = "report_ready";
 const WEEKLY_COMPARE_REFERENCE_TYPE = "weekly_compare";
 
 // 홈 카드의 오늘의 미션은 미션 화면(GET /missions/today)과 반드시 같아야 하므로 같은 진입점을 쓴다.
@@ -56,7 +57,11 @@ const ZERO_GROWTH_TOTALS = { kindnessTotal: 0, initiativeTotal: 0, empathyTotal:
 // 다른 카드와 같은 이유로 실패해도 홈 전체를 죽이지 않고 "새 리포트 없음"으로 흡수한다.
 const resolveNewWeeklyCompareReport = async (userId: string): Promise<NewWeeklyCompareReportDto> => {
     try {
-        const reportId = await getLatestUnreadReportId(userId, WEEKLY_COMPARE_REFERENCE_TYPE);
+        const reportId = await getLatestUnreadReportId(
+            userId,
+            REPORT_READY_NOTIFICATION_TYPE,
+            WEEKLY_COMPARE_REFERENCE_TYPE
+        );
         return { available: reportId !== null, reportId };
     } catch (error) {
         logger.warn({ err: error, userId }, "홈 새 주간 비교 리포트 조회 실패 (홈은 정상 반환)");

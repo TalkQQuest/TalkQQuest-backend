@@ -91,7 +91,7 @@ describe("computeMetricAverages", () => {
       sample({ scores: { kindness: 70, initiative: 0, empathy: 0, questionLink: 0 } }),
       sample({ scores: { kindness: 81, initiative: 0, empathy: 0, questionLink: 0 } }),
     ])!;
-    expect(result.kindness.avg).toBe(75.5);
+    expect(result.kindness!.avg).toBe(75.5);
   });
 
   // 채점되지 않은 지표가 있다고 나머지 지표까지 버릴 이유가 없다.
@@ -100,8 +100,8 @@ describe("computeMetricAverages", () => {
       sample({ scores: { kindness: 80, initiative: null, empathy: 60, questionLink: 60 } }),
       sample({ scores: { kindness: 60, initiative: 90, empathy: 60, questionLink: 60 } }),
     ])!;
-    expect(result.kindness.avg).toBe(70);
-    expect(result.initiative.avg).toBe(90); // null 1건은 평균에서 빠짐
+    expect(result.kindness!.avg).toBe(70);
+    expect(result.initiative!.avg).toBe(90); // null 1건은 평균에서 빠짐
   });
 
   it("모든 지표가 비어 있으면 null을 반환한다", () => {
@@ -120,8 +120,8 @@ describe("computeMetricAverages", () => {
     const falling = computeMetricAverages(
       [80, 80, 40, 40].map((v) => sample({ scores: scores(v) }))
     )!;
-    expect(rising.kindness.trend).toBe("up");
-    expect(falling.kindness.trend).toBe("down");
+    expect(rising.kindness!.trend).toBe("up");
+    expect(falling.kindness!.trend).toBe("down");
   });
 
   // 점수는 LLM 채점이라 몇 점 흔들리는 것은 추세가 아니다.
@@ -130,14 +130,14 @@ describe("computeMetricAverages", () => {
     const result = computeMetricAverages(
       [70, 70, 72, 72].map((v) => sample({ scores: scores(v) }))
     )!;
-    expect(result.kindness.trend).toBe("flat");
+    expect(result.kindness!.trend).toBe("flat");
   });
 
   // 표본이 적으면 절반으로 갈라도 각 구간이 1건이라 흔들림과 추세를 구분할 수 없다.
   it("표본이 4건 미만이면 추세를 판정하지 않는다", () => {
     const scores = (v: number) => ({ kindness: v, initiative: v, empathy: v, questionLink: v });
     const result = computeMetricAverages([20, 95].map((v) => sample({ scores: scores(v) })))!;
-    expect(result.kindness.trend).toBe("flat");
+    expect(result.kindness!.trend).toBe("flat");
   });
 });
 

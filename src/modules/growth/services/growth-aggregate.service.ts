@@ -107,10 +107,9 @@ export const computeMetricAverages = (samples: FeedbackSample[]): MetricAverages
       .map((s) => s.scores[key])
       .filter((v): v is number => typeof v === "number");
 
-    if (values.length === 0) {
-      result[key] = { avg: 0, trend: "flat" } satisfies MetricAverage;
-      continue;
-    }
+    // #188 — 채점된 값이 없는 지표는 키를 넣지 않는다. avg: 0을 넣으면 "채점 안 됨"이
+    // "0점"으로 읽혀, 이 값을 참고하는 추천 난이도 판단이 부당하게 낮아질 수 있다.
+    if (values.length === 0) continue;
 
     hasAny = true;
     result[key] = { avg: average(values), trend: decideTrend(values) };

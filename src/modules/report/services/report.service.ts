@@ -10,6 +10,8 @@ import {
   findArchivedReferenceIds,
 } from "../../archive/repositories/archive.repository";
 import { getGrowthReport, getGrowthWindowStart } from "./growth.service";
+import { formatMonthWeekLabel, getSignupWeekRange } from "./week-window";
+import { findUserCreatedAt } from "../../user/repositories/user.repository";
 import {
   DeleteReportResponseDto,
   DeleteWeeklyCompareReportResponseDto,
@@ -207,11 +209,20 @@ export const getWeeklyCompareReportDetail = async (
   const row = await reportRepository.findWeeklyCompareReportByIdAndUserId(id, userId);
   if (!row) throw new WeeklyCompareReportNotFoundError();
 
-  const [archiveItem, previous, next] = await Promise.all([
+  const [archiveItem, previous, next, previousWeekIndex, signupAt] = await Promise.all([
     findArchiveItemByReference(userId, "weekly_compare", id),
     reportRepository.findWeeklyCompareReportByWeekIndex(userId, row.week_index - 1),
     reportRepository.findWeeklyCompareReportByWeekIndex(userId, row.week_index + 1),
+    reportRepository.findPreviousWeeklyCompareWeekIndex(userId, row.week_index),
+    findUserCreatedAt(userId),
   ]);
+
+  // signupAt은 이 리포트가 이미 존재하는 이상 반드시 있다(유저가 없으면 리포트도 없다).
+  const thisWeekLabel = formatMonthWeekLabel(getSignupWeekRange(signupAt!, row.week_index).start);
+  const periodLabel =
+    previousWeekIndex === null
+      ? thisWeekLabel
+      : `${formatMonthWeekLabel(getSignupWeekRange(signupAt!, previousWeekIndex).start)} → ${thisWeekLabel}`;
 
   return {
     id: row.id,
@@ -221,6 +232,7 @@ export const getWeeklyCompareReportDetail = async (
     createdAt: row.created_at.toISOString(),
     previousReportId: previous?.id ?? null,
     nextReportId: next?.id ?? null,
+    periodLabel,
   };
 };
 

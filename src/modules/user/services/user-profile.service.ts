@@ -2,6 +2,11 @@ import { NotFoundError } from "../../../shared/errors/common.error";
 import * as userRepository from "../repositories/user.repository";
 import { MyProfileResponseDto, UpdateProfileRequestDto } from "../dtos/user-profile.dto";
 
+// Json 컬럼(difficult_situations/purpose/interests)을 안전하게 string[]로 변환한다.
+// 값이 없거나 형식이 다르면 빈 배열 (archive.service.ts의 toSummaryChips와 같은 패턴).
+const toStringArray = (raw: unknown): string[] =>
+  Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
+
 export const getMyProfile = async (userId: string): Promise<MyProfileResponseDto> => {
   const user = await userRepository.findUserWithProfile(userId);
   if (!user || !user.user_profile) {
@@ -19,6 +24,12 @@ export const getMyProfile = async (userId: string): Promise<MyProfileResponseDto
     xp: profile.xp,
     dailyConversationGoal: profile.daily_conversation_goal,
     onboardingCompleted: profile.onboarding_completed,
+    // #190 — 온보딩에서 저장한 선택값을 다시 조회할 수 있는 경로가 없었어서 추가.
+    personalityType: profile.personality_type,
+    difficultSituations: toStringArray(profile.difficult_situations),
+    purpose: toStringArray(profile.purpose),
+    preferredStyle: profile.preferred_style,
+    interests: toStringArray(profile.interests),
   };
 };
 

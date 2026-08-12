@@ -54,6 +54,16 @@ export const findUsersForMissionReminder = (hhmm: string) =>
         select: { user_id: true },
     });
 
+// #193 — 홈 화면이 "새 주간 비교 리포트가 도착했다" 모달을 띄우고 바로 그 리포트로 보낼 수
+// 있도록, 아직 안 읽은 리포트 알림 중 가장 최근 것을 찾는다. 읽음 처리(PATCH .../read)되면
+// 더 이상 이 조회에 걸리지 않으므로 모달이 다시 뜨지 않는다.
+export const findLatestUnreadNotificationByReferenceType = (userId: string, referenceType: string) =>
+    prisma.notifications.findFirst({
+        where: { user_id: userId, reference_type: referenceType, is_read: false },
+        orderBy: { created_at: "desc" },
+        select: { reference_id: true },
+    });
+
 export const createNotification = (
     userId: string,
     type: string,

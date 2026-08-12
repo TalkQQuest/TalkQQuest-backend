@@ -6,6 +6,10 @@ export interface NotificationItem {
     title: string;
     body: string | null;
     isRead: boolean;
+    /** 알림이 가리키는 대상 리소스 id. 없으면 null(#193). 예: 주간 비교 리포트 알림이면 그 리포트 id. */
+    referenceId: string | null;
+    /** referenceId가 가리키는 리소스 종류. 없으면 null(#193). 예: "weekly_compare", "report". */
+    referenceType: string | null;
     createdAt: string;
 }
 

@@ -203,7 +203,8 @@ export const findPhraseById = (phraseId: string, userId: string) =>
                 include: {
                     mission: { select: { title: true } },
                     // 메모 칩은 대화 요약 칩(Feedbacks.summary_chips)을 재사용한다 (이슈 #83).
-                    feedbacks: { select: { summary_chips: true } },
+                    // description(대화 카드용 요약)은 card_summary를 재사용한다 (이슈 #169).
+                    feedbacks: { select: { summary_chips: true, card_summary: true, status: true } },
                 },
             },
         },

@@ -412,7 +412,7 @@ describe("getPhraseDetail — description 노출 기준 및 존재하지 않는 
     expect(result.summaryChips).toEqual(["예전칩1", "예전칩2", "예전칩3"]);
   });
 
-  it("피드백이 failed면 description은 null이다", async () => {
+  it("피드백이 failed면 description은 null이지만 summaryChips는 그대로 노출한다", async () => {
     mockedArchive.findPhraseById.mockResolvedValue({
       ...basePhrase,
       conversation: {
@@ -430,6 +430,8 @@ describe("getPhraseDetail — description 노출 기준 및 존재하지 않는 
     const result = await getPhraseDetail("u1", "p1");
 
     expect(result.description).toBeNull();
+    // summaryChips는 status와 무관하게 항상 노출한다(이번 PR 범위 밖, 기존 동작 유지).
+    expect(result.summaryChips).toEqual(["예전칩1", "예전칩2", "예전칩3"]);
   });
 
   it("피드백이 아직 없으면(pending 이전, 빈 배열) description은 null, summaryChips는 빈 배열이다", async () => {

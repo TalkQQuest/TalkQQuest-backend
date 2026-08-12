@@ -239,7 +239,7 @@ export const getTodayMission = async (
     // 기록이 실패한 로그). 유저는 새로고침을 요청한 게 아니므로 이 복구를 새로고침 횟수로 세거나
     // 한도에 막혀서는 안 된다 — checkLimit: false로 예약해 한도와 무관하게 항상 새로 만든다.
     const personalityType = await missionRepository.findUserPersonalityType(userId);
-    const { logId, slotIndex } = await reserveNextSlot(userId, dateOnly, logCount, false);
+    const { logId } = await reserveNextSlot(userId, dateOnly, logCount, false);
     const recommended = await recommendMission(userId, logId);
     const missionId = await materializeRecommendedMission(userId, recommended, personalityType, logId);
     return buildTodayMissionResponse({
@@ -248,7 +248,9 @@ export const getTodayMission = async (
       missionId,
       recommendationLogId: logId,
       date,
-      refreshCount: usedRefreshCount(slotIndex + 1),
+      // 코드래빗 리뷰(PR #196): 복구용 슬롯 자체는 유저가 쓴 새로고침이 아니므로 refreshCount에
+      // 반영하면 안 된다. slotIndex(복구 슬롯 포함) 대신 복구 전 로그 건수(logCount)를 그대로 쓴다.
+      refreshCount: usedRefreshCount(logCount),
       isNew: true,
     });
   }

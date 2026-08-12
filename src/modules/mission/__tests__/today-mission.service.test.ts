@@ -271,6 +271,21 @@ describe("getTodayMission — 새로고침 제한", () => {
       1 + MISSION_REFRESH_LIMIT
     );
   });
+
+  // 코드래빗 리뷰(PR #196): 손상된 캐시를 복구할 때 새로 예약한 슬롯 자체를 refreshCount에
+  // 반영하면, 유저가 요청하지 않은 복구가 새로고침을 "쓴 것"처럼 보이게 만든다.
+  it("손상된 캐시 복구는 refreshCount를 증가시키지 않는다", async () => {
+    mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(
+      buildLog({ recommended_mission: null })
+    );
+    // 복구 전 로그 2건(첫 생성 1 + 새로고침 1) = 복구 전 refreshCount는 1이어야 한다.
+    mockedRepo.countRecommendationLogsByDate.mockResolvedValue(2);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    // 복구용 슬롯(3번째 로그)이 추가로 예약되지만, 그 슬롯은 refreshCount 계산에서 제외된다.
+    expect(result.refreshCount).toBe(1);
+  });
 });
 
 describe("getTodayMission — setupGuideline (#152)", () => {

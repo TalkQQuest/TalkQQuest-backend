@@ -239,6 +239,38 @@ describe("getTodayMission — 새로고침 제한", () => {
     expect(result.missionId).toBe("m-existing");
     expect(result.remainingRefreshes).toBe(0);
   });
+
+  // #192 — 결과 기록(updateRecommendationLog)이 실패해 슬롯은 예약됐지만 recommended_mission이
+  // 비어 있는 로그가 남으면, 이전엔 이 손상된 캐시를 복구하려는 일반 조회가 reserveRefreshSlot을
+  // 타면서 한도 체크에 걸려 429가 났다. 유저는 재추천을 요청한 적이 없으므로, 한도를 이미
+  // 다 쓴 상태여도 429 없이 그 자리에서 새로 만들어 내려줘야 한다.
+  it("한도를 다 쓴 상태에서 캐시가 손상돼도 429 없이 새로 뽑아 반환한다", async () => {
+    mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(
+      buildLog({ recommended_mission: null })
+    );
+    mockedRepo.countRecommendationLogsByDate.mockResolvedValue(1 + MISSION_REFRESH_LIMIT);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    expect(mockedRecommend.recommendMission).toHaveBeenCalledTimes(1);
+    expect(result.isNew).toBe(true);
+  });
+
+  it("손상된 캐시 복구는 명시적 refresh가 아니므로 슬롯 예약 시 한도를 체크하지 않는다", async () => {
+    mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(
+      buildLog({ recommended_mission: null })
+    );
+    mockedRepo.countRecommendationLogsByDate.mockResolvedValue(1 + MISSION_REFRESH_LIMIT);
+
+    await getTodayMission("u1", { date: TODAY });
+
+    // 한도를 넘는 슬롯 번호로 예약을 시도해도(=checkLimit이었다면 429) 그대로 통과해야 한다.
+    expect(mockedRepo.reserveRecommendationLogSlot).toHaveBeenCalledWith(
+      "u1",
+      expect.any(Date),
+      1 + MISSION_REFRESH_LIMIT
+    );
+  });
 });
 
 describe("getTodayMission — setupGuideline (#152)", () => {

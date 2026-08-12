@@ -284,14 +284,14 @@ export const findRecentMissionRecords = (userId: string, limit: number) =>
     take: limit,
   });
 
-// 3단계 템플릿 폴백용. is_template=true 미션 중 회피 카테고리만 DB에서 걸러 가져오고,
+// 3단계 템플릿 폴백용. is_template=true 미션을 가져오고,
 // 난이도 근접·관심사 매칭 같은 랭킹은 서비스(순수 함수)에서 처리합니다.
-export const findTemplateMissionsExcluding = (excludedCategories: string[]) =>
+//
+// #150 — 회피 카테고리 제외 인자를 뺐다. 그 목록은 Mission_Records.result 기반이었는데
+// result에는 항상 success가 들어와 한 번도 채워지지 않았다(항상 빈 배열이라 무조건 전체 조회).
+export const findTemplateMissions = () =>
   prisma.missions.findMany({
-    where: {
-      is_template: true,
-      ...(excludedCategories.length > 0 ? { category: { notIn: excludedCategories } } : {}),
-    },
+    where: { is_template: true },
     orderBy: { created_at: "asc" },
   });
 
@@ -324,7 +324,8 @@ export const updateRecommendationLog = (
     source: RecommendationSource;
     llmModel: string | null;
     targetDifficulty: number | null;
-    avoidedCategories: string[];
+    // #150 — 더 이상 계산하지 않아 항상 null이 들어온다. 컬럼은 과거 로그 해석용으로 남긴다.
+    avoidedCategories: string[] | null;
     promptInput: unknown | null;
     rawResponse: string | null;
     parseSuccess: boolean;
@@ -338,7 +339,10 @@ export const updateRecommendationLog = (
       source: data.source,
       llm_model: data.llmModel,
       target_difficulty: data.targetDifficulty,
-      avoided_categories: data.avoidedCategories as unknown as Prisma.InputJsonValue,
+      avoided_categories:
+        data.avoidedCategories === null
+          ? Prisma.DbNull
+          : (data.avoidedCategories as unknown as Prisma.InputJsonValue),
       prompt_input:
         data.promptInput === null ? Prisma.DbNull : (data.promptInput as Prisma.InputJsonValue),
       raw_response: data.rawResponse,

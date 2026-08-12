@@ -101,7 +101,11 @@ const SYSTEM_PROMPT = `당신은 사회적 행동 미션 추천 AI입니다.
 
 규칙:
 - targetDifficulty(1=쉬움, 2=보통, 3=어려움)에 맞춰 난이도를 정합니다.
-- avoidedCategories에 있는 유형은 피하고 대체 유형을 제안합니다.
+- growth(최근 대화 피드백 요약)가 있으면 우선 반영합니다.
+  - growth.improvements에 있는 부분을 연습할 수 있는 미션을 고릅니다.
+  - growth.struggleSituations에 있는 상황은 **피하지 말고**, 난이도를 낮춰 다시 다룰 수 있게 합니다.
+    막히는 상황을 계속 피하면 연습할 기회 자체가 사라지기 때문입니다.
+  - growth.strengths는 이미 잘하는 부분이므로 미션의 중심으로 삼지 않습니다.
 - goals(사용자 목표)와 interests(관심사)를 미션에 자연스럽게 반영합니다.
 - practiceTypes(사용자가 연습하고 싶은 대화 유형)가 있으면 우선 반영합니다.
 - 개인정보를 요구하거나 위험·불쾌한 접근을 유도하는 미션은 절대 만들지 않습니다.
@@ -175,11 +179,6 @@ const buildPromptHints = (context: UserContext, criteria: RecommendationCriteria
     hints.personalityType = criteria.personalityType;
   }
 
-  const avoidedCategories = nonEmpty(criteria.avoidedCategories);
-  if (avoidedCategories.length > 0) {
-    hints.avoidedCategories = avoidedCategories;
-  }
-
   const interests = nonEmpty(criteria.preferredInterests);
   if (interests.length > 0) {
     hints.interests = interests;
@@ -196,11 +195,29 @@ const buildPromptHints = (context: UserContext, criteria: RecommendationCriteria
   }
 
   if (context.recentMissions.length > 0) {
+    // #150 — result는 넣지 않는다. 미션에 실패라는 개념이 없어 항상 success가 들어오므로
+    // 모델에게 "전부 성공했다"는 잘못된 신호만 준다. 수행 성향은 아래 growth가 담당한다.
     hints.recentMissions = context.recentMissions.map((m) => ({
       title: m.title,
       category: m.category,
-      result: m.result,
     }));
+  }
+
+  // #150 — 피드백 기반 성장 프로필. 프로필이 없거나 표본이 부족하면 통째로 빠진다.
+  // 빈 항목은 키를 넣지 않는다(위 힌트들과 같은 이유 — 모델이 빈 값을 해설하는 것을 막는다).
+  if (context.growth) {
+    const growth: Record<string, unknown> = {};
+
+    if (context.growth.summary) growth.summary = context.growth.summary;
+    if (context.growth.strengths.length > 0) growth.strengths = context.growth.strengths;
+    if (context.growth.improvements.length > 0) {
+      growth.improvements = context.growth.improvements;
+    }
+    if (context.growth.struggleSituations.length > 0) {
+      growth.struggleSituations = context.growth.struggleSituations;
+    }
+
+    if (Object.keys(growth).length > 0) hints.growth = growth;
   }
 
   return hints;

@@ -1,5 +1,6 @@
 import { MissionProfileNotFoundError } from "../errors/mission.error";
 import * as repository from "../repositories/mission.repository";
+import * as growthProfileService from "../../growth/services/growth-profile.service";
 import * as llmService from "../services/llm.service";
 import {
   assembleUserContext,
@@ -11,9 +12,12 @@ import {
 jest.mock("../repositories/mission.repository");
 // recommendMission의 4단계 LLM 호출이 실제 네트워크를 타지 않도록 mock한다.
 jest.mock("../services/llm.service");
+// 성장 프로필은 DB를 타므로 mock한다. 기본값은 "프로필 없음"(null)이다.
+jest.mock("../../growth/services/growth-profile.service");
 
 const mockedRepo = jest.mocked(repository);
 const mockedLlm = jest.mocked(llmService);
+const mockedGrowth = jest.mocked(growthProfileService);
 
 // 추천이 속한 하루 버킷(Recommendation_Logs.recommended_date)에 그대로 기록되는 값.
 // 호출부(getTodayMission)가 LLM 호출 전에 선점해 둔 로그 행의 id.
@@ -56,10 +60,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockedRepo.findActiveGoalsByUserId.mockResolvedValue([] as never);
   mockedRepo.findRecentMissionRecords.mockResolvedValue([] as never);
-  mockedRepo.findTemplateMissionsExcluding.mockResolvedValue([] as never);
+  mockedRepo.findTemplateMissions.mockResolvedValue([] as never);
   mockedRepo.updateRecommendationLog.mockResolvedValue({ id: "log1" } as never);
   // 기본값: LLM 실패 → 템플릿/폴백 경로. 특정 테스트에서만 성공값으로 덮어쓴다.
   mockedLlm.generateMissionWithLlm.mockResolvedValue(llmFailure());
+  mockedGrowth.getGrowthProfileForRecommendation.mockResolvedValue(null as never);
 });
 
 describe("assembleUserContext", () => {
@@ -143,19 +148,59 @@ describe("assembleUserContext", () => {
 });
 
 describe("buildRecommendationInput", () => {
-  it("컨텍스트와 규칙 기반 기준을 함께 반환한다", async () => {
+  it("성장 프로필이 없으면 최근 미션 난이도를 그대로 목표 난이도로 쓴다", async () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
     mockedRepo.findRecentMissionRecords.mockResolvedValue([
-      buildRecord({ result: "avoidance", mission: { id: "m1", title: "a", category: "stranger", difficulty: 2 } }),
-      buildRecord({ result: "failure", mission: { id: "m2", title: "b", category: "stranger", difficulty: 2 } }),
-      buildRecord({ result: "success", mission: { id: "m3", title: "c", category: "cafe", difficulty: 2 } }),
+      buildRecord({ mission: { id: "m1", title: "a", category: "stranger", difficulty: 2 } }),
     ] as never);
 
     const { context, criteria } = await buildRecommendationInput("u1");
 
     expect(context.userId).toBe("u1");
-    expect(criteria.targetDifficulty).toBe(1); // 회피/실패 2건 → 하향
-    expect(criteria.avoidedCategories).toEqual(["stranger"]);
+    expect(criteria.targetDifficulty).toBe(2);
+    expect(criteria.difficulty.source).toBe("base");
+  });
+
+  // #150 — 제안이 두 단계 떨어져 있어도 한 번에 한 단계만 움직인다.
+  it("성장 프로필 제안을 최근 미션 난이도 ±1로 클램프해 반영한다", async () => {
+    mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
+    mockedRepo.findRecentMissionRecords.mockResolvedValue([
+      buildRecord({ mission: { id: "m1", title: "a", category: "stranger", difficulty: 3 } }),
+    ] as never);
+    mockedGrowth.getGrowthProfileForRecommendation.mockResolvedValue({
+      summary: "요약",
+      strengths: [],
+      improvements: [],
+      struggleSituations: [],
+      metricAverages: null,
+      suggestedDifficulty: 1,
+      reflectedFeedbackCount: 3,
+    } as never);
+
+    const { criteria } = await buildRecommendationInput("u1");
+
+    expect(criteria.targetDifficulty).toBe(2); // 3 → 1 제안이지만 한 단계만
+    expect(criteria.difficulty.source).toBe("growth_profile");
+  });
+
+  // 콜드스타트는 기준 난이도가 성향 시드라, 근거가 다른 제안과 섞으면 안 된다.
+  it("콜드스타트면 성장 프로필 제안을 쓰지 않는다", async () => {
+    mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
+    mockedGrowth.getGrowthProfileForRecommendation.mockResolvedValue({
+      summary: null,
+      strengths: [],
+      improvements: [],
+      struggleSituations: [],
+      metricAverages: null,
+      suggestedDifficulty: 3,
+      reflectedFeedbackCount: 5,
+    } as never);
+
+    const { context, criteria } = await buildRecommendationInput("u1");
+
+    expect(context.isColdStart).toBe(true);
+    expect(context.suggestedDifficulty).toBeNull();
+    expect(criteria.targetDifficulty).toBe(1); // introvert 시드 그대로
   });
 });
 
@@ -204,7 +249,7 @@ describe("recommendMission (1→2→3→4 통합)", () => {
 
   it("매칭 템플릿이 있으면 템플릿 미션을 추천한다", async () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
-    mockedRepo.findTemplateMissionsExcluding.mockResolvedValue([
+    mockedRepo.findTemplateMissions.mockResolvedValue([
       {
         id: "t1",
         title: "카페에서 음료 추천 물어보기",
@@ -224,7 +269,7 @@ describe("recommendMission (1→2→3→4 통합)", () => {
 
   it("템플릿이 없으면 입문 폴백을 반환한다", async () => {
     mockedRepo.findUserProfileByUserId.mockResolvedValue(buildProfile());
-    // findTemplateMissionsExcluding는 beforeEach에서 빈 배열로 mock됨
+    // findTemplateMissions는 beforeEach에서 빈 배열로 mock됨
 
     const result = await recommendMission("u1", RESERVED_LOG_ID);
 
@@ -239,7 +284,7 @@ describe("recommendMission (1→2→3→4 통합)", () => {
 
     expect(result.source).toBe("llm");
     expect(result.title).toBe("LLM 생성 미션");
-    expect(mockedRepo.findTemplateMissionsExcluding).not.toHaveBeenCalled();
+    expect(mockedRepo.findTemplateMissions).not.toHaveBeenCalled();
   });
 
   it("추천 결과를 예약된 Recommendation_Logs 행에 기록한다", async () => {

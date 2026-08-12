@@ -1,4 +1,5 @@
 import { logger } from "../../../config/logger";
+import { getGrowthProfileForRecommendation } from "../../growth/services/growth-profile.service";
 import {
   RecentMissionRecord,
   RecommendationCriteria,
@@ -40,9 +41,11 @@ export const assembleUserContext = async (userId: string): Promise<UserContext> 
     throw new MissionProfileNotFoundError();
   }
 
-  const [goals, records] = await Promise.all([
+  // 성장 프로필은 실패해도 추천을 막지 않는다(서비스가 내부에서 삼키고 null을 반환).
+  const [goals, records, growth] = await Promise.all([
     findActiveGoalsByUserId(userId),
     findRecentMissionRecords(userId, RECENT_RECORDS_LIMIT),
+    getGrowthProfileForRecommendation(userId),
   ]);
 
   const recentMissions: RecentMissionRecord[] = records.map((record) => ({
@@ -50,7 +53,6 @@ export const assembleUserContext = async (userId: string): Promise<UserContext> 
     title: record.mission.title,
     category: record.mission.category,
     difficulty: record.mission.difficulty,
-    result: record.result,
     createdAt: record.created_at,
   }));
 
@@ -73,6 +75,24 @@ export const assembleUserContext = async (userId: string): Promise<UserContext> 
     baseDifficulty,
     recentMissions,
     isColdStart,
+    // 콜드스타트에서는 성장 프로필의 제안을 쓰지 않는다. 기준 난이도가 성향 시드라
+    // 근거가 다른 두 값을 섞게 되고, 수행 기록이 없는 사용자에게 프로필이 있다는 것 자체가
+    // 정상 상태가 아니다(피드백은 대화를 해야 생긴다).
+    suggestedDifficulty: isColdStart ? null : (growth?.suggestedDifficulty ?? null),
+    growth: growth
+      ? {
+          summary: growth.summary,
+          strengths: growth.strengths,
+          improvements: growth.improvements,
+          // 프롬프트에는 조합만 넘기고 횟수는 뺀다 — 모델이 숫자를 그대로 인용해
+          // "3번 실패하셨네요" 같은 문장을 만드는 것을 막는다.
+          struggleSituations: growth.struggleSituations.map((situation) => ({
+            environment: situation.environment,
+            partnerRole: situation.partnerRole,
+            category: situation.category,
+          })),
+        }
+      : null,
   };
 };
 
@@ -120,7 +140,9 @@ const writeRecommendationLogSafe = async (
       source: mission.source, // llm / template / fallback
       llmModel: attempt.llmModel,
       targetDifficulty: criteria.targetDifficulty,
-      avoidedCategories: criteria.avoidedCategories,
+      // #150 — 회피 카테고리는 더 이상 계산하지 않는다(항상 빈 배열이었다).
+      // 컬럼은 과거 로그 해석을 위해 남기고 앞으로는 null만 기록한다.
+      avoidedCategories: null,
       promptInput: attempt.promptInput,
       rawResponse: attempt.rawResponse,
       parseSuccess: attempt.parseSuccess,

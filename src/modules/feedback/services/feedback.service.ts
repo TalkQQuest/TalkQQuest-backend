@@ -3,6 +3,7 @@ import { logger } from "../../../config/logger";
 import { prisma } from "../../../config/database";
 import { checkAndAwardBadges } from "../../badge/services/badge.service";
 import { findUserCreatedAt } from "../../user/repositories/user.repository";
+import { refreshGrowthProfile } from "../../growth/services/growth-profile.service";
 import { generateMissingWeeklyReports } from "../../report/services/weekly-compare.service";
 import { notifyNewWeeklyCompareReports } from "../../report/services/report.service";
 import { parseStoredPlaybook } from "../../mission/services/playbook.service";
@@ -138,6 +139,7 @@ const buildFeedbackMissionContext = (rawPlaybook: unknown): FeedbackMissionConte
 // LLM 호출 + 결과 저장. 실패해도 예외를 던지지 않고 status=failed로 남긴다(호출부가 응답 형태 결정).
 // 가짜 점수/분석으로 대체하지 않는다 — 실패는 재시도(POST /feedback/{id}/retry)로 유도한다.
 const runGeneration = async (
+  userId: string,
   feedbackId: string,
   transcript: FeedbackTranscriptMessage[],
   missionTitle: string,
@@ -169,6 +171,14 @@ const runGeneration = async (
     conversationHighlights: result.conversationHighlights,
     savedPhrase: result.savedPhrase,
   });
+
+  // #150 — 피드백이 ready가 되는 이 지점이 성장 프로필의 유일한 갱신 트리거다.
+  // createFeedback과 retryFeedback 양쪽이 이 함수를 지나므로 여기 한 곳만 걸면 된다.
+  //
+  // fire-and-forget인 이유: createFeedback은 이 함수를 await하므로, 여기서 기다리면
+  // 요약 LLM 호출만큼 사용자 응답이 늦어진다. 실패는 refreshGrowthProfile이 내부에서
+  // 삼키고 커서를 전진시키지 않으므로, 다음 피드백 때 같은 지점부터 다시 따라잡는다.
+  void refreshGrowthProfile(userId);
 };
 
 // #145 — 주간 비교 리포트는 스케줄러 없이, "대화 완료 → 피드백 생성" 시점을 트리거로 삼아
@@ -225,6 +235,7 @@ export const createFeedback = async (
   }
 
   await runGeneration(
+    userId,
     feedbackId,
     conversation.messages as FeedbackTranscriptMessage[],
     conversation.mission.title,
@@ -272,6 +283,7 @@ export const retryFeedback = async (
   await feedbackRepository.markFeedbackPending(feedbackId);
 
   void runGeneration(
+    userId,
     feedbackId,
     conversation.messages as FeedbackTranscriptMessage[],
     conversation.mission.title,

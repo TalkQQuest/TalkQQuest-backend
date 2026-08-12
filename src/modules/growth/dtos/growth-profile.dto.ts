@@ -40,7 +40,9 @@ export interface MetricAverage {
   trend: MetricTrend;
 }
 
-export type MetricAverages = Record<MetricKey, MetricAverage>;
+// #188 — 채점된 값이 없는 지표는 키 자체를 뺀다(Partial). avg: 0을 채우면 "채점 안 됨"과
+// "평균이 실제로 0점"이 구분되지 않아, 추천 난이도 판단에서 미채점 지표가 저점수로 오인될 수 있다.
+export type MetricAverages = Partial<Record<MetricKey, MetricAverage>>;
 
 // 반복해서 막힌 상황 1건.
 // 카테고리만이 아니라 상황 축까지 담는 이유는 "카페는 괜찮은데 선배 상대만 막힌다"를

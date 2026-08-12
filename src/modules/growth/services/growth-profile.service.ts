@@ -46,13 +46,19 @@ const toStringArray = (value: unknown): string[] =>
 // 요약 실패가 그쪽을 막으면 안 된다. 커서를 전진시키지 않았으므로 다음 피드백 때
 // 같은 지점부터 다시 따라잡는다.
 //
-// 전체를 withGrowthProfileLock으로 감싸는 이유 — 이 함수는 feedback.service.ts에서
-// fire-and-forget으로 호출된다. 같은 사용자의 두 피드백이 거의 동시에 ready가 되면 두 실행이
-// 겹칠 수 있는데, "커서를 읽고 → 새 커서를 계산해 쓴다"는 read-modify-write라 원자적으로
-// 묶지 않으면 나중에 커밋한 쪽이 먼저 커밋한 쪽의 반영 건수·커서를 덮어쓴다(lost update).
+// #188 — LLM 호출(generateGrowthSummary)은 잠금 트랜잭션 밖에서 수행한다. 이전에는
+// withGrowthProfileLock 콜백 안에서 LLM 응답을 기다렸는데, Prisma 대화형 트랜잭션 기본
+// 타임아웃(5초)보다 LLM 호출이 길어지면 트랜잭션이 P2028로 롤백되고 그 예외를 바깥 catch가
+// 삼켜 프로필이 계속 조용히 갱신 안 되는 상태가 이어질 수 있었다. 그래서 3단계로 나눈다:
+//   1) 잠금 트랜잭션 — 커서·대상 피드백·집계용 최근 창을 읽는다(빠름, I/O만).
+//   2) 잠금 밖 — 집계(순수 함수)와 LLM 요약 호출을 수행한다(느릴 수 있음).
+//   3) 잠금 트랜잭션 — 1)에서 본 스냅샷과 지금 상태가 같은지 확인한 뒤에만 저장한다.
+//      그사이 동시 실행된 다른 갱신이 이미 커서를 옮겼다면(스냅샷 불일치) 저장을 건너뛴다 —
+//      우리가 본 pending은 낡은 집합이라 그대로 덮어쓰면 상대의 갱신을 잃어버리기 때문이다.
+//      건너뛰어도 데이터 유실은 없다 — 커서를 안 옮겼으므로 다음 갱신 때 다시 잡힌다.
 export const refreshGrowthProfile = async (userId: string): Promise<void> => {
   try {
-    await growthRepository.withGrowthProfileLock(userId, async (tx) => {
+    const snapshot = await growthRepository.withGrowthProfileLock(userId, async (tx) => {
       const profile = await growthRepository.findGrowthProfileTx(tx, userId);
 
       // 커서가 없으면(첫 갱신, 또는 커서 컬럼이 한쪽만 채워진 비정상 상태) 조건을 걸지 않고
@@ -69,64 +75,85 @@ export const refreshGrowthProfile = async (userId: string): Promise<void> => {
         CURSOR_BATCH_LIMIT,
         tx
       );
-      if (pending.length === 0) return;
-
-      // 커서는 "여기까지 봤다"는 표시라 이번에 읽은 마지막 행으로 전진시킨다.
-      // 요약 자체는 아래에서 최근 창을 다시 읽어 만든다 — 요약은 누적이 아니라
-      // "지금 시점의 최근 N건"을 다시 쓰는 것이라 증분분만으로는 만들 수 없다.
-      const lastRead = pending[pending.length - 1];
+      if (pending.length === 0) return null;
 
       const windowRows = await growthRepository.findRecentReadyFeedbacks(
         userId,
         SUMMARY_WINDOW,
         tx
       );
-      // 레포지토리는 최신순으로 주지만, 추세는 시간 순서를 따라야 방향이 맞는다.
-      const chronological = windowRows
-        .map(toFeedbackSample)
-        .filter((s): s is FeedbackSample => s !== null)
-        .reverse();
 
-      if (chronological.length === 0) return;
+      return { profile, cursor, pending, windowRows };
+    });
 
-      const metricAverages = computeMetricAverages(chronological);
-      const struggleSituations = collectStruggleSituations(chronological);
-      const repeatedStrengths = collectRepeatedTexts(
-        chronological.map((s) => s.strengths),
-        REPEAT_MIN_COUNT
-      );
-      const repeatedImprovements = collectRepeatedTexts(
-        chronological.map((s) => s.improvements),
-        REPEAT_MIN_COUNT
-      );
+    if (!snapshot) return;
+    const { profile, cursor, pending, windowRows } = snapshot;
 
-      const latest = chronological[chronological.length - 1];
-      const summary = await generateGrowthSummary(
-        buildSummaryPromptInput({
-          samples: [...chronological].reverse(), // 프롬프트에는 최신순으로 보여준다
-          metricAverages,
-          struggleSituations,
-          repeatedStrengths,
-          repeatedImprovements,
-          recentDifficulty: latest.difficulty,
-        })
-      );
+    // 커서는 "여기까지 봤다"는 표시라 이번에 읽은 마지막 행으로 전진시킨다.
+    // 요약 자체는 최근 창을 다시 읽어 만든다 — 요약은 누적이 아니라
+    // "지금 시점의 최근 N건"을 다시 쓰는 것이라 증분분만으로는 만들 수 없다.
+    const lastRead = pending[pending.length - 1];
 
-      // cursor === null이면 이번에 "전체"를 다시 읽은 것이므로 반영 건수도 pending.length가
-      // 전체 값이다. 여기서 기존 값에 더하면, 커서 컬럼이 한쪽만 비어 다시 전체를 읽는
-      // 비정상 상태에서 이미 반영했던 건수가 두 번 잡힌다.
-      const reflectedFeedbackCount =
-        cursor === null ? pending.length : (profile?.reflected_feedback_count ?? 0) + pending.length;
+    // 레포지토리는 최신순으로 주지만, 추세는 시간 순서를 따라야 방향이 맞는다.
+    const chronological = windowRows
+      .map(toFeedbackSample)
+      .filter((s): s is FeedbackSample => s !== null)
+      .reverse();
+
+    if (chronological.length === 0) return;
+
+    const metricAverages = computeMetricAverages(chronological);
+    const struggleSituations = collectStruggleSituations(chronological);
+    const repeatedStrengths = collectRepeatedTexts(
+      chronological.map((s) => s.strengths),
+      REPEAT_MIN_COUNT
+    );
+    const repeatedImprovements = collectRepeatedTexts(
+      chronological.map((s) => s.improvements),
+      REPEAT_MIN_COUNT
+    );
+
+    const latest = chronological[chronological.length - 1];
+    // 트랜잭션 밖 — LLM 호출이 오래 걸려도 잠금·커넥션을 붙잡지 않는다.
+    const summary = await generateGrowthSummary(
+      buildSummaryPromptInput({
+        samples: [...chronological].reverse(), // 프롬프트에는 최신순으로 보여준다
+        metricAverages,
+        struggleSituations,
+        repeatedStrengths,
+        repeatedImprovements,
+        recentDifficulty: latest.difficulty,
+      })
+    );
+
+    // cursor === null이면 이번에 "전체"를 다시 읽은 것이므로 반영 건수도 pending.length가
+    // 전체 값이다. 여기서 기존 값에 더하면, 커서 컬럼이 한쪽만 비어 다시 전체를 읽는
+    // 비정상 상태에서 이미 반영했던 건수가 두 번 잡힌다.
+    const reflectedFeedbackCount =
+      cursor === null ? pending.length : (profile?.reflected_feedback_count ?? 0) + pending.length;
+
+    await growthRepository.withGrowthProfileLock(userId, async (tx) => {
+      const current = await growthRepository.findGrowthProfileTx(tx, userId);
+
+      // 1단계에서 본 것과 지금 상태가 다르면, 그사이 다른 실행이 먼저 갱신을 끝낸 것이다.
+      // 우리가 집계한 pending은 이제 낡았으므로 저장하지 않고 건너뛴다(다음 갱신이 다시 잡음).
+      const unchanged =
+        (current?.last_feedback_id ?? null) === (profile?.last_feedback_id ?? null) &&
+        (current?.last_reflected_at?.getTime() ?? null) === (profile?.last_reflected_at?.getTime() ?? null);
+      if (!unchanged) {
+        logger.info({ userId }, "성장 프로필이 그사이 다른 갱신으로 앞서가 이번 결과는 건너뜀");
+        return;
+      }
 
       // LLM 실패 시 숫자 집계와 커서는 갱신하고, 서술 부분만 기존 값을 유지한다.
       // 여기서 통째로 중단하면 커서가 멈춰 다음 갱신이 같은 구간을 계속 다시 읽는다.
       await growthRepository.saveGrowthProfile(tx, userId, {
-        summary: summary?.summary ?? profile?.summary ?? null,
-        strengths: summary?.strengths ?? toStringArray(profile?.strengths),
-        improvements: summary?.improvements ?? toStringArray(profile?.improvements),
+        summary: summary?.summary ?? current?.summary ?? null,
+        strengths: summary?.strengths ?? toStringArray(current?.strengths),
+        improvements: summary?.improvements ?? toStringArray(current?.improvements),
         struggleSituations,
         metricAverages,
-        suggestedDifficulty: summary?.suggestedDifficulty ?? profile?.suggested_difficulty ?? null,
+        suggestedDifficulty: summary?.suggestedDifficulty ?? current?.suggested_difficulty ?? null,
         reflectedFeedbackCount,
         lastFeedbackId: lastRead.id,
         lastReflectedAt: lastRead.ready_at,

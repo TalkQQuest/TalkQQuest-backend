@@ -1,8 +1,10 @@
 import { PrismaClient } from "@prisma/client";
+import { z } from "zod";
+import { setupGuidelineSchema } from "../src/modules/mission/dtos/mission.dto";
 
 // 3단계 템플릿 폴백이 고를 후보 미션(is_template=true)을 시드한다.
 // 사용자가 만든 미션(is_template=false)은 건드리지 않는다.
-// 재실행 안전: 기존 템플릿을 지우고 다시 넣는다(idempotent).
+// 재실행 안전: title로 찾아 갱신하고, 없을 때만 새로 만든다(행을 지우지 않는다).
 //
 // 실행: npm run prisma:seed  (내부적으로 tsx prisma/seed.ts)
 
@@ -16,28 +18,12 @@ const prisma = new PrismaClient();
 // mission.dto.ts의 setupGuidelineSchema와 형태가 정확히 일치해야 한다. 한 필드라도 빠지면
 // 파싱에 실패해 서버가 setupGuideline: null로 응답하므로(조회 자체는 실패하지 않아 조용히
 // 비어 보인다), note/recommendedTopics까지 모두 채운다.
-type Environment = "school" | "workplace" | "daily_place" | "community" | "online";
-type PartnerRole = "friend" | "senior" | "junior" | "peer" | "other";
-type PartnerGender = "male" | "female";
-type PartnerAgeGroup = "teens" | "twenties" | "thirties" | "forties" | "fifties" | "sixties_plus";
-
-interface GuidelineDefaults {
-  environment: Environment;
-  partnerRole: PartnerRole;
-  intimacyLevel: number;
-  formalityLevel: number;
-  partnerGender: PartnerGender;
-  partnerAgeGroup: PartnerAgeGroup;
-}
-
-interface GuidelineDisabled {
-  environment: Environment[];
-  partnerRole: PartnerRole[];
-  intimacyLevel: number[];
-  formalityLevel: number[];
-  partnerGender: PartnerGender[];
-  partnerAgeGroup: PartnerAgeGroup[];
-}
+// 타입을 여기서 따로 정의하지 않고 setupGuidelineSchema에서 직접 파생한다. 별도로 두면 스키마의
+// enum·필수 필드가 바뀌어도 시드가 타입 검사를 그대로 통과해버리고, 어긋난 사실은 런타임에
+// "setupGuideline: null"로만 드러난다(조회 자체는 실패하지 않아 조용히 비어 보인다).
+type SetupGuideline = z.infer<typeof setupGuidelineSchema>;
+type GuidelineDefaults = SetupGuideline["defaults"];
+type GuidelineDisabled = SetupGuideline["disabled"];
 
 const NOTHING_DISABLED: GuidelineDisabled = {
   environment: [],
@@ -50,17 +36,22 @@ const NOTHING_DISABLED: GuidelineDisabled = {
 
 // disabled에는 "선택 자체가 성립하지 않는 값"만 담는다. 덜 자연스럽다는 이유로는 막지 않는 것이
 // 규칙이라 대부분 빈 배열이고, 필요한 축만 덮어쓴다(llm.service.ts의 SETUP_GUIDELINE_RULES와 동일 기준).
+//
+// 반환 직전에 실제로 parse까지 한다 — intimacyLevel 1~5 같은 범위 제약은 타입만으로 잡히지
+// 않는다. 값이 어긋나면 시드가 그 자리에서 실패하는 편이, 배포 후 화면에서 조용히 비어 보이는
+// 것보다 낫다.
 const guideline = (
   defaults: GuidelineDefaults,
   tags: string[],
   disabled: Partial<GuidelineDisabled> = {}
-) => ({
-  defaults,
-  disabled: { ...NOTHING_DISABLED, ...disabled },
-  note: null,
-  recommendedTopics: [],
-  tags,
-});
+): SetupGuideline =>
+  setupGuidelineSchema.parse({
+    defaults,
+    disabled: { ...NOTHING_DISABLED, ...disabled },
+    note: null,
+    recommendedTopics: [],
+    tags,
+  });
 
 // 대면으로만 성립하는 미션에서 online을 막는다. 그 외 축은 전부 열어 둔다.
 const OFFLINE_ONLY: Partial<GuidelineDisabled> = { environment: ["online"] };
@@ -370,13 +361,38 @@ async function seedPlans() {
   console.log(`플랜 시드 완료: ${PLANS.length}건 (free/premium)`);
 }
 
-async function main() {
-  const deleted = await prisma.missions.deleteMany({ where: { is_template: true } });
-  const created = await prisma.missions.createMany({
-    data: TEMPLATE_MISSIONS.map((m) => ({ ...m, is_template: true })),
-  });
-  console.log(`템플릿 미션 시드 완료: ${deleted.count}건 삭제, ${created.count}건 생성`);
+// 템플릿 미션은 **지웠다 다시 만들지 않는다.** Missions는 Conversations·Mission_Records 등에
+// onDelete: Cascade로 물려 있어, 데이터가 쌓인 환경에서 delete하면 그 미션으로 진행한 대화
+// 기록까지 함께 사라진다(위 seedPlans가 delete를 피한 것과 같은 이유이고, 이쪽은 FK가 Restrict가
+// 아니라 Cascade라 막히지도 않고 조용히 지워진다는 점에서 더 위험하다).
+//
+// title로 찾는다 — 시드 미션에 안정적인 고유 키가 title뿐이다(id는 uuid라 환경마다 다르다).
+// 시드는 템플릿의 정본이므로 찾은 행은 시드 값으로 갱신한다. 운영자가 DB에서 직접 손본 값은
+// 이때 시드 값으로 되돌아가므로, 계속 유지해야 하는 내용이면 이 파일에 반영해야 한다.
+async function seedTemplateMissions() {
+  let updated = 0;
+  let created = 0;
 
+  for (const mission of TEMPLATE_MISSIONS) {
+    const existing = await prisma.missions.findFirst({
+      where: { title: mission.title, is_template: true },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await prisma.missions.update({ where: { id: existing.id }, data: mission });
+      updated += 1;
+    } else {
+      await prisma.missions.create({ data: { ...mission, is_template: true } });
+      created += 1;
+    }
+  }
+
+  console.log(`템플릿 미션 시드 완료: ${updated}건 갱신, ${created}건 생성`);
+}
+
+async function main() {
+  await seedTemplateMissions();
   await seedPlans();
   await seedBadges();
 }

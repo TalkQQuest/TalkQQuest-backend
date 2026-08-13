@@ -1,14 +1,17 @@
 import { findHomeSummaryData, hasCompletedMissionSince } from "../repositories/home.repository";
-import { HomeSummaryResponseDto, TodayMissionDto } from "../dtos/home.dto";
+import { HomeSummaryResponseDto, NewWeeklyCompareReportDto, TodayMissionDto } from "../dtos/home.dto";
 import { NotFoundError } from "../../../shared/errors/common.error";
 import { logger } from "../../../config/logger";
 import { MissionProfileNotFoundError } from "../../mission/errors/mission.error";
 import { getTodayMission } from "../../mission/services/mission.service";
 import { getGrowthMetricTotals } from "../../report/services/growth.service";
+import { getLatestUnreadReportId } from "../../notification/services/notification.service";
 import { kstDayStart } from "../../../shared/utils/date";
 
 const QUESTION_OF_DAY = "오늘 누군가에게 먼저 말을 걸어본 적 있나요?";
 const XP_PER_LEVEL = 100;
+const REPORT_READY_NOTIFICATION_TYPE = "report_ready";
+const WEEKLY_COMPARE_REFERENCE_TYPE = "weekly_compare";
 
 // 홈 카드의 오늘의 미션은 미션 화면(GET /missions/today)과 반드시 같아야 하므로 같은 진입점을 쓴다.
 // getTodayMission은 그날 추천이 있으면 캐시를 그대로 돌려주고, 없을 때만 새로 뽑아 저장한다
@@ -50,6 +53,22 @@ const resolveTodayMission = async (userId: string): Promise<TodayMissionDto | nu
 
 const ZERO_GROWTH_TOTALS = { kindnessTotal: 0, initiativeTotal: 0, empathyTotal: 0, questionLinkTotal: 0 };
 
+// #193 — 안 읽은 주간 비교 리포트 알림이 있으면 그 리포트로 바로 이동할 수 있게 id를 내려준다.
+// 다른 카드와 같은 이유로 실패해도 홈 전체를 죽이지 않고 "새 리포트 없음"으로 흡수한다.
+const resolveNewWeeklyCompareReport = async (userId: string): Promise<NewWeeklyCompareReportDto> => {
+    try {
+        const reportId = await getLatestUnreadReportId(
+            userId,
+            REPORT_READY_NOTIFICATION_TYPE,
+            WEEKLY_COMPARE_REFERENCE_TYPE
+        );
+        return { available: reportId !== null, reportId };
+    } catch (error) {
+        logger.warn({ err: error, userId }, "홈 새 주간 비교 리포트 조회 실패 (홈은 정상 반환)");
+        return { available: false, reportId: null };
+    }
+};
+
 // growthTotals는 레벨 카드 아래 티어 표시용 보조 데이터일 뿐이라, resolveTodayMission과
 // 같은 이유로 실패해도 홈 전체를 죽이지 않고 카드 단위로 비워 둔다.
 const resolveGrowthTotals = async (userId: string) => {
@@ -62,10 +81,11 @@ const resolveGrowthTotals = async (userId: string) => {
 };
 
 export const getHomeSummary = async (userId: string): Promise<HomeSummaryResponseDto> => {
-    const [{ profile, archiveCount }, todayMission, growthTotals] = await Promise.all([
+    const [{ profile, archiveCount }, todayMission, growthTotals, newWeeklyCompareReport] = await Promise.all([
         findHomeSummaryData(userId),
         resolveTodayMission(userId),
         resolveGrowthTotals(userId),
+        resolveNewWeeklyCompareReport(userId),
     ]);
 
     if (!profile) {
@@ -84,5 +104,6 @@ export const getHomeSummary = async (userId: string): Promise<HomeSummaryRespons
         communityCount: 0,
         questionOfDay: QUESTION_OF_DAY,
         growthTotals,
+        newWeeklyCompareReport,
     };
 };

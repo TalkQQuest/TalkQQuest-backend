@@ -309,3 +309,46 @@ describe("createMessage", () => {
     expect(mockedGenerate).not.toHaveBeenCalled();
   });
 });
+
+describe("finishConversation", () => {
+  const buildFinishRepo = (messages: { role: "user" | "guide" | "system"; content: string }[]) => {
+    const repo = {
+      findConversationWithMessages: jest.fn().mockResolvedValue({
+        id: "c1",
+        status: "in_progress",
+        started_at: new Date("2026-08-13T00:00:00Z"),
+        messages,
+      }),
+      finishConversation: jest.fn().mockResolvedValue(true),
+    };
+    return repo as unknown as ConversationRepository & typeof repo;
+  };
+
+  it("사용자 발화가 없으면 archive 생성 플래그를 false로 전달하면서 대화를 종료한다", async () => {
+    const repo = buildFinishRepo([{ role: "guide", content: "안녕하세요" }]);
+
+    await new ConversationService(repo).finishConversation("u1", "c1", { status: "completed" });
+
+    expect(repo.finishConversation).toHaveBeenCalledWith(
+      "u1",
+      "c1",
+      "completed",
+      expect.any(Date),
+      false
+    );
+  });
+
+  it("사용자 발화가 한 건 이상이면 archive 생성 플래그를 true로 전달한다", async () => {
+    const repo = buildFinishRepo([{ role: "user", content: "네" }]);
+
+    await new ConversationService(repo).finishConversation("u1", "c1", { status: "completed" });
+
+    expect(repo.finishConversation).toHaveBeenCalledWith(
+      "u1",
+      "c1",
+      "completed",
+      expect.any(Date),
+      true
+    );
+  });
+});

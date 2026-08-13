@@ -356,11 +356,13 @@ const MOCK_GUIDE_RESPONSES = [
         }
 
         const finishedAt = new Date();
+        const hasUserMessage = conversation.messages.some((message) => message.role === "user");
         const finished = await this.conversationRepository.finishConversation(
         userId,
         conversationId,
         dto.status,
-        finishedAt
+        finishedAt,
+        hasUserMessage
         );
         if (!finished) throw ConversationError.alreadyFinished();
 

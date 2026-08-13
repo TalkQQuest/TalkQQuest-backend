@@ -145,7 +145,8 @@ export class ConversationRepository {
         userId: string,
         conversationId: string,
         status: "completed" | "abandoned",
-        finishedAt: Date
+        finishedAt: Date,
+        hasUserMessage: boolean
     ) {
         return this.prisma.$transaction(async (tx) => {
             // The status predicate makes concurrent/repeated finish requests idempotent:
@@ -156,6 +157,8 @@ export class ConversationRepository {
             });
 
             if (updated.count === 0) return false;
+
+            if (!hasUserMessage) return true;
 
             const existingArchiveItem = await tx.archive_Items.findFirst({
                 where: {

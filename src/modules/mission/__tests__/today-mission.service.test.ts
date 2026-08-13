@@ -239,6 +239,53 @@ describe("getTodayMission — 새로고침 제한", () => {
     expect(result.missionId).toBe("m-existing");
     expect(result.remainingRefreshes).toBe(0);
   });
+
+  // #192 — 결과 기록(updateRecommendationLog)이 실패해 슬롯은 예약됐지만 recommended_mission이
+  // 비어 있는 로그가 남으면, 이전엔 이 손상된 캐시를 복구하려는 일반 조회가 reserveRefreshSlot을
+  // 타면서 한도 체크에 걸려 429가 났다. 유저는 재추천을 요청한 적이 없으므로, 한도를 이미
+  // 다 쓴 상태여도 429 없이 그 자리에서 새로 만들어 내려줘야 한다.
+  it("한도를 다 쓴 상태에서 캐시가 손상돼도 429 없이 새로 뽑아 반환한다", async () => {
+    mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(
+      buildLog({ recommended_mission: null })
+    );
+    mockedRepo.countRecommendationLogsByDate.mockResolvedValue(1 + MISSION_REFRESH_LIMIT);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    expect(mockedRecommend.recommendMission).toHaveBeenCalledTimes(1);
+    expect(result.isNew).toBe(true);
+  });
+
+  it("손상된 캐시 복구는 명시적 refresh가 아니므로 슬롯 예약 시 한도를 체크하지 않는다", async () => {
+    mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(
+      buildLog({ recommended_mission: null })
+    );
+    mockedRepo.countRecommendationLogsByDate.mockResolvedValue(1 + MISSION_REFRESH_LIMIT);
+
+    await getTodayMission("u1", { date: TODAY });
+
+    // 한도를 넘는 슬롯 번호로 예약을 시도해도(=checkLimit이었다면 429) 그대로 통과해야 한다.
+    expect(mockedRepo.reserveRecommendationLogSlot).toHaveBeenCalledWith(
+      "u1",
+      expect.any(Date),
+      1 + MISSION_REFRESH_LIMIT
+    );
+  });
+
+  // 코드래빗 리뷰(PR #196): 손상된 캐시를 복구할 때 새로 예약한 슬롯 자체를 refreshCount에
+  // 반영하면, 유저가 요청하지 않은 복구가 새로고침을 "쓴 것"처럼 보이게 만든다.
+  it("손상된 캐시 복구는 refreshCount를 증가시키지 않는다", async () => {
+    mockedRepo.findLatestRecommendationLogByDate.mockResolvedValue(
+      buildLog({ recommended_mission: null })
+    );
+    // 복구 전 로그 2건(첫 생성 1 + 새로고침 1) = 복구 전 refreshCount는 1이어야 한다.
+    mockedRepo.countRecommendationLogsByDate.mockResolvedValue(2);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    // 복구용 슬롯(3번째 로그)이 추가로 예약되지만, 그 슬롯은 refreshCount 계산에서 제외된다.
+    expect(result.refreshCount).toBe(1);
+  });
 });
 
 describe("getTodayMission — setupGuideline (#152)", () => {

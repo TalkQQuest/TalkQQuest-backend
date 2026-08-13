@@ -4,10 +4,12 @@ jest.mock("../../../config/logger", () => ({
 jest.mock("../repositories/home.repository");
 jest.mock("../../mission/services/mission.service");
 jest.mock("../../report/services/growth.service");
+jest.mock("../../notification/services/notification.service");
 
 import * as homeRepository from "../repositories/home.repository";
 import * as missionService from "../../mission/services/mission.service";
 import * as growthService from "../../report/services/growth.service";
+import * as notificationService from "../../notification/services/notification.service";
 import { getHomeSummary } from "../services/home.service";
 import { MissionProfileNotFoundError } from "../../mission/errors/mission.error";
 import { NotFoundError } from "../../../shared/errors/common.error";
@@ -15,6 +17,7 @@ import { NotFoundError } from "../../../shared/errors/common.error";
 const mockedRepo = jest.mocked(homeRepository);
 const mockedMission = jest.mocked(missionService);
 const mockedGrowth = jest.mocked(growthService);
+const mockedNotification = jest.mocked(notificationService);
 
 const todayMission = {
   missionId: "m1",
@@ -42,6 +45,7 @@ beforeEach(() => {
     empathyTotal: 0,
     questionLinkTotal: 0,
   } as never);
+  mockedNotification.getLatestUnreadReportId.mockResolvedValue(null);
 });
 
 describe("getHomeSummary", () => {
@@ -102,5 +106,39 @@ describe("getHomeSummary", () => {
       "m1",
       new Date("2026-08-03T00:00:00+09:00")
     );
+  });
+});
+
+// #193 — 안 읽은 주간 비교 리포트 알림이 있으면 홈 요약에서 바로 그 리포트 id를 알 수 있어야
+// "리포트가 도착했어요" 모달을 띄우고 곧장 상세로 보낼 수 있다.
+describe("getHomeSummary — newWeeklyCompareReport(#193)", () => {
+  it("안 읽은 주간 비교 리포트 알림이 있으면 available: true와 reportId를 반환한다", async () => {
+    mockedNotification.getLatestUnreadReportId.mockResolvedValue("w1");
+
+    const result = await getHomeSummary("u1");
+
+    expect(result.newWeeklyCompareReport).toEqual({ available: true, reportId: "w1" });
+    expect(mockedNotification.getLatestUnreadReportId).toHaveBeenCalledWith(
+      "u1",
+      "report_ready",
+      "weekly_compare"
+    );
+  });
+
+  it("안 읽은 리포트 알림이 없으면 available: false를 반환한다", async () => {
+    mockedNotification.getLatestUnreadReportId.mockResolvedValue(null);
+
+    const result = await getHomeSummary("u1");
+
+    expect(result.newWeeklyCompareReport).toEqual({ available: false, reportId: null });
+  });
+
+  it("조회가 실패해도 홈 전체를 깨뜨리지 않고 available: false로 흡수한다", async () => {
+    mockedNotification.getLatestUnreadReportId.mockRejectedValue(new Error("db down"));
+
+    const result = await getHomeSummary("u1");
+
+    expect(result.newWeeklyCompareReport).toEqual({ available: false, reportId: null });
+    expect(result.nickname).toBe("유경");
   });
 });

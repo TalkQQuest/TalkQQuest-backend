@@ -8,6 +8,7 @@ import {
     createNotification,
     deleteNotification,
     deleteAllNotifications,
+    findLatestUnreadNotificationByReferenceType,
 } from "../repositories/notification.repository";
 import {
     NotificationsResponseDto,
@@ -40,6 +41,17 @@ export const notifyUser = async (
     }
 };
 
+// #193 — 홈 요약(GET /home/summary)이 "새 주간 비교 리포트 도착" 모달을 띄울지 판단할 때 쓴다.
+// 안 읽은 주간 비교 리포트 알림이 있으면 그 리포트 id를, 없으면 null을 돌려준다.
+export const getLatestUnreadReportId = async (
+    userId: string,
+    type: string,
+    referenceType: string
+): Promise<string | null> => {
+    const notification = await findLatestUnreadNotificationByReferenceType(userId, type, referenceType);
+    return notification?.reference_id ?? null;
+};
+
 export const getNotifications = async (
     userId: string,
     isRead?: boolean,
@@ -55,6 +67,8 @@ export const getNotifications = async (
         title: n.title,
         body: n.body ?? null,
         isRead: n.is_read,
+        referenceId: n.reference_id,
+        referenceType: n.reference_type,
         createdAt: n.created_at.toISOString(),
         })),
     };

@@ -234,11 +234,31 @@ export const getTodayMission = async (
         isNew: false,
       });
     }
+
+    // #192 — 캐시(recommended_mission)가 손상돼 파싱에 실패한 경우(예: 슬롯은 예약됐는데 결과
+    // 기록이 실패한 로그). 유저는 새로고침을 요청한 게 아니므로 이 복구를 새로고침 횟수로 세거나
+    // 한도에 막혀서는 안 된다 — checkLimit: false로 예약해 한도와 무관하게 항상 새로 만든다.
+    const personalityType = await missionRepository.findUserPersonalityType(userId);
+    const { logId } = await reserveNextSlot(userId, dateOnly, logCount, false);
+    const recommended = await recommendMission(userId, logId);
+    const missionId = await materializeRecommendedMission(userId, recommended, personalityType, logId);
+    return buildTodayMissionResponse({
+      userId,
+      recommended,
+      missionId,
+      recommendationLogId: logId,
+      date,
+      // 코드래빗 리뷰(PR #196): 복구용 슬롯 자체는 유저가 쓴 새로고침이 아니므로 refreshCount에
+      // 반영하면 안 된다. slotIndex(복구 슬롯 포함) 대신 복구 전 로그 건수(logCount)를 그대로 쓴다.
+      refreshCount: usedRefreshCount(logCount),
+      isNew: true,
+    });
   }
 
-  // LLM을 부르기 전에 슬롯을 선점한다. 여기서 얻은 로그 id가 오늘의 미션 캐시 키가 되므로,
-  // 추천 후 로그를 만들다 실패해 캐시가 비는 경우(=매 요청이 LLM 재호출)가 생기지 않는다.
-  const { logId: reservedLogId, slotIndex } = await reserveRefreshSlot(userId, dateOnly, logCount);
+  // 여기부터는 (a) 오늘 추천이 아예 없거나(첫 조회) (b) refresh=true(명시적 재추천)인 경우다.
+  // (b)만 한도를 체크해야 하지만, (a)는 슬롯 0이라 usedRefreshCount(1)이 항상 0이므로
+  // 한도 체크를 같이 태워도 실질적으로 걸리지 않는다.
+  const { logId: reservedLogId, slotIndex } = await reserveNextSlot(userId, dateOnly, logCount, true);
 
   const personalityType = await missionRepository.findUserPersonalityType(userId);
   const recommended = await recommendMission(userId, reservedLogId);
@@ -265,16 +285,21 @@ export const getTodayMission = async (
 // 한도 검사와 예약이 따로 놀면 병렬 요청이 같은 잔여 횟수를 읽고 함께 통과해 한도를 넘긴다.
 // 그래서 (user, 날짜, 순번) unique 제약으로 승자를 하나만 남기고, 진 요청은 갱신된 순번으로
 // 다시 시도한다. 재시도 횟수는 한도+1로 묶어 경합이 길어져도 유한하게 끝난다.
-const reserveRefreshSlot = async (
+//
+// checkLimit=false는 유저가 재추천을 요청한 게 아닌 상황(#192 — 손상된 캐시 복구)에 쓴다.
+// 이 경우 슬롯 예약은 동일하게 하되(동시성 안전을 위해 필요), 한도를 넘겨도 429를 던지지 않는다
+// — 자동 복구가 새로고침을 "쓴 것"으로 잡아먹으면 안 되기 때문이다.
+const reserveNextSlot = async (
   userId: string,
   dateOnly: Date,
-  knownLogCount: number
+  knownLogCount: number,
+  checkLimit: boolean
 ): Promise<{ logId: string; slotIndex: number }> => {
   let slotIndex = knownLogCount;
 
   for (let attempt = 0; attempt <= MISSION_REFRESH_LIMIT + 1; attempt += 1) {
     // 슬롯 0은 그날의 첫 추천이라 새로고침으로 세지 않는다.
-    if (usedRefreshCount(slotIndex + 1) > MISSION_REFRESH_LIMIT) {
+    if (checkLimit && usedRefreshCount(slotIndex + 1) > MISSION_REFRESH_LIMIT) {
       throw new MissionRefreshLimitExceededError();
     }
     try {
@@ -296,7 +321,12 @@ const reserveRefreshSlot = async (
   }
 
   // 한도 안에서 계속 경합에 진 경우. 재시도로 풀릴 상태이므로 한도 초과와 같게 안내한다.
-  throw new MissionRefreshLimitExceededError();
+  // checkLimit=false에서 여기까지 온 건 동시성 폭주뿐이라(자동 복구 자체는 한도를 안 봄),
+  // 429가 아니라 일반 오류로 표면화한다.
+  if (checkLimit) {
+    throw new MissionRefreshLimitExceededError();
+  }
+  throw new Error("오늘의 미션 슬롯 예약에 반복적으로 실패했습니다.");
 };
 
 const buildTodayMissionResponse = async (params: {

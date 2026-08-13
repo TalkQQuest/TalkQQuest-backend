@@ -10,7 +10,8 @@ import { kstDayStart } from "../../../shared/utils/date";
 
 const QUESTION_OF_DAY = "오늘 누군가에게 먼저 말을 걸어본 적 있나요?";
 const XP_PER_LEVEL = 100;
-const REPORT_READY_NOTIFICATION_TYPE = "report_ready";
+// #223 — 주간 비교 리포트 알림은 이제 성장 리포트와 구분되는 전용 type을 쓴다.
+const WEEKLY_COMPARE_READY_NOTIFICATION_TYPE = "weekly_compare_ready";
 const WEEKLY_COMPARE_REFERENCE_TYPE = "weekly_compare";
 
 // 홈 카드의 오늘의 미션은 미션 화면(GET /missions/today)과 반드시 같아야 하므로 같은 진입점을 쓴다.
@@ -59,7 +60,7 @@ const resolveNewWeeklyCompareReport = async (userId: string): Promise<NewWeeklyC
     try {
         const reportId = await getLatestUnreadReportId(
             userId,
-            REPORT_READY_NOTIFICATION_TYPE,
+            WEEKLY_COMPARE_READY_NOTIFICATION_TYPE,
             WEEKLY_COMPARE_REFERENCE_TYPE
         );
         return { available: reportId !== null, reportId };

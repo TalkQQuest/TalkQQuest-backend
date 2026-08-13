@@ -37,8 +37,12 @@ interface StoredReportData {
 
 const toDateOnly = (date: Date): string => date.toISOString().slice(0, 10);
 
+// #223 — 이전에는 성장 리포트/주간 비교 리포트 알림이 둘 다 type: "report_ready"를 공유해서,
+// 클라이언트가 제목 문자열로 둘을 구분해야 했다. referenceType으로는 이미 서버 내부적으로
+// 구분되고 있었으므로, 호출부가 type도 함께 넘기도록 바꿔 알림 종류별로 다른 값을 내려준다.
 const notifyReportReady = async (
   userId: string,
+  type: string,
   title: string,
   body: string,
   referenceId: string,
@@ -46,7 +50,7 @@ const notifyReportReady = async (
 ): Promise<void> => {
   const settings = await findNotificationSettings(userId);
   if (!settings?.report_ready) return;
-  await notifyUser(userId, "report_ready", title, body, referenceId, referenceType);
+  await notifyUser(userId, type, title, body, referenceId, referenceType);
 };
 
 // Archive_Items에는 (user_id, item_type, reference_id) unique 제약이 있다. 이미 있으면
@@ -117,6 +121,7 @@ export const saveReport = async (
   await ensureReportArchived(userId, created.id);
   await notifyReportReady(
     userId,
+    "report_ready",
     "성장 리포트가 도착했어요!",
     "새로 저장한 성장 리포트를 확인해보세요.",
     created.id,
@@ -299,6 +304,7 @@ export const notifyNewWeeklyCompareReports = async (
     try {
       await notifyReportReady(
         userId,
+        "weekly_compare_ready",
         "주간 비교 리포트가 도착했어요!",
         "지난 주와 이번 주를 비교한 리포트를 확인해보세요.",
         reportId,

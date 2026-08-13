@@ -17,6 +17,7 @@ import {
   saveWeeklyCompareReport,
   deleteWeeklyCompareReport,
   getWeeklyCompareReportDetail,
+  notifyNewWeeklyCompareReports,
 } from "../services/report.service";
 import { ReportConversationNotFoundError, WeeklyCompareReportNotFoundError } from "../errors/report.error";
 
@@ -118,7 +119,15 @@ describe("saveReport", () => {
     expect(mockedArchive.createArchiveItem).toHaveBeenCalledWith(
       expect.objectContaining({ item_type: "report", reference_id: "r-new" })
     );
-    expect(mockedNotification.createNotification).toHaveBeenCalled();
+    // #223 — 성장 리포트 저장 완료 알림은 report_ready 타입을 쓴다(주간 비교와 구분).
+    expect(mockedNotification.createNotification).toHaveBeenCalledWith(
+      "u1",
+      "report_ready",
+      expect.any(String),
+      expect.any(String),
+      "r-new",
+      "report"
+    );
   });
 
   it("동시에 같은 대화로 두 번 저장 요청이 오면(P2002) 먼저 만들어진 결과를 반환하고, 진 요청이 승자를 대신해 Archive 항목을 만든다", async () => {
@@ -161,6 +170,39 @@ describe("saveReport", () => {
 
     expect(result.reportId).toBe("r-new");
     expect(mockedArchive.findArchiveItemByReference).toHaveBeenCalledTimes(2);
+  });
+});
+
+// #223 — 주간 비교 리포트 알림은 성장 리포트(report_ready)와 구분되는 전용 type을 써야
+// 클라이언트가 제목 문자열이 아니라 type만으로 두 알림을 구분할 수 있다.
+describe("notifyNewWeeklyCompareReports — 전용 알림 type(#223)", () => {
+  it("weekly_compare_ready 타입으로, referenceType은 weekly_compare로 알림을 보낸다", async () => {
+    await notifyNewWeeklyCompareReports("u1", ["w1", "w2"]);
+
+    expect(mockedNotification.createNotification).toHaveBeenNthCalledWith(
+      1,
+      "u1",
+      "weekly_compare_ready",
+      expect.any(String),
+      expect.any(String),
+      "w1",
+      "weekly_compare"
+    );
+    expect(mockedNotification.createNotification).toHaveBeenNthCalledWith(
+      2,
+      "u1",
+      "weekly_compare_ready",
+      expect.any(String),
+      expect.any(String),
+      "w2",
+      "weekly_compare"
+    );
+  });
+
+  it("알림 발송이 실패해도 예외를 던지지 않는다(다른 리포트 생성 자체를 막지 않기 위해)", async () => {
+    mockedNotification.createNotification.mockRejectedValueOnce(new Error("push 실패"));
+
+    await expect(notifyNewWeeklyCompareReports("u1", ["w1"])).resolves.toBeUndefined();
   });
 });
 

@@ -1,12 +1,7 @@
-jest.mock("../../../config/logger", () => ({
-  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
-}));
-jest.mock("../../../config/database", () => ({
-  prisma: { $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({})) },
-}));
 jest.mock("../repositories/report.repository");
 jest.mock("../../archive/repositories/archive.repository");
 jest.mock("../../notification/repositories/notification.repository");
+jest.mock("../../mission/repositories/mission.repository");
 jest.mock("../services/growth.service");
 jest.mock("../../user/repositories/user.repository");
 
@@ -14,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import * as reportRepository from "../repositories/report.repository";
 import * as archiveRepository from "../../archive/repositories/archive.repository";
 import * as notificationRepository from "../../notification/repositories/notification.repository";
+import * as missionRepository from "../../mission/repositories/mission.repository";
 import * as growthService from "../services/growth.service";
 import * as userRepository from "../../user/repositories/user.repository";
 import {
@@ -27,6 +23,7 @@ import { ReportConversationNotFoundError, WeeklyCompareReportNotFoundError } fro
 const mockedRepo = jest.mocked(reportRepository);
 const mockedArchive = jest.mocked(archiveRepository);
 const mockedNotification = jest.mocked(notificationRepository);
+const mockedMission = jest.mocked(missionRepository);
 const mockedGrowth = jest.mocked(growthService);
 const mockedUser = jest.mocked(userRepository);
 
@@ -186,6 +183,11 @@ describe("getWeeklyCompareReportDetail — 이전/다음 리포트 탐색(#177)"
       created_at: new Date("2026-08-08T00:00:00Z"),
     } as never);
     mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
+    mockedMission.findUserPersonalityType.mockResolvedValue(null);
+    mockedGrowth.getMissionProgressSummary.mockResolvedValue({
+      topCategories: [],
+      missionProgress: { completed: 0, total: 0 },
+    });
     mockedRepo.findWeeklyCompareReportByWeekIndex.mockImplementation(((_userId: string, weekIndex: number) => {
       if (weekIndex === 1) return Promise.resolve({ id: "w1" });
       if (weekIndex === 3) return Promise.resolve({ id: "w3" });
@@ -208,6 +210,11 @@ describe("getWeeklyCompareReportDetail — 이전/다음 리포트 탐색(#177)"
       created_at: new Date("2026-08-08T00:00:00Z"),
     } as never);
     mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
+    mockedMission.findUserPersonalityType.mockResolvedValue(null);
+    mockedGrowth.getMissionProgressSummary.mockResolvedValue({
+      topCategories: [],
+      missionProgress: { completed: 0, total: 0 },
+    });
     mockedRepo.findWeeklyCompareReportByWeekIndex.mockResolvedValue(null as never);
 
     const result = await getWeeklyCompareReportDetail("u1", "w1");
@@ -224,6 +231,11 @@ describe("getWeeklyCompareReportDetail — 이전/다음 리포트 탐색(#177)"
       created_at: new Date("2026-08-08T00:00:00Z"),
     } as never);
     mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
+    mockedMission.findUserPersonalityType.mockResolvedValue(null);
+    mockedGrowth.getMissionProgressSummary.mockResolvedValue({
+      topCategories: [],
+      missionProgress: { completed: 0, total: 0 },
+    });
     mockedRepo.findWeeklyCompareReportByWeekIndex.mockResolvedValue({ id: "w1" } as never);
 
     const result = await getWeeklyCompareReportDetail("u1", "w2");

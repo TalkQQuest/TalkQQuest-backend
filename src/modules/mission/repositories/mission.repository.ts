@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../../../config/database";
 import { MissionOrigin } from "../dtos/mission.constants";
+import * as missionRepository from "../../mission/repositories/mission.repository";
 
 // 미션 목록에 어떤 미션이 보여야 하는지 결정하는 기준.
 export interface MissionVisibility {
@@ -27,7 +28,9 @@ export interface MissionVisibility {
 // 내 미션은 "내 것" 조건과 "성향이 같은 사용자" 조건에 동시에 걸릴 수 있지만 OR이라 중복 행은
 // 생기지 않는다. 성향 정보가 없으면(온보딩 전) 유사 성향 조건 자체를 빼는데, null로 매칭하면
 // 성향이 기록되지 않은 과거 미션이 전부 딸려오기 때문이다.
-const buildVisibilityWhere = (visibility: MissionVisibility): Prisma.MissionsWhereInput => {
+// report 도메인(growth/weekly-compare 진행률 계산)에서도 "이 사용자에게 보이는 미션" 기준을
+// 동일하게 써야 하므로 export한다(#201) — GET /missions와 다른 기준으로 세면 숫자가 어긋난다.
+export const buildVisibilityWhere = (visibility: MissionVisibility): Prisma.MissionsWhereInput => {
   const template: Prisma.MissionsWhereInput = { is_template: true };
   const mine: Prisma.MissionsWhereInput = {
     is_template: false,

@@ -1,5 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
+import { buildVisibilityWhere, MissionVisibility } from "../../mission/repositories/mission.repository";
+
+// GET /missions와 동일한 공개 범위(visibility) 기준으로 전체 미션 수를 센다(#201).
+// 단순 is_template:false만 세면 다른 사용자의 AI 생성 미션까지 포함돼 실제 목록 개수와 어긋난다.
+export const countTotalMissions = (visibility: MissionVisibility) =>
+  prisma.missions.count({ where: buildVisibilityWhere(visibility) });
 
 // ----- User level/xp -----
 
@@ -80,8 +86,6 @@ export const countCompletedMissionRecordsInRange = (userId: string, start: Date,
   prisma.mission_Records.count({
     where: { user_id: userId, status: "completed", completed_at: { gte: start, lt: end } },
   });
-
-export const countTotalMissions = () => prisma.missions.count({ where: { is_template: false } });
 
 export const countDistinctCompletedMissions = async (userId: string) => {
   const rows = await prisma.mission_Records.findMany({

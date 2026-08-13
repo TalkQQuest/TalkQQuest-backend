@@ -71,6 +71,14 @@ export interface WeeklyCompareReportDto {
   highlights: string[];
 }
 
+// GET /reports/weekly-compare/{reportId} 응답. 저장된 스냅샷(WeeklyCompareReportDto)에
+// topCategories/missionProgress를 조회 시점에 라이브 계산해 얹는다(#201) — 전체 미션 수/
+// 완료 미션 수는 계속 변하므로 생성 시점 값을 그대로 저장하면 나중에 조회할 때 낡은 값이 나온다.
+export interface WeeklyCompareResponseDto extends WeeklyCompareReportDto {
+  topCategories: TopCategoryDto[];
+  missionProgress: MissionProgressDto;
+}
+
 // #145 — 성장 리포트는 대화 하나를 기준으로 저장된다(conversationId, 같은 대화로 중복 저장 불가).
 // period(YYYY-MM-DD~YYYY-MM-DD)는 요청 필드가 아니라 저장 시점에 서버가 계산해 응답에 담는다.
 export interface SaveReportRequestDto {
@@ -132,7 +140,7 @@ export interface WeeklyCompareReportDetailResponseDto {
   id: string;
   weekIndex: number;
   isSaved: boolean;
-  data: WeeklyCompareReportDto;
+  data: WeeklyCompareResponseDto;
   createdAt: string;
   /** 이전 주차(week_index - 1) 리포트 id. 없으면 null(#177). isSaved와 무관하게 존재 여부만 본다. */
   previousReportId: string | null;

@@ -1,7 +1,9 @@
 import { calculateNextLevelXp } from "../../xp/services/level.service";
 import * as reportRepository from "../repositories/report.repository";
+import * as missionRepository from "../../mission/repositories/mission.repository";
 import { GrowthReportDto, TopCategoryDto, WeeklyTrendPointDto } from "../dtos/report.dto";
 import { addDays, getWeekStart } from "./week-window";
+import { MissionVisibility } from "../../mission/repositories/mission.repository";
 
 const WEEKS_IN_WINDOW = 4;
 
@@ -48,21 +50,21 @@ export const getGrowthReport = async (userId: string): Promise<GrowthReportDto> 
   const currentWeekStart = getWeekStart(now);
   const windowStart = getGrowthWindowStart(now);
 
+  // missionProgress.total은 GET /missions와 같은 공개 범위(visibility) 기준으로 세야 한다(#201).
+  const personalityType = await missionRepository.findUserPersonalityType(userId);
+  const visibility = { userId, personalityType };
+
   const [
     profile,
     xpHistory,
     feedbackScores,
-    missionCategories,
-    totalMissions,
-    completedMissions,
+    { topCategories, missionProgress },
     growthTotals,
   ] = await Promise.all([
     reportRepository.findProfileByUserId(userId),
     reportRepository.findXpHistoryAscByUserId(userId),
     reportRepository.findFeedbackScoresInRange(userId, windowStart, now),
-    reportRepository.findCompletedMissionCategoriesInRange(userId, windowStart, now),
-    reportRepository.countTotalMissions(),
-    reportRepository.countDistinctCompletedMissions(userId),
+    getMissionProgressSummary(userId, visibility, windowStart, now),
     reportRepository.sumFeedbackMetricTotals(userId),
   ]);
 
@@ -90,6 +92,40 @@ export const getGrowthReport = async (userId: string): Promise<GrowthReportDto> 
   const lastScore = weeklyTrend[weeklyTrend.length - 1]?.score ?? 0;
   const trendChangeRate = firstScore === 0 ? 0 : Math.round(((lastScore - firstScore) / firstScore) * 1000) / 10;
 
+  return {
+    levelBefore,
+    levelAfter,
+    weeklyTrend,
+    trendChangeRate,
+    topCategories,
+    missionProgress,
+    growthTotals,
+  };
+};
+
+// #145 — 홈 화면 등 성장 리포트 화면 밖에서도 티어 표시를 위해 누적값만 가볍게 필요할 때 쓴다.
+// getGrowthReport 전체를 계산하지 않고 SUM 하나만 돌린다.
+export const getGrowthMetricTotals = (userId: string) => reportRepository.sumFeedbackMetricTotals(userId);
+
+export interface MissionProgressSummary {
+  topCategories: TopCategoryDto[];
+  missionProgress: { completed: number; total: number };
+}
+
+// 카테고리 집계 + 미션 진행률 계산. growth 리포트와 weekly-compare 상세가 공유한다(#201) —
+// GET /missions와 동일한 공개 범위(visibility) 기준으로 세야 숫자가 어긋나지 않는다.
+export const getMissionProgressSummary = async (
+  userId: string,
+  visibility: MissionVisibility,
+  windowStart: Date,
+  now: Date
+): Promise<MissionProgressSummary> => {
+  const [missionCategories, totalMissions, completedMissions] = await Promise.all([
+    reportRepository.findCompletedMissionCategoriesInRange(userId, windowStart, now),
+    reportRepository.countTotalMissions(visibility),
+    reportRepository.countDistinctCompletedMissions(userId),
+  ]);
+
   const categoryCounts = new Map<string, number>();
   for (const record of missionCategories) {
     const category = record.mission.category;
@@ -101,16 +137,7 @@ export const getGrowthReport = async (userId: string): Promise<GrowthReportDto> 
     .map(([category, count]) => ({ category, count }));
 
   return {
-    levelBefore,
-    levelAfter,
-    weeklyTrend,
-    trendChangeRate,
     topCategories,
     missionProgress: { completed: completedMissions, total: totalMissions },
-    growthTotals,
   };
 };
-
-// #145 — 홈 화면 등 성장 리포트 화면 밖에서도 티어 표시를 위해 누적값만 가볍게 필요할 때 쓴다.
-// getGrowthReport 전체를 계산하지 않고 SUM 하나만 돌린다.
-export const getGrowthMetricTotals = (userId: string) => reportRepository.sumFeedbackMetricTotals(userId);

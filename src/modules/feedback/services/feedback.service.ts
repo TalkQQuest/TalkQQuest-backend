@@ -31,13 +31,20 @@ import {
 } from "./feedback-llm.service";
 
 // 대화가 분석하기에 너무 짧은지 판단하는 기준. 사용자 발화(guide/system 제외)만 센다.
-const MIN_USER_MESSAGES = 2;
-const MIN_USER_CHARS = 20;
+// mission-completion.service.ts(#212, #213)도 "사용자가 실제로 대화에 참여했는지" 판단에
+// 동일한 기준을 재사용한다 — 피드백 생성 가능 여부와 XP 지급/보관함 저장 가능 여부를
+// 서로 다른 기준으로 판단하면 둘 중 하나만 통과하는 대화가 생겨 혼란스럽다.
+export const MIN_USER_MESSAGES = 2;
+export const MIN_USER_CHARS = 20;
 
-const assertSufficientInput = (messages: { role: string; content: string }[]): void => {
+export const hasSufficientUserInput = (messages: { role: string; content: string }[]): boolean => {
   const userMessages = messages.filter((m) => m.role === "user");
   const totalChars = userMessages.reduce((sum, m) => sum + m.content.trim().length, 0);
-  if (userMessages.length < MIN_USER_MESSAGES || totalChars < MIN_USER_CHARS) {
+  return userMessages.length >= MIN_USER_MESSAGES && totalChars >= MIN_USER_CHARS;
+};
+
+const assertSufficientInput = (messages: { role: string; content: string }[]): void => {
+  if (!hasSufficientUserInput(messages)) {
     throw new FeedbackInputTooShortError();
   }
 };

@@ -106,11 +106,24 @@ export interface ListReportsResponseDto {
   reports: ReportListItemDto[];
 }
 
+// #216 — 이 리포트를 만든 대화 하나에서 획득한 4개 지표 점수. growthTotals(누적)와 달리
+// 이 리포트의 대화 하나에 대한 값이라 growth 밖에 별도 필드로 둔다 — GrowthReportDto는
+// GET /reports/growth(특정 대화와 무관한 라이브 집계)와 공유하는 타입이라 여기 넣지 않는다.
+// 저장 시점에 해당 conversationId의 Feedbacks 점수를 그대로 옮겨 스냅샷으로 고정하고,
+// 이후 그 대화의 피드백이 재시도로 갱신되어도 저장된 값은 바뀌지 않는다.
+export interface RecentScoresDto {
+  kindness: number;
+  initiative: number;
+  empathy: number;
+  questionLink: number;
+}
+
 export interface ReportDetailResponseDto {
   id: string;
   period: string;
   title: string;
   growth: GrowthReportDto;
+  recentScores: RecentScoresDto;
   createdAt: string;
 }
 

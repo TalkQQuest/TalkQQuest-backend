@@ -18,6 +18,7 @@ import {
   GrowthReportDto,
   ListReportsResponseDto,
   ListWeeklyCompareReportsResponseDto,
+  RecentScoresDto,
   ReportDetailResponseDto,
   SaveReportResponseDto,
   SaveWeeklyCompareReportResponseDto,
@@ -30,10 +31,29 @@ import * as missionRepository from "../../mission/repositories/mission.repositor
 
 
 // 성장 리포트 스냅샷 Json 컬럼 구조 (#145 — weeklyCompare는 더 이상 여기 포함되지 않는다).
+// recentScores(#216)는 저장 시점 그 대화의 Feedbacks 점수를 그대로 얼려서 담는다 — growth와
+// 달리 특정 대화 하나에 종속된 값이라 GrowthReportDto 안에 넣지 않고 별도 필드로 둔다.
 interface StoredReportData {
   title: string;
   growth: GrowthReportDto;
+  recentScores: RecentScoresDto;
 }
+
+// Feedbacks 점수 컬럼은 생성 실패 시 null일 수 있다 — 없으면 0으로 채운다
+// (calculateOverallScore가 점수 없음을 0으로 다루는 것과 동일한 관례).
+const toRecentScores = (
+  scores: {
+    kindness_score: number | null;
+    initiative_score: number | null;
+    empathy_score: number | null;
+    question_link_score: number | null;
+  } | null
+): RecentScoresDto => ({
+  kindness: scores?.kindness_score ?? 0,
+  initiative: scores?.initiative_score ?? 0,
+  empathy: scores?.empathy_score ?? 0,
+  questionLink: scores?.question_link_score ?? 0,
+});
 
 const toDateOnly = (date: Date): string => date.toISOString().slice(0, 10);
 
@@ -97,10 +117,14 @@ export const saveReport = async (
 
   const now = new Date();
   const growthWindowStart = getGrowthWindowStart(now);
-  const growth = await getGrowthReport(userId);
+  const [growth, feedbackScores] = await Promise.all([
+    getGrowthReport(userId),
+    reportRepository.findFeedbackScoresByConversationId(conversationId),
+  ]);
   const period = `${toDateOnly(growthWindowStart)}~${toDateOnly(now)}`;
   const title = conversation.mission.title;
-  const stored: StoredReportData = { title, growth };
+  const recentScores = toRecentScores(feedbackScores);
+  const stored: StoredReportData = { title, growth, recentScores };
 
   let created;
   try {
@@ -160,6 +184,8 @@ export const getReportDetail = async (
     period: row.period,
     title: data?.title ?? "톡깨 리포트",
     growth: data.growth,
+    // #216 이전에 저장된 기존 리포트는 스냅샷에 recentScores가 없다 — 0으로 채운다.
+    recentScores: data.recentScores ?? toRecentScores(null),
     createdAt: row.created_at.toISOString(),
   };
 };

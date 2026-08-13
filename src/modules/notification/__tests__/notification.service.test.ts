@@ -12,6 +12,8 @@ import {
   getLatestUnreadReportId,
   deleteMyNotification,
   deleteAllMyNotifications,
+  getNotificationSettings,
+  updateNotificationSettingsService,
 } from "../services/notification.service";
 import { NotFoundError } from "../../../shared/errors/common.error";
 
@@ -165,5 +167,45 @@ describe("getLatestUnreadReportId(#193)", () => {
       "report_ready",
       "weekly_compare"
     );
+  });
+});
+
+// #215 — 회원가입 시점에 Notification_Settings 행이 생성되지 않아 조회/수정이 항상 404였다.
+// 이제 upsert로 처리해 없으면 즉시 생성한다(기존 가입자도 첫 호출에서 자동으로 해결).
+describe("알림 설정 조회/수정 (#215)", () => {
+  const settingsRow = {
+    id: "s1",
+    user_id: "u1",
+    mission_reminder: true,
+    mission_reminder_time: "09:00",
+    community_approved: true,
+    report_ready: true,
+    marketing: false,
+    updated_at: new Date(),
+  };
+
+  it("설정이 없는 사용자도 404 대신 기본값으로 즉시 생성해서 반환한다", async () => {
+    mockedRepo.upsertNotificationSettings.mockResolvedValue(settingsRow as never);
+
+    const result = await getNotificationSettings("u1");
+
+    expect(mockedRepo.upsertNotificationSettings).toHaveBeenCalledWith("u1", {});
+    expect(result).toEqual({
+      missionReminder: true,
+      missionReminderTime: "09:00",
+      communityApproved: true,
+      reportReady: true,
+      marketing: false,
+    });
+  });
+
+  it("설정이 없는 사용자가 PATCH해도 404 대신 upsert로 처리한다", async () => {
+    mockedRepo.upsertNotificationSettings.mockResolvedValue(settingsRow as never);
+
+    await updateNotificationSettingsService("u1", { missionReminder: false });
+
+    expect(mockedRepo.upsertNotificationSettings).toHaveBeenCalledWith("u1", {
+      mission_reminder: false,
+    });
   });
 });

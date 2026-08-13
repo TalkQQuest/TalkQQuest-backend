@@ -33,6 +33,19 @@ export const sumXpAmountInRange = async (userId: string, start: Date, end: Date)
 
 // ----- Feedbacks -----
 
+// #216 — 성장 리포트 저장(POST /reports) 시점에 그 대화에서 획득한 점수(recentScores)를
+// 스냅샷에 함께 담기 위해 조회한다. 대화당 피드백 1건(conversation_id unique)이라 findFirst로 충분.
+export const findFeedbackScoresByConversationId = (conversationId: string) =>
+  prisma.feedbacks.findFirst({
+    where: { conversation_id: conversationId, status: "ready" },
+    select: {
+      kindness_score: true,
+      initiative_score: true,
+      empathy_score: true,
+      question_link_score: true,
+    },
+  });
+
 export const findFeedbackScoresInRange = (userId: string, start: Date, end: Date) =>
   prisma.feedbacks.findMany({
     where: {
@@ -87,9 +100,11 @@ export const countCompletedMissionRecordsInRange = (userId: string, start: Date,
     where: { user_id: userId, status: "completed", completed_at: { gte: start, lt: end } },
   });
 
+// countTotalMissions와 같은 분모/분자 관계이므로 반드시 같은 기준(템플릿 포함)으로 세야 한다(#211).
+// 템플릿 미션만 걸러내면 템플릿 미션을 완료한 사용자의 completed가 실제보다 적게(0으로) 나온다.
 export const countDistinctCompletedMissions = async (userId: string) => {
   const rows = await prisma.mission_Records.findMany({
-    where: { user_id: userId, status: "completed", mission: { is_template: false } },
+    where: { user_id: userId, status: "completed" },
     select: { mission_id: true },
     distinct: ["mission_id"],
   });

@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
 
 export const findNotificationsByUserId = (
@@ -47,13 +46,27 @@ export const deleteAllNotifications = (userId: string) =>
 export const findNotificationSettings = (userId: string) =>
     prisma.notification_Settings.findUnique({ where: { user_id: userId } });
 
-export const updateNotificationSettings = (
+// 스칼라 값만 다룬다 — Prisma.Notification_SettingsUpdateInput은 관계 필드(user)까지
+// 포함돼 있어 create에 그대로 스프레드할 수 없다.
+export interface NotificationSettingsPatch {
+    mission_reminder?: boolean;
+    mission_reminder_time?: string;
+    community_approved?: boolean;
+    report_ready?: boolean;
+    marketing?: boolean;
+}
+
+// #215 — 회원가입 시점에 Notification_Settings 행을 만들어주는 경로가 없어 조회/수정이
+// 항상 404였다. 없으면 스키마 기본값으로 즉시 생성한다(update에 빈 객체를 넘기면 no-op이라
+// 조회에도 그대로 재사용할 수 있다) — 기존 가입자도 첫 호출에서 자동으로 채워진다.
+export const upsertNotificationSettings = (
     userId: string,
-    data: Prisma.Notification_SettingsUpdateInput
+    data: NotificationSettingsPatch
     ) =>
-    prisma.notification_Settings.update({
+    prisma.notification_Settings.upsert({
         where: { user_id: userId },
-        data,
+        create: { user_id: userId, ...data },
+        update: data,
     });
 
 // 스케줄러(#172)가 매 분 "지금 몇 시인지"에 맞는 유저를 찾을 때 쓴다. mission_reminder_time은

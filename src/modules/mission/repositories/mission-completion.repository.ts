@@ -10,6 +10,7 @@ export const findConversationByIdAndUser = (
 ) =>
   prisma.conversations.findFirst({
     where: { id: conversationId, user_id: userId },
+    include: { messages: { select: { role: true, content: true } } },
   });
 
 export const markConversationCompleted = (

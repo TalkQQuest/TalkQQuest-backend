@@ -13,6 +13,8 @@ import { notifyUser } from "../../notification/services/notification.service";
 // 여기서 따로 정의하지 않고 import한다 (xp/services/level.service.ts).
 import { calculateNextLevelXp } from "../../xp/services/level.service";
 import { checkAndAwardBadges } from "../../badge/services/badge.service";
+// 피드백 생성 가능 여부와 같은 기준("사용자가 실제로 대화에 참여했는가")을 재사용한다(#212, #213).
+import { hasSufficientUserInput } from "../../feedback/services/feedback.service";
 
 export const completeMission = async (
   userId: string,
@@ -39,8 +41,12 @@ export const completeMission = async (
     throw new ValidationError("이미 종료 처리된 대화입니다.");
   }
 
+  // 사용자 발화 없이(또는 너무 짧게) 끝난 대화는 실제로 미션을 수행한 게 아니므로
+  // XP 지급과 보관함 저장 대상에서 제외한다(#212, #213) — 피드백 생성 가능 기준과 동일.
+  const hasUserInput = hasSufficientUserInput(conversation.messages);
+
   // TODO: 결과별 XP 지급 규칙 미확정 — success만 전액 지급, failure/avoidance는 0으로 가정
-  const xpEarned = body.result === "success" ? mission.reward_xp : 0;
+  const xpEarned = body.result === "success" && hasUserInput ? mission.reward_xp : 0;
 
   return prisma.$transaction(async (tx): Promise<CompleteMissionResponseDto> => {
     const record = await missionCompletionRepository.createMissionRecord(
@@ -60,7 +66,9 @@ export const completeMission = async (
     );
 
     await missionCompletionRepository.markConversationCompleted(body.conversationId, tx);
-    await missionCompletionRepository.archiveConversationIfMissing(userId, body.conversationId, tx);
+    if (hasUserInput) {
+      await missionCompletionRepository.archiveConversationIfMissing(userId, body.conversationId, tx);
+    }
 
     if (xpEarned > 0) {
       const profile = await missionCompletionRepository.findProfileForUpdate(userId, tx);

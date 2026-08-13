@@ -51,20 +51,21 @@ describe("notifyUser", () => {
 // 서버에 실제로 반영한다.
 describe("deleteMyNotification", () => {
   it("본인 소유의 알림이면 삭제하고 결과를 반환한다", async () => {
-    mockedRepo.findNotificationById.mockResolvedValue({ id: "n1" } as never);
-    mockedRepo.deleteNotification.mockResolvedValue({} as never);
+    mockedRepo.deleteNotification.mockResolvedValue({ count: 1 } as never);
 
     const result = await deleteMyNotification("u1", "n1");
 
-    expect(mockedRepo.deleteNotification).toHaveBeenCalledWith("n1");
+    expect(mockedRepo.deleteNotification).toHaveBeenCalledWith("n1", "u1");
     expect(result).toEqual({ notificationId: "n1", deleted: true });
   });
 
-  it("존재하지 않거나 본인 소유가 아니면 404를 던지고 삭제를 시도하지 않는다", async () => {
-    mockedRepo.findNotificationById.mockResolvedValue(null);
+  // #200 코드래빗 리뷰: 조회 후 삭제 2단계로 나뉘어 있으면 그 사이에 다른 요청이 같은 알림을
+  // 먼저 지웠을 때 delete()가 P2025로 500을 던질 수 있었다. id+user_id로 함께 조건을 걸어
+  // 원자적으로 처리하고, count로 존재/소유 여부를 판단한다.
+  it("존재하지 않거나 본인 소유가 아니면(삭제된 행이 0건) 404를 던진다", async () => {
+    mockedRepo.deleteNotification.mockResolvedValue({ count: 0 } as never);
 
     await expect(deleteMyNotification("u1", "n1")).rejects.toBeInstanceOf(NotFoundError);
-    expect(mockedRepo.deleteNotification).not.toHaveBeenCalled();
   });
 });
 

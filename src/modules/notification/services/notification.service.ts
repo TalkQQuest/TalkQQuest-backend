@@ -80,12 +80,11 @@ export const getNotifications = async (
     userId: string,
     notificationId: string
     ): Promise<DeleteNotificationResponseDto> => {
-    const notification = await findNotificationById(notificationId, userId);
-    if (!notification) {
+    const result = await deleteNotification(notificationId, userId);
+    if (result.count === 0) {
         throw new NotFoundError("존재하지 않는 알림입니다.");
     }
 
-    await deleteNotification(notificationId);
     return { notificationId, deleted: true };
     };
 

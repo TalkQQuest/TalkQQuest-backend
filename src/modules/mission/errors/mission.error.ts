@@ -35,6 +35,13 @@ export class PlaybookGenerationFailedError extends AppError {
   }
 }
 
+// POST /missions/{missionId}/setup-guideline/regenerate — LLM 생성이 실패한 경우.
+export class SetupGuidelineGenerationFailedError extends AppError {
+  constructor(message = "미션 준비 가이드라인 생성에 실패했습니다. 잠시 후 다시 시도해주세요.") {
+    super("SETUP_GUIDELINE_GENERATION_FAILED", 503, message);
+  }
+}
+
 // POST /missions/from-recommendation — recommendationLogId가 존재하지 않거나 다른 사용자 것인 경우.
 export class RecommendationLogNotFoundError extends AppError {
   constructor(message = "존재하지 않는 추천 기록입니다.") {

@@ -367,28 +367,52 @@ async function seedPlans() {
 // 아니라 Cascade라 막히지도 않고 조용히 지워진다는 점에서 더 위험하다).
 //
 // title로 찾는다 — 시드 미션에 안정적인 고유 키가 title뿐이다(id는 uuid라 환경마다 다르다).
-// 시드는 템플릿의 정본이므로 찾은 행은 시드 값으로 갱신한다. 운영자가 DB에서 직접 손본 값은
-// 이때 시드 값으로 되돌아가므로, 계속 유지해야 하는 내용이면 이 파일에 반영해야 한다.
+//
+// 이미 있는 행은 **비어 있는 안내 필드만 채우고 나머지는 손대지 않는다.** setup_guideline은
+// 운영자가 POST /missions/{id}/setup-guideline/regenerate로 다시 만들 수 있는 값이라, 시드가
+// 전체를 덮어쓰면 그렇게 개선해 둔 결과가 시드 재실행 때마다 조용히 사라진다(실제로 그렇게
+// 덮어써지는 것을 확인했다). 같은 이유로 백필 마이그레이션도 COALESCE를 쓰므로, 두 경로가
+// "기존 값은 덮지 않는다"로 규칙이 같아진다.
+//
+// 그 대신 시드로 기존 템플릿의 본문(description 등)을 고칠 수는 없다. 본문을 바꿔야 하면
+// DB에서 직접 수정하거나 마이그레이션으로 처리한다.
 async function seedTemplateMissions() {
-  let updated = 0;
+  let filled = 0;
+  let untouched = 0;
   let created = 0;
 
   for (const mission of TEMPLATE_MISSIONS) {
     const existing = await prisma.missions.findFirst({
       where: { title: mission.title, is_template: true },
-      select: { id: true },
+      select: { id: true, preparation_tip: true, caution: true, setup_guideline: true },
     });
 
-    if (existing) {
-      await prisma.missions.update({ where: { id: existing.id }, data: mission });
-      updated += 1;
-    } else {
+    if (!existing) {
       await prisma.missions.create({ data: { ...mission, is_template: true } });
       created += 1;
+      continue;
     }
+
+    const fill: {
+      preparation_tip?: string | null;
+      caution?: string | null;
+      setup_guideline?: SetupGuideline;
+    } = {};
+    if (existing.preparation_tip === null) fill.preparation_tip = mission.preparation_tip;
+    if (existing.caution === null) fill.caution = mission.caution;
+    if (existing.setup_guideline === null) fill.setup_guideline = mission.setup_guideline;
+
+    if (Object.keys(fill).length === 0) {
+      untouched += 1;
+      continue;
+    }
+    await prisma.missions.update({ where: { id: existing.id }, data: fill });
+    filled += 1;
   }
 
-  console.log(`템플릿 미션 시드 완료: ${updated}건 갱신, ${created}건 생성`);
+  console.log(
+    `템플릿 미션 시드 완료: ${created}건 생성, ${filled}건 빈 값 채움, ${untouched}건 변경 없음`
+  );
 }
 
 async function main() {

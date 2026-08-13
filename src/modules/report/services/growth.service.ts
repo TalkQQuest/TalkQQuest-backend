@@ -1,5 +1,6 @@
 import { calculateNextLevelXp } from "../../xp/services/level.service";
 import * as reportRepository from "../repositories/report.repository";
+import * as missionRepository from "../../mission/repositories/mission.repository";
 import { GrowthReportDto, TopCategoryDto, WeeklyTrendPointDto } from "../dtos/report.dto";
 import { addDays, getWeekStart } from "./week-window";
 
@@ -48,6 +49,10 @@ export const getGrowthReport = async (userId: string): Promise<GrowthReportDto> 
   const currentWeekStart = getWeekStart(now);
   const windowStart = getGrowthWindowStart(now);
 
+  // missionProgress.total은 GET /missions와 같은 공개 범위(visibility) 기준으로 세야 한다(#201).
+  const personalityType = await missionRepository.findUserPersonalityType(userId);
+  const visibility = { userId, personalityType };
+
   const [
     profile,
     xpHistory,
@@ -61,7 +66,7 @@ export const getGrowthReport = async (userId: string): Promise<GrowthReportDto> 
     reportRepository.findXpHistoryAscByUserId(userId),
     reportRepository.findFeedbackScoresInRange(userId, windowStart, now),
     reportRepository.findCompletedMissionCategoriesInRange(userId, windowStart, now),
-    reportRepository.countTotalMissions(),
+    reportRepository.countTotalMissions(visibility),
     reportRepository.countDistinctCompletedMissions(userId),
     reportRepository.sumFeedbackMetricTotals(userId),
   ]);

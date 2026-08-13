@@ -27,7 +27,13 @@ import {
     toPlaybookMissionContext,
 } from "../../mission/services/playbook.service";
 // 플레이북 저장은 미션 소유 데이터라 미션 리포지토리를 쓴다.
-import { upsertPlaybook } from "../../mission/repositories/mission.repository";
+import {
+    upsertPlaybook,
+    findPrepItemsByType,
+    deletePrepItemsByType,
+    createPrepItems,
+} from "../../mission/repositories/mission.repository";
+import { generateQuestions, pickRandomQuestions, QUESTION_DISPLAY_COUNT } from "../../mission/services/prep.service";
 import { embedQuery } from "../../../shared/ai";
 import { durationMinutes } from "../../../shared/utils/date";
 import { logger } from "../../../config/logger";
@@ -151,14 +157,30 @@ const MOCK_GUIDE_RESPONSES = [
         const guideCards = prepItems
         .filter((item) => item.type === "tip" || item.type === "starter")
         .map((item) => item.content);
-        const suggestedReplies = prepItems
-        .filter((item) => item.type === "question")
-        .map((item) => item.content);
+
+        // #204 — GET /suggestions(대화별 실시간 생성)와 달리 이건 미션당 1회만 만들어 재사용하는
+        // "언제 물어봐도 무난한" 질문이다. 캐시가 없으면(신규·AI 생성 미션) 이 자리에서 만들어
+        // 저장해두고, 이후 같은 미션의 모든 대화가 재사용한다 — starter(prep.service.ts)와
+        // 동일한 패턴. LLM까지 실패하면 최종 폴백으로 하드코딩 문장을 쓴다.
+        let questionPool = prepItems.filter((item) => item.type === "question").map((item) => item.content);
+        if (questionPool.length < QUESTION_DISPLAY_COUNT) {
+        const generated = await generateQuestions(conversation.mission.title, conversation.mission.description);
+        if (generated) {
+            await deletePrepItemsByType(conversation.mission.id, "question");
+            await createPrepItems(conversation.mission.id, "question", generated);
+            const refreshed = await findPrepItemsByType(conversation.mission.id, "question");
+            questionPool = refreshed.map((item) => item.content);
+        }
+        }
+        const suggestedReplies =
+        questionPool.length >= QUESTION_DISPLAY_COUNT
+            ? pickRandomQuestions(questionPool)
+            : ["그렇군요! 저도 그렇게 생각해요.", "오늘 하루 어떠셨어요?"];
 
         return {
         conversationId,
         guideCards: guideCards.length > 0 ? guideCards : ["상대방의 답변에 짧게 리액션을 해보세요."],
-        suggestedReplies: suggestedReplies.length > 0 ? suggestedReplies : ["그렇군요! 저도 그렇게 생각해요.", "오늘 하루 어떠셨어요?"],
+        suggestedReplies,
         };
     }
 

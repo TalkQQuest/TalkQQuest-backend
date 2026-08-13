@@ -6,9 +6,14 @@ jest.mock("../../../config/logger", () => ({
 
 import * as notificationRepository from "../repositories/notification.repository";
 import * as pushService from "../services/push.service";
-import { notifyUser, deleteMyNotification, deleteAllMyNotifications } from "../services/notification.service";
+import {
+  notifyUser,
+  getNotifications,
+  getLatestUnreadReportId,
+  deleteMyNotification,
+  deleteAllMyNotifications,
+} from "../services/notification.service";
 import { NotFoundError } from "../../../shared/errors/common.error";
-import { notifyUser, getNotifications, getLatestUnreadReportId } from "../services/notification.service";
 
 const mockedRepo = jest.mocked(notificationRepository);
 const mockedPush = jest.mocked(pushService);
@@ -77,6 +82,9 @@ describe("deleteAllMyNotifications", () => {
     await deleteAllMyNotifications("u1");
 
     expect(mockedRepo.deleteAllNotifications).toHaveBeenCalledWith("u1");
+  });
+});
+
 // #193 — 알림을 눌러도 대상 리포트를 특정할 수 없던 문제. referenceId/referenceType을
 // 응답에 그대로 노출한다(DB엔 이미 저장돼 있던 값).
 describe("getNotifications — referenceId/referenceType 노출(#193)", () => {

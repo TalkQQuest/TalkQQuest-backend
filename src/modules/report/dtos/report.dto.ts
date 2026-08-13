@@ -138,6 +138,13 @@ export interface WeeklyCompareReportDetailResponseDto {
   previousReportId: string | null;
   /** 다음 주차(week_index + 1) 리포트 id. 없으면 null(#177). isSaved와 무관하게 존재 여부만 본다. */
   nextReportId: string | null;
+  /**
+   * 화면 상단에 그대로 표시하는 완성된 주차 문구(#195). 예: "7월 4주차 → 8월 1주차".
+   * 비교 대상(data.lastWeek)이 몇 번째 주였는지를 실제로 찾아서 만든다 — 바로 직전 주가
+   * 아닐 수 있으므로(활동 없는 주는 건너뜀) weekIndex-1로 가정하지 않는다.
+   * 가입 후 첫 리포트라 비교 대상 주 자체가 없으면 이번 주 문구만 내려간다(예: "8월 1주차").
+   */
+  periodLabel: string;
 }
 
 // POST /reports/weekly-compare/{id}/save

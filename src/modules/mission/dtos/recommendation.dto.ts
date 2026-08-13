@@ -89,6 +89,10 @@ export interface RecommendedMission {
   rewardXp: number;
   reason: string; // 추천 이유
   expectedEffect: string; // 기대 효과
+  // 대화 전 준비 팁. 사용자에게 그대로 노출된다(#194).
+  preparationTip: string | null;
+  // 수행 시 주의할 점. 사용자에게 그대로 노출된다(#194).
+  caution: string | null;
   source: "template" | "fallback" | "llm"; // 어느 단계가 만든 결과인지
   // LLM 생성 미션은 함께 만든 가이드라인을 담고, 기존 로그·템플릿·폴백은 null일 수 있다.
   setupGuideline: SetupGuidelineDto | null;

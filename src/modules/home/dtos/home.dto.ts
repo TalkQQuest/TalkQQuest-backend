@@ -18,6 +18,13 @@ export interface TodayMissionDto {
     isSaved: boolean;
 }
 
+export interface NewWeeklyCompareReportDto {
+    /** 아직 안 읽은 주간 비교 리포트 알림이 있는지. */
+    available: boolean;
+    /** available이 true일 때만 값이 있음. "리포트가 도착했어요" 모달에서 바로 이 리포트로 이동. */
+    reportId: string | null;
+}
+
 export interface HomeSummaryResponseDto {
     nickname: string | null;
     level: number;
@@ -32,4 +39,10 @@ export interface HomeSummaryResponseDto {
      * 티어/별/마름모 계산은 클라이언트가 이 값으로 직접 한다.
      */
     growthTotals: GrowthMetricTotalsDto;
+    /**
+     * 새 주간 비교 리포트 도착 여부(#193). 안 읽은 주간 비교 리포트 알림(type: "report_ready",
+     * referenceType: "weekly_compare")이 있으면 available: true + reportId를 내려준다.
+     * 알림을 읽음 처리(PATCH /notifications/{notificationId}/read)하면 다시 뜨지 않는다.
+     */
+    newWeeklyCompareReport: NewWeeklyCompareReportDto;
 }

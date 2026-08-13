@@ -49,6 +49,9 @@ const llmMissionSchema = z.object({
   category: z.string().min(1),
   reason: z.string().min(1),
   expected_effect: z.string().min(1),
+  // 대화 전 준비 팁 / 주의사항. 사용자에게 그대로 노출되므로 비어있지 않아야 한다.
+  preparation_tip: z.string().trim().min(1),
+  caution: z.string().trim().min(1),
   // 별도 검증하여 이 필드만 깨진 경우 정상 미션까지 폴백하지 않는다.
   setup_guideline: z.unknown().optional(),
 });
@@ -155,6 +158,11 @@ reason과 expected_effect 작성 규칙 (사용자에게 그대로 보여지는 
 - 정보가 부족하다는 사실을 언급하지 마세요. ("관심사 정보가 없어서", "데이터가 부족하지만" 같은 표현 금지)
 - 시스템 내부 사정이 아니라, 이 미션이 사용자에게 왜 좋은지만 설명합니다.
 
+preparation_tip과 caution 작성 규칙 (사용자에게 그대로 보여지는 문구입니다):
+- preparation_tip: 이 미션을 시작하기 전에 도움이 될 준비 팁을 1~2문장으로 씁니다 (예: "상대방이 바쁠 수 있으니 짧고 자연스럽게 말을 걸어보세요").
+- caution: 이 미션을 수행할 때 주의할 점을 1문장으로 씁니다 (예: "상대방이 응답을 원치 않아 보이면 대화를 억지로 이어가지 않습니다").
+- 위 reason/expected_effect와 같은 원칙을 따릅니다: 입력 데이터를 언급하지 않고, 자연스러운 한국어로 씁니다.
+
 ${SETUP_GUIDELINE_RULES}
 
 - 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
@@ -166,6 +174,8 @@ ${SETUP_GUIDELINE_RULES}
   "category": "string",
   "reason": "이 미션을 추천한 이유",
   "expected_effect": "기대 효과",
+  "preparation_tip": "대화 전 준비 팁 (1~2문장)",
+  "caution": "수행 시 주의할 점 (1문장)",
   "setup_guideline": ${SETUP_GUIDELINE_JSON_SHAPE}
 }`;
 
@@ -287,6 +297,8 @@ export const parseLlmMission = (rawContent: string): ParseResult => {
       rewardXp: data.difficulty * 10, // 템플릿과 동일한 난이도 비례 보상 규칙
       reason: data.reason,
       expectedEffect: data.expected_effect,
+      preparationTip: data.preparation_tip,
+      caution: data.caution,
       source: "llm",
       setupGuideline: normalizeSetupGuideline(data.setup_guideline),
       recommendationLogId: null, // recommendation.service가 로깅 후 채운다

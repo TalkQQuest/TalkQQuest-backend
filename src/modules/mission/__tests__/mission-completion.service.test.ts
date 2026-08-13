@@ -14,6 +14,7 @@ import * as missionCompletionRepository from "../repositories/mission-completion
 import * as notificationService from "../../notification/services/notification.service";
 import * as badgeService from "../../badge/services/badge.service";
 import { completeMission } from "../services/mission-completion.service";
+import { ValidationError } from "../../../shared/errors/common.error";
 
 const mockedMissionRepo = jest.mocked(missionRepository);
 const mockedRepo = jest.mocked(missionCompletionRepository);
@@ -84,25 +85,31 @@ describe("completeMission — 알림 생성 실패가 미션 완료 자체를 �
   });
 });
 
-describe("completeMission — 사용자 발화 없는 대화는 XP·보관함에서 제외한다 (#212, #213)", () => {
-  it("사용자 발화가 하나도 없으면 XP를 지급하지 않고 보관함에도 저장하지 않는다", async () => {
+describe("completeMission — 사용자 발화 여부에 따른 완료 후처리", () => {
+  it("사용자 발화가 없으면 대화만 종료하고 완료 후처리를 모두 건너뛴다", async () => {
     mockedRepo.findConversationByIdAndUser.mockResolvedValue({
       ...conversation,
       messages: [{ role: "guide", content: "어서오세요, 무엇을 도와드릴까요?" }],
     } as never);
 
-    const result = await completeMission("u1", "m1", requestBody);
+    const completion = completeMission("u1", "m1", requestBody);
+    await expect(completion).rejects.toMatchObject({
+      statusCode: 400,
+      errorCode: "VALIDATION_ERROR",
+    });
+    await expect(completion).rejects.toBeInstanceOf(ValidationError);
 
-    expect(result.xpEarned).toBe(0);
+    expect(mockedRepo.createMissionRecord).not.toHaveBeenCalled();
     expect(mockedRepo.archiveConversationIfMissing).not.toHaveBeenCalled();
     expect(mockedRepo.createXpHistory).not.toHaveBeenCalled();
     expect(mockedRepo.updateProfileXpAndLevel).not.toHaveBeenCalled();
-    // 미션 완료 처리 자체는 그대로 진행된다 — XP/보관함만 제외한다.
+    expect(mockedBadge.checkAndAwardBadges).not.toHaveBeenCalled();
+    expect(mockedNotification.notifyUser).not.toHaveBeenCalled();
+    // 대화 종료에 필요한 상태 변경은 그대로 진행된다.
     expect(mockedRepo.markConversationCompleted).toHaveBeenCalledWith("c1", {});
-    expect(result.status).toBe("completed");
   });
 
-  it("사용자 발화는 있지만 기준(2개·20자)에 못 미치면 XP를 지급하지 않고 보관함에도 저장하지 않는다", async () => {
+  it("사용자 발화가 한 건이면 기존 완료 후처리를 수행한다", async () => {
     mockedRepo.findConversationByIdAndUser.mockResolvedValue({
       ...conversation,
       messages: [
@@ -113,11 +120,14 @@ describe("completeMission — 사용자 발화 없는 대화는 XP·보관함에
 
     const result = await completeMission("u1", "m1", requestBody);
 
-    expect(result.xpEarned).toBe(0);
-    expect(mockedRepo.archiveConversationIfMissing).not.toHaveBeenCalled();
+    expect(result.xpEarned).toBe(mission.reward_xp);
+    expect(result.missionRecordId).toBe("record1");
+    expect(mockedRepo.createMissionRecord).toHaveBeenCalled();
+    expect(mockedRepo.archiveConversationIfMissing).toHaveBeenCalledWith("u1", "c1", {});
+    expect(mockedNotification.notifyUser).toHaveBeenCalled();
   });
 
-  it("사용자 발화가 기준을 채우면 기존과 동일하게 XP를 지급하고 보관함에 저장한다", async () => {
+  it("여러 사용자 발화가 있는 정상 대화도 기존과 동일하게 완료 처리한다", async () => {
     const result = await completeMission("u1", "m1", requestBody);
 
     expect(result.xpEarned).toBe(mission.reward_xp);

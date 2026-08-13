@@ -70,8 +70,29 @@ describe("notifyUser", () => {
     mockedRepo.createNotification.mockResolvedValue({} as never);
     mockedPush.sendPushToUser.mockRejectedValue(new Error("fcm down"));
 
-    await expect(notifyUser("u1", "weekly_compare_ready", "제목")).resolves.toBeUndefined();
+    await expect(
+      notifyUser("u1", "weekly_compare_ready", "제목", "본문", "report-1", "weekly_compare")
+    ).resolves.toBeUndefined();
+
     expect(mockedRepo.createNotification).toHaveBeenCalledTimes(1);
+    expect(mockedRepo.createNotification).toHaveBeenCalledWith(
+      "u1",
+      "weekly_compare_ready",
+      "제목",
+      "본문",
+      "report-1",
+      "weekly_compare"
+    );
+    expect(mockedPush.sendPushToUser).toHaveBeenCalledTimes(1);
+    expect(mockedPush.sendPushToUser).toHaveBeenCalledWith("u1", {
+      title: "제목",
+      body: "본문",
+      data: {
+        type: "weekly_compare_ready",
+        referenceId: "report-1",
+        referenceType: "weekly_compare",
+      },
+    });
   });
 });
 

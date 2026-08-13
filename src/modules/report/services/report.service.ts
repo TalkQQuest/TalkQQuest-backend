@@ -9,7 +9,7 @@ import {
   findArchiveItemByReference,
   findArchivedReferenceIds,
 } from "../../archive/repositories/archive.repository";
-import { getGrowthReport, getGrowthWindowStart } from "./growth.service";
+import { getGrowthReport, getGrowthWindowStart, getMissionProgressSummary } from "./growth.service";
 import {
   DeleteReportResponseDto,
   DeleteWeeklyCompareReportResponseDto,
@@ -211,31 +211,18 @@ export const getWeeklyCompareReportDetail = async (
   if (!row) throw new WeeklyCompareReportNotFoundError();
 
   // topCategories/missionProgress는 스냅샷에 저장하지 않고 조회 시점에 라이브 계산한다(#201).
-  // 전체 미션 수/완료 미션 수는 계속 변하므로, 생성 시점 값을 고정 저장하면 나중에 조회할 때
-  // 낡은 값이 나온다. growth.service.ts와 같은 기준(최근 4주, GET /missions와 동일한
-  // 공개 범위)으로 계산해 growth와 일관성을 맞춘다.
+  // growth.service.ts의 getMissionProgressSummary와 계산 로직을 공유한다.
   const personalityType = await missionRepository.findUserPersonalityType(userId);
   const visibility = { userId, personalityType };
-  const windowStart = getGrowthWindowStart(new Date());
+  const now = new Date();
+  const windowStart = getGrowthWindowStart(now);
 
-  const [archiveItem, previous, next, missionCategories, totalMissions, completedMissions] = await Promise.all([
+  const [archiveItem, previous, next, { topCategories, missionProgress }] = await Promise.all([
     findArchiveItemByReference(userId, "weekly_compare", id),
     reportRepository.findWeeklyCompareReportByWeekIndex(userId, row.week_index - 1),
     reportRepository.findWeeklyCompareReportByWeekIndex(userId, row.week_index + 1),
-    reportRepository.findCompletedMissionCategoriesInRange(userId, windowStart, new Date()),
-    reportRepository.countTotalMissions(visibility),
-    reportRepository.countDistinctCompletedMissions(userId),
+    getMissionProgressSummary(userId, visibility, windowStart, now),
   ]);
-
-  const categoryCounts = new Map<string, number>();
-  for (const record of missionCategories) {
-    const category = record.mission.category;
-    categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1);
-  }
-  const topCategories: TopCategoryDto[] = [...categoryCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([category, count]) => ({ category, count }));
 
   return {
     id: row.id,
@@ -244,7 +231,7 @@ export const getWeeklyCompareReportDetail = async (
     data: {
       ...(row.data as unknown as WeeklyCompareReportDto),
       topCategories,
-      missionProgress: { completed: completedMissions, total: totalMissions },
+      missionProgress,
     },
     createdAt: row.created_at.toISOString(),
     previousReportId: previous?.id ?? null,

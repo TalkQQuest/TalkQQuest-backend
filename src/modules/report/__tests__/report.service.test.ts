@@ -179,9 +179,10 @@ describe("getWeeklyCompareReportDetail — 이전/다음 리포트 탐색(#177)"
     } as never);
     mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
     mockedMission.findUserPersonalityType.mockResolvedValue(null);
-    mockedRepo.countTotalMissions.mockResolvedValue(0);
-    mockedRepo.countDistinctCompletedMissions.mockResolvedValue(0);
-    mockedRepo.findCompletedMissionCategoriesInRange.mockResolvedValue([]);
+    mockedGrowth.getMissionProgressSummary.mockResolvedValue({
+      topCategories: [],
+      missionProgress: { completed: 0, total: 0 },
+    });
     mockedRepo.findWeeklyCompareReportByWeekIndex.mockImplementation(((_userId: string, weekIndex: number) => {
       if (weekIndex === 1) return Promise.resolve({ id: "w1" });
       if (weekIndex === 3) return Promise.resolve({ id: "w3" });
@@ -205,9 +206,10 @@ describe("getWeeklyCompareReportDetail — 이전/다음 리포트 탐색(#177)"
     } as never);
     mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
     mockedMission.findUserPersonalityType.mockResolvedValue(null);
-    mockedRepo.countTotalMissions.mockResolvedValue(0);
-    mockedRepo.countDistinctCompletedMissions.mockResolvedValue(0);
-    mockedRepo.findCompletedMissionCategoriesInRange.mockResolvedValue([]);
+    mockedGrowth.getMissionProgressSummary.mockResolvedValue({
+      topCategories: [],
+      missionProgress: { completed: 0, total: 0 },
+    });
     mockedRepo.findWeeklyCompareReportByWeekIndex.mockResolvedValue(null as never);
 
     const result = await getWeeklyCompareReportDetail("u1", "w1");
@@ -225,9 +227,10 @@ describe("getWeeklyCompareReportDetail — 이전/다음 리포트 탐색(#177)"
     } as never);
     mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
     mockedMission.findUserPersonalityType.mockResolvedValue(null);
-    mockedRepo.countTotalMissions.mockResolvedValue(0);
-    mockedRepo.countDistinctCompletedMissions.mockResolvedValue(0);
-    mockedRepo.findCompletedMissionCategoriesInRange.mockResolvedValue([]);
+    mockedGrowth.getMissionProgressSummary.mockResolvedValue({
+      topCategories: [],
+      missionProgress: { completed: 0, total: 0 },
+    });
     mockedRepo.findWeeklyCompareReportByWeekIndex.mockResolvedValue({ id: "w1" } as never);
 
     const result = await getWeeklyCompareReportDetail("u1", "w2");

@@ -19,11 +19,13 @@ import {
   SaveRecommendedMissionRequestDto,
   saveRecommendedMissionRequestSchema,
   SaveRecommendedMissionResponseDto,
+  SetupGuidelineRegenerateResponseDto,
   TodayMissionResponseDto,
   LlmHealthResponseDto
 } from "../dtos/mission.dto";
 import * as missionService from "../services/mission.service";
 import { pingLlm } from "../services/llm.service";
+import * as setupGuidelineAdmin from "../services/setup-guideline-admin.service";
 
 @Route("missions")
 @Tags("Mission")
@@ -91,6 +93,30 @@ export class MissionController extends Controller {
   ): Promise<ApiResponse<SaveRecommendedMissionResponseDto>> {
     const result = await missionService.saveRecommendedMission(req.user!.id, body.recommendationLogId);
     return success(result, "미션이 저장되었습니다.");
+  }
+
+  /**
+   * @summary 미션 준비 가이드라인(setup_guideline) 재생성 (운영·백필용)
+   *
+   * LLM으로 새로 만들어 덮어쓴다. 시드된 템플릿 미션처럼 setup_guideline이 아직 없는 미션을
+   * 채우거나, 자동 생성 결과가 마음에 들지 않을 때 쓴다. 미션 본문은 바꾸지 않는다.
+   *
+   * ⚠️ playbook.controller.ts와 동일한 이유로 관리자 역할이 없어 인증만 통과하면 호출할 수 있다
+   *    (Users에 role 컬럼 자체가 없음). 운영 배포 전 권한 게이트를 반드시 추가할 것 —
+   *    playbook 재생성/삭제 엔드포인트와 함께 일괄 적용해야 한다(단일 엔드포인트만 임시로
+   *    막으면 나머지 관리자용 엔드포인트와 보호 수준이 어긋난다).
+   */
+  @Post("{missionId}/setup-guideline/regenerate")
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "MISSION_NOT_FOUND")
+  @Response(503, "SETUP_GUIDELINE_GENERATION_FAILED")
+  public async regenerateSetupGuideline(
+    @Path() missionId: string
+  ): Promise<ApiResponse<SetupGuidelineRegenerateResponseDto>> {
+    const result = await setupGuidelineAdmin.regenerateSetupGuideline(missionId);
+    return success(result, "미션 준비 가이드라인이 재생성되었습니다.");
   }
 
   /**

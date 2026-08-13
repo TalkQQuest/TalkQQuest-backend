@@ -10,6 +10,16 @@ export interface MyProfileResponseDto {
   xp: number;
   dailyConversationGoal: number;
   onboardingCompleted: boolean;
+  /** 온보딩 1단계(평소 대화할 때의 모습)에서 선택한 값. 온보딩 전이면 null(#190). */
+  personalityType: "introvert" | "extrovert" | "ambivert" | null;
+  /** 온보딩 2단계(대화에서 가장 어려운 점)에서 선택한 값. 온보딩 전이면 빈 배열(#190). */
+  difficultSituations: string[];
+  /** 온보딩 3단계(연습하고 싶은 대화)에서 선택한 값. 온보딩 전이면 빈 배열(#190). */
+  purpose: string[];
+  /** 선호하는 대화 스타일. PATCH /users/me로 수정 가능(#190). */
+  preferredStyle: string | null;
+  /** 관심사. PATCH /users/me로 수정 가능(#190). */
+  interests: string[];
 }
 
 export interface UpdateProfileRequestDto {

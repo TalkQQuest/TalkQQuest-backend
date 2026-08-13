@@ -12,6 +12,13 @@ jest.mock("../../mission/services/playbook.service", () => ({
 }));
 jest.mock("../../mission/repositories/mission.repository", () => ({
   upsertPlaybook: jest.fn(),
+  findPrepItemsByType: jest.fn(),
+  deletePrepItemsByType: jest.fn(),
+  createPrepItems: jest.fn(),
+}));
+jest.mock("../../mission/services/prep.service", () => ({
+  ...jest.requireActual("../../mission/services/prep.service"),
+  generateQuestions: jest.fn(),
 }));
 jest.mock("../../../config/logger", () => ({
   logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -22,7 +29,13 @@ import { ConversationRepository } from "../repositories/conversation.repository"
 import { generateGuideReply } from "../services/conversation-guide.service";
 import { generateRoleSetup } from "../services/conversation-role.service";
 import { generatePlaybook } from "../../mission/services/playbook.service";
-import { upsertPlaybook } from "../../mission/repositories/mission.repository";
+import {
+  upsertPlaybook,
+  findPrepItemsByType,
+  deletePrepItemsByType,
+  createPrepItems,
+} from "../../mission/repositories/mission.repository";
+import { generateQuestions } from "../../mission/services/prep.service";
 import { ConversationError } from "../errors/conversation.error";
 import { logger } from "../../../config/logger";
 
@@ -30,6 +43,10 @@ const mockedGenerate = jest.mocked(generateGuideReply);
 const mockedRoleSetup = jest.mocked(generateRoleSetup);
 const mockedPlaybook = jest.mocked(generatePlaybook);
 const mockedUpsert = jest.mocked(upsertPlaybook);
+const mockedFindPrepItemsByType = jest.mocked(findPrepItemsByType);
+const mockedDeletePrepItemsByType = jest.mocked(deletePrepItemsByType);
+const mockedCreatePrepItems = jest.mocked(createPrepItems);
+const mockedGenerateQuestions = jest.mocked(generateQuestions);
 const mockedWarn = jest.mocked(logger.warn);
 
 // 필요한 메서드만 갖춘 가짜 repository.
@@ -59,6 +76,81 @@ const buildRepo = () => {
 };
 
 beforeEach(() => jest.clearAllMocks());
+
+// #204 — suggestedReplies가 대화 맥락과 무관한 하드코딩 문장만 나가던 문제. starter와 같은
+// 패턴(미션당 1회 LLM 생성 + 캐시)으로 question 타입 prep item을 채운다.
+describe("getConversationGuide — suggestedReplies(#204)", () => {
+  const buildGuideRepo = (prepItems: { type: string; content: string; order_index: number }[]) => {
+    const repo = {
+      findConversationById: jest.fn().mockResolvedValue({
+        id: "c1",
+        mission: {
+          id: "m1",
+          title: "카페 인사하기",
+          description: "먼저 인사해보세요.",
+          preparation_tip: null,
+          playbook: null,
+          prep_items: prepItems,
+        },
+      }),
+    };
+    return repo as unknown as ConversationRepository & typeof repo;
+  };
+
+  it("question 타입 캐시가 이미 있으면 LLM을 다시 부르지 않고 그대로 쓴다", async () => {
+    const repo = buildGuideRepo([
+      { type: "question", content: "무슨 음료 좋아하세요?", order_index: 0 },
+      { type: "question", content: "여기 자주 오세요?", order_index: 1 },
+      { type: "question", content: "오늘 날씨 어때요?", order_index: 2 },
+    ]);
+    const service = new ConversationService(repo);
+
+    const result = await service.getConversationGuide("u1", "c1");
+
+    expect(mockedGenerateQuestions).not.toHaveBeenCalled();
+    expect(result.suggestedReplies).toHaveLength(2);
+    expect(["무슨 음료 좋아하세요?", "여기 자주 오세요?", "오늘 날씨 어때요?"]).toEqual(
+      expect.arrayContaining(result.suggestedReplies)
+    );
+  });
+
+  it("캐시가 없으면 LLM으로 생성해 캐시하고 그중 일부를 반환한다", async () => {
+    const repo = buildGuideRepo([]);
+    const service = new ConversationService(repo);
+    mockedGenerateQuestions.mockResolvedValue([
+      "무슨 음료 좋아하세요?",
+      "여기 자주 오세요?",
+      "오늘 날씨 어때요?",
+    ]);
+    mockedFindPrepItemsByType.mockResolvedValue([
+      { id: "p1", type: "question", content: "무슨 음료 좋아하세요?", order_index: 0 },
+      { id: "p2", type: "question", content: "여기 자주 오세요?", order_index: 1 },
+      { id: "p3", type: "question", content: "오늘 날씨 어때요?", order_index: 2 },
+    ] as never);
+
+    const result = await service.getConversationGuide("u1", "c1");
+
+    expect(mockedGenerateQuestions).toHaveBeenCalledWith("카페 인사하기", "먼저 인사해보세요.");
+    expect(mockedDeletePrepItemsByType).toHaveBeenCalledWith("m1", "question");
+    expect(mockedCreatePrepItems).toHaveBeenCalledWith("m1", "question", [
+      "무슨 음료 좋아하세요?",
+      "여기 자주 오세요?",
+      "오늘 날씨 어때요?",
+    ]);
+    expect(result.suggestedReplies).toHaveLength(2);
+  });
+
+  it("LLM 생성까지 실패하면 최종 폴백 문장을 쓴다", async () => {
+    const repo = buildGuideRepo([]);
+    const service = new ConversationService(repo);
+    mockedGenerateQuestions.mockResolvedValue(null);
+
+    const result = await service.getConversationGuide("u1", "c1");
+
+    expect(mockedCreatePrepItems).not.toHaveBeenCalled();
+    expect(result.suggestedReplies).toEqual(["그렇군요! 저도 그렇게 생각해요.", "오늘 하루 어떠셨어요?"]);
+  });
+});
 
 describe("createConversation — 공통 미션 플레이북", () => {
   const mission = {

@@ -9,7 +9,9 @@ import {
   findArchiveItemByReference,
   findArchivedReferenceIds,
 } from "../../archive/repositories/archive.repository";
-import { getGrowthReport, getGrowthWindowStart } from "./growth.service";
+import { getGrowthReport, getGrowthWindowStart, getMissionProgressSummary } from "./growth.service";
+import { formatMonthWeekLabel, getSignupWeekRange } from "./week-window";
+import { findUserCreatedAt } from "../../user/repositories/user.repository";
 import {
   DeleteReportResponseDto,
   DeleteWeeklyCompareReportResponseDto,
@@ -24,6 +26,8 @@ import {
 } from "../dtos/report.dto";
 import { findNotificationSettings } from "../../notification/repositories/notification.repository";
 import { notifyUser } from "../../notification/services/notification.service";
+import * as missionRepository from "../../mission/repositories/mission.repository";
+
 
 // 성장 리포트 스냅샷 Json 컬럼 구조 (#145 — weeklyCompare는 더 이상 여기 포함되지 않는다).
 interface StoredReportData {
@@ -207,20 +211,49 @@ export const getWeeklyCompareReportDetail = async (
   const row = await reportRepository.findWeeklyCompareReportByIdAndUserId(id, userId);
   if (!row) throw new WeeklyCompareReportNotFoundError();
 
-  const [archiveItem, previous, next] = await Promise.all([
+  // topCategories/missionProgress는 스냅샷에 저장하지 않고 조회 시점에 라이브 계산한다(#201).
+  // growth.service.ts의 getMissionProgressSummary와 계산 로직을 공유한다.
+  const personalityType = await missionRepository.findUserPersonalityType(userId);
+  const visibility = { userId, personalityType };
+  const now = new Date();
+  const windowStart = getGrowthWindowStart(now);
+
+  const [
+    archiveItem,
+    previous,
+    next,
+    previousWeekIndex,
+    signupAt,
+    { topCategories, missionProgress },
+  ] = await Promise.all([
     findArchiveItemByReference(userId, "weekly_compare", id),
     reportRepository.findWeeklyCompareReportByWeekIndex(userId, row.week_index - 1),
     reportRepository.findWeeklyCompareReportByWeekIndex(userId, row.week_index + 1),
+    reportRepository.findPreviousWeeklyCompareWeekIndex(userId, row.week_index),
+    findUserCreatedAt(userId),
+    getMissionProgressSummary(userId, visibility, windowStart, now),
   ]);
+
+  // signupAt은 이 리포트가 이미 존재하는 이상 반드시 있다(유저가 없으면 리포트도 없다).
+  const thisWeekLabel = formatMonthWeekLabel(getSignupWeekRange(signupAt!, row.week_index).start);
+  const periodLabel =
+    previousWeekIndex === null
+      ? thisWeekLabel
+      : `${formatMonthWeekLabel(getSignupWeekRange(signupAt!, previousWeekIndex).start)} → ${thisWeekLabel}`;
 
   return {
     id: row.id,
     weekIndex: row.week_index,
     isSaved: !!archiveItem,
-    data: row.data as unknown as WeeklyCompareReportDto,
+    data: {
+      ...(row.data as unknown as WeeklyCompareReportDto),
+      topCategories,
+      missionProgress,
+    },
     createdAt: row.created_at.toISOString(),
     previousReportId: previous?.id ?? null,
     nextReportId: next?.id ?? null,
+    periodLabel,
   };
 };
 

@@ -1,5 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
+import { buildVisibilityWhere, MissionVisibility } from "../../mission/repositories/mission.repository";
+
+// GET /missions와 동일한 공개 범위(visibility) 기준으로 전체 미션 수를 센다(#201).
+// 단순 is_template:false만 세면 다른 사용자의 AI 생성 미션까지 포함돼 실제 목록 개수와 어긋난다.
+export const countTotalMissions = (visibility: MissionVisibility) =>
+  prisma.missions.count({ where: buildVisibilityWhere(visibility) });
 
 // ----- User level/xp -----
 
@@ -81,8 +87,6 @@ export const countCompletedMissionRecordsInRange = (userId: string, start: Date,
     where: { user_id: userId, status: "completed", completed_at: { gte: start, lt: end } },
   });
 
-export const countTotalMissions = () => prisma.missions.count({ where: { is_template: false } });
-
 export const countDistinctCompletedMissions = async (userId: string) => {
   const rows = await prisma.mission_Records.findMany({
     where: { user_id: userId, status: "completed", mission: { is_template: false } },
@@ -163,6 +167,22 @@ export const findWeeklyCompareReportsByUserId = (userId: string) =>
 
 export const findWeeklyCompareReportByIdAndUserId = (id: string, userId: string) =>
   prisma.weekly_Compare_Reports.findFirst({ where: { id, user_id: userId } });
+
+// #195 — data.lastWeek이 실제로 몇 번째 주(week_index)였는지 찾는다. 생성 로직이 항상
+// "그 시점에 가장 최근에 있던 리포트"와 비교하며 순서대로(건너뛰지 않고) 생성되므로,
+// weekIndex보다 작은 week_index 중 가장 큰 것이 곧 비교 대상 주다. 없으면(가입 후 첫
+// 리포트) null — 비교 대상 자체가 없다는 뜻이다.
+export const findPreviousWeeklyCompareWeekIndex = async (
+  userId: string,
+  weekIndex: number
+): Promise<number | null> => {
+  const row = await prisma.weekly_Compare_Reports.findFirst({
+    where: { user_id: userId, week_index: { lt: weekIndex } },
+    orderBy: { week_index: "desc" },
+    select: { week_index: true },
+  });
+  return row?.week_index ?? null;
+};
 
 export const deleteWeeklyCompareReport = (id: string, tx?: Prisma.TransactionClient) =>
   (tx ?? prisma).weekly_Compare_Reports.delete({ where: { id } });

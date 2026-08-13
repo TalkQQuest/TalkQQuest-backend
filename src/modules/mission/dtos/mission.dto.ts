@@ -288,3 +288,9 @@ export interface MissionUnsaveResponseDto {
   missionId: string;
   isSaved: false;
 }
+
+// POST /missions/{missionId}/setup-guideline/regenerate
+export interface SetupGuidelineRegenerateResponseDto {
+  missionId: string;
+  setupGuideline: SetupGuidelineDto;
+}

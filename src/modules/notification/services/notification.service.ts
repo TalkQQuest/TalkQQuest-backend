@@ -6,11 +6,15 @@ import {
     findNotificationSettings,
     updateNotificationSettings,
     createNotification,
+    deleteNotification,
+    deleteAllNotifications,
+    findLatestUnreadNotificationByReferenceType,
 } from "../repositories/notification.repository";
 import {
     NotificationsResponseDto,
     NotificationSettingsResponseDto,
     UpdateNotificationSettingsRequestDto,
+    DeleteNotificationResponseDto,
 } from "../dtos/notification.dto";
 import { NotFoundError } from "../../../shared/errors/common.error";
 import { logger } from "../../../config/logger";
@@ -37,6 +41,17 @@ export const notifyUser = async (
     }
 };
 
+// #193 — 홈 요약(GET /home/summary)이 "새 주간 비교 리포트 도착" 모달을 띄울지 판단할 때 쓴다.
+// 안 읽은 주간 비교 리포트 알림이 있으면 그 리포트 id를, 없으면 null을 돌려준다.
+export const getLatestUnreadReportId = async (
+    userId: string,
+    type: string,
+    referenceType: string
+): Promise<string | null> => {
+    const notification = await findLatestUnreadNotificationByReferenceType(userId, type, referenceType);
+    return notification?.reference_id ?? null;
+};
+
 export const getNotifications = async (
     userId: string,
     isRead?: boolean,
@@ -52,6 +67,8 @@ export const getNotifications = async (
         title: n.title,
         body: n.body ?? null,
         isRead: n.is_read,
+        referenceId: n.reference_id,
+        referenceType: n.reference_type,
         createdAt: n.created_at.toISOString(),
         })),
     };
@@ -71,6 +88,22 @@ export const getNotifications = async (
 
     export const readAllNotifications = async (userId: string): Promise<void> => {
     await markAllNotificationsAsRead(userId);
+    };
+
+    export const deleteMyNotification = async (
+    userId: string,
+    notificationId: string
+    ): Promise<DeleteNotificationResponseDto> => {
+    const result = await deleteNotification(notificationId, userId);
+    if (result.count === 0) {
+        throw new NotFoundError("존재하지 않는 알림입니다.");
+    }
+
+    return { notificationId, deleted: true };
+    };
+
+    export const deleteAllMyNotifications = async (userId: string): Promise<void> => {
+    await deleteAllNotifications(userId);
     };
 
     export const getNotificationSettings = async (

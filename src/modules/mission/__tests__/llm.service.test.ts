@@ -74,6 +74,8 @@ const validJson = JSON.stringify({
   category: "짧은 대화",
   reason: "관심사(카페)를 반영했어요.",
   expected_effect: "작은 대화로 자신감을 얻습니다.",
+  preparation_tip: "메뉴판을 미리 살펴보면 편해요.",
+  caution: "점원이 바빠 보이면 짧게 물어보세요.",
   setup_guideline: setupGuideline,
 });
 

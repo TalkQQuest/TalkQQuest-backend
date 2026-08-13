@@ -220,6 +220,8 @@ model Users {
   created_missions        Missions[]                @relation("MissionCreatedBy")
   mission_setups          Mission_Setups[]
   growth_profile          User_Growth_Profiles?
+  admin_user              Admin_Users?              @relation("AdminUsers_User")
+  granted_admin_users     Admin_Users[]             @relation("AdminUsers_GrantedBy")
 
   @@map("Users")
 }
@@ -378,6 +380,27 @@ model User_Growth_Profiles {
   user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("User_Growth_Profiles")
+}
+
+// ----------------------------
+// Admin_Users
+// 1 User : 1 Admin_Users(선택) — 이 테이블에 행이 있으면 관리자.
+// Users에 role 컬럼을 두지 않고 분리한 이유: admin은 소수의 예외 상태라, 모든 유저 조회에
+// 항상 딸려오는 컬럼보다 "행이 있으면 admin"이 더 단순하고, 회원가입 흐름과 admin 여부를
+// 완전히 분리할 수 있다. 승격은 API로 노출하지 않고 DB에 직접 값을 넣는 방식으로만 한다.
+// ----------------------------
+model Admin_Users {
+  id         String  @id @default(uuid()) @db.Char(36)
+  user_id    String  @unique @db.Char(36)
+  // 누가 이 사람을 admin으로 만들었는지(감사용). 부여자 계정이 삭제돼도 이 행은 남는다.
+  granted_by String? @db.Char(36)
+
+  created_at DateTime @default(now())
+
+  user    Users  @relation("AdminUsers_User", fields: [user_id], references: [id], onDelete: Cascade)
+  granter Users? @relation("AdminUsers_GrantedBy", fields: [granted_by], references: [id], onDelete: SetNull)
+
+  @@map("Admin_Users")
 }
 
 model Goals {

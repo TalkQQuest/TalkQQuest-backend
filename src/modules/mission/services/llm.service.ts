@@ -49,6 +49,9 @@ const llmMissionSchema = z.object({
   category: z.string().min(1),
   reason: z.string().min(1),
   expected_effect: z.string().min(1),
+  // 대화 전 준비 팁 / 주의사항. 사용자에게 그대로 노출되므로 비어있지 않아야 한다.
+  preparation_tip: z.string().trim().min(1),
+  caution: z.string().trim().min(1),
   // 별도 검증하여 이 필드만 깨진 경우 정상 미션까지 폴백하지 않는다.
   setup_guideline: z.unknown().optional(),
 });
@@ -96,6 +99,45 @@ interface ChatMessage {
   content: string;
 }
 
+// setup_guideline 작성 규칙 — 미션을 새로 만들 때(SYSTEM_PROMPT)와 기존 미션에 가이드라인만
+// 다시 만들 때(SETUP_GUIDELINE_SYSTEM_PROMPT) 둘 다 같은 규칙을 따라야 하므로 하나로 공유한다.
+const SETUP_GUIDELINE_RULES = `setup_guideline 작성 규칙:
+- defaults는 가장 자연스럽고 추천되는 초기 선택값입니다. disabled는 추천 순위가 아니라 선택 자체의 허용 여부입니다. 둘을 서로 독립적으로 판단합니다.
+- "덜 추천됨", "어색함", "흔하지 않음", "일반적이지 않음"은 disabled 사유가 아닙니다. 기본 추천값이 아닌 선택지도 이 이유만으로 막지 않습니다.
+- disabled에는 선택했을 때 미션의 핵심 전제와 명백히 충돌하여 대화 시뮬레이션 자체가 성립하기 어려운 값만 넣습니다.
+- 현실적으로 가능한 상황은 모두 허용합니다. 판단이 조금이라도 애매하면 disabled에 넣지 않고 허용합니다.
+- intimacyLevel과 formalityLevel의 1 또는 5 같은 극단값도 단순히 부자연스럽거나 덜 추천된다는 이유로 제한하지 않습니다. 핵심 전제와 명백히 충돌할 때만 제한합니다.
+- partnerGender와 partnerAgeGroup은 미션 자체에서 특정 성별이나 연령이 필수라는 전제가 명시된 경우가 아니면 반드시 빈 배열로 둡니다.
+- partnerRole도 미션 설명에서 특정 인간관계가 핵심 전제로 명시된 경우에만 disabled 값을 넣습니다.
+- 예: "친구에게 사과하기"처럼 친구 관계가 반드시 필요하면 friend 외 일부 역할을 제한할 수 있습니다.
+- 반대로 "카페 직원에게 인사하기", "가게 주인과 대화하기"처럼 직원·주인이 상황적 대화 대상일 뿐 특정 인간관계를 전제하지 않는 미션은 disabled.partnerRole을 빈 배열로 둡니다.
+- 예: "이웃 가게 주인과 간단한 안부 인사 나누기"는 친밀도나 격식 수준이 다양해도 현실적으로 가능하므로 intimacyLevel과 formalityLevel을 포함한 disabled 배열을 비워 둡니다.
+- 대부분의 미션에서 disabled의 모든 배열이 빈 배열인 결과는 정상이며 권장됩니다.
+- defaults.partnerGender는 필수이며 반드시 문자열 "male" 또는 "female" 중 하나만 사용합니다.
+- 상대 성별이 미션 수행에 중요하지 않거나 특정되지 않아도 기본 추천값으로 "male" 또는 "female" 중 하나를 반드시 선택합니다.
+- defaults.partnerGender에 "other", "any", "unknown", null 또는 그 밖의 값을 절대 생성하지 않습니다.
+- disabled.partnerGender에도 "male"과 "female" 외의 값은 절대 넣지 않습니다.`;
+
+const SETUP_GUIDELINE_JSON_SHAPE = `{
+  "defaults": {
+    "environment": "school | workplace | daily_place | community | online 중 하나",
+    "partnerRole": "friend | senior | junior | peer | other 중 하나",
+    "intimacyLevel": "1~5 정수",
+    "formalityLevel": "1~5 정수",
+    "partnerGender": "female",
+    "partnerAgeGroup": "teens | twenties | thirties | forties | fifties | sixties_plus 중 하나"
+  },
+  "disabled": {
+    "environment": "상황과 명백히 모순되는 environment 값만 담은 배열(대부분 [])",
+    "partnerRole": "특정 인간관계가 핵심 전제로 명시된 경우에만 막을 값을 담은 배열(상황적 대상이면 반드시 [])",
+    "intimacyLevel": "핵심 전제와 명백히 충돌해 선택 자체가 불가능한 1~5 정수만 담은 배열(대부분 [])",
+    "formalityLevel": "핵심 전제와 명백히 충돌해 선택 자체가 불가능한 1~5 정수만 담은 배열(대부분 [])",
+    "partnerGender": "미션에 특정 성별이 필수라고 명시된 경우에만 막을 값을 담은 배열(그 외 반드시 [])",
+    "partnerAgeGroup": "미션에 특정 연령이 필수라고 명시된 경우에만 막을 값을 담은 배열(그 외 반드시 [])"
+  },
+  "tags": "미션 성격을 나타내는 짧은 한국어 태그 배열(최대 5개)"
+}`;
+
 const SYSTEM_PROMPT = `당신은 사회적 행동 미션 추천 AI입니다.
 사용자의 성향·관심사·목표·최근 수행 이력을 바탕으로 '현실에서 실제 수행 가능한' 대화 미션을 1개 생성합니다.
 
@@ -116,22 +158,12 @@ reason과 expected_effect 작성 규칙 (사용자에게 그대로 보여지는 
 - 정보가 부족하다는 사실을 언급하지 마세요. ("관심사 정보가 없어서", "데이터가 부족하지만" 같은 표현 금지)
 - 시스템 내부 사정이 아니라, 이 미션이 사용자에게 왜 좋은지만 설명합니다.
 
-setup_guideline 작성 규칙:
-- defaults는 가장 자연스럽고 추천되는 초기 선택값입니다. disabled는 추천 순위가 아니라 선택 자체의 허용 여부입니다. 둘을 서로 독립적으로 판단합니다.
-- "덜 추천됨", "어색함", "흔하지 않음", "일반적이지 않음"은 disabled 사유가 아닙니다. 기본 추천값이 아닌 선택지도 이 이유만으로 막지 않습니다.
-- disabled에는 선택했을 때 미션의 핵심 전제와 명백히 충돌하여 대화 시뮬레이션 자체가 성립하기 어려운 값만 넣습니다.
-- 현실적으로 가능한 상황은 모두 허용합니다. 판단이 조금이라도 애매하면 disabled에 넣지 않고 허용합니다.
-- intimacyLevel과 formalityLevel의 1 또는 5 같은 극단값도 단순히 부자연스럽거나 덜 추천된다는 이유로 제한하지 않습니다. 핵심 전제와 명백히 충돌할 때만 제한합니다.
-- partnerGender와 partnerAgeGroup은 미션 자체에서 특정 성별이나 연령이 필수라는 전제가 명시된 경우가 아니면 반드시 빈 배열로 둡니다.
-- partnerRole도 미션 설명에서 특정 인간관계가 핵심 전제로 명시된 경우에만 disabled 값을 넣습니다.
-- 예: "친구에게 사과하기"처럼 친구 관계가 반드시 필요하면 friend 외 일부 역할을 제한할 수 있습니다.
-- 반대로 "카페 직원에게 인사하기", "가게 주인과 대화하기"처럼 직원·주인이 상황적 대화 대상일 뿐 특정 인간관계를 전제하지 않는 미션은 disabled.partnerRole을 빈 배열로 둡니다.
-- 예: "이웃 가게 주인과 간단한 안부 인사 나누기"는 친밀도나 격식 수준이 다양해도 현실적으로 가능하므로 intimacyLevel과 formalityLevel을 포함한 disabled 배열을 비워 둡니다.
-- 대부분의 미션에서 disabled의 모든 배열이 빈 배열인 결과는 정상이며 권장됩니다.
-- defaults.partnerGender는 필수이며 반드시 문자열 "male" 또는 "female" 중 하나만 사용합니다.
-- 상대 성별이 미션 수행에 중요하지 않거나 특정되지 않아도 기본 추천값으로 "male" 또는 "female" 중 하나를 반드시 선택합니다.
-- defaults.partnerGender에 "other", "any", "unknown", null 또는 그 밖의 값을 절대 생성하지 않습니다.
-- disabled.partnerGender에도 "male"과 "female" 외의 값은 절대 넣지 않습니다.
+preparation_tip과 caution 작성 규칙 (사용자에게 그대로 보여지는 문구입니다):
+- preparation_tip: 이 미션을 시작하기 전에 도움이 될 준비 팁을 1~2문장으로 씁니다 (예: "상대방이 바쁠 수 있으니 짧고 자연스럽게 말을 걸어보세요").
+- caution: 이 미션을 수행할 때 주의할 점을 1문장으로 씁니다 (예: "상대방이 응답을 원치 않아 보이면 대화를 억지로 이어가지 않습니다").
+- 위 reason/expected_effect와 같은 원칙을 따릅니다: 입력 데이터를 언급하지 않고, 자연스러운 한국어로 씁니다.
+
+${SETUP_GUIDELINE_RULES}
 
 - 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
 {
@@ -142,26 +174,23 @@ setup_guideline 작성 규칙:
   "category": "string",
   "reason": "이 미션을 추천한 이유",
   "expected_effect": "기대 효과",
-  "setup_guideline": {
-    "defaults": {
-      "environment": "school | workplace | daily_place | community | online 중 하나",
-      "partnerRole": "friend | senior | junior | peer | other 중 하나",
-      "intimacyLevel": "1~5 정수",
-      "formalityLevel": "1~5 정수",
-      "partnerGender": "female",
-      "partnerAgeGroup": "teens | twenties | thirties | forties | fifties | sixties_plus 중 하나"
-    },
-    "disabled": {
-      "environment": "상황과 명백히 모순되는 environment 값만 담은 배열(대부분 [])",
-      "partnerRole": "특정 인간관계가 핵심 전제로 명시된 경우에만 막을 값을 담은 배열(상황적 대상이면 반드시 [])",
-      "intimacyLevel": "핵심 전제와 명백히 충돌해 선택 자체가 불가능한 1~5 정수만 담은 배열(대부분 [])",
-      "formalityLevel": "핵심 전제와 명백히 충돌해 선택 자체가 불가능한 1~5 정수만 담은 배열(대부분 [])",
-      "partnerGender": "미션에 특정 성별이 필수라고 명시된 경우에만 막을 값을 담은 배열(그 외 반드시 [])",
-      "partnerAgeGroup": "미션에 특정 연령이 필수라고 명시된 경우에만 막을 값을 담은 배열(그 외 반드시 [])"
-    },
-    "tags": "미션 성격을 나타내는 짧은 한국어 태그 배열(최대 5개)"
-  }
+  "preparation_tip": "대화 전 준비 팁 (1~2문장)",
+  "caution": "수행 시 주의할 점 (1문장)",
+  "setup_guideline": ${SETUP_GUIDELINE_JSON_SHAPE}
 }`;
+
+// setup_guideline만 단독으로 재생성할 때 쓰는 프롬프트(POST /missions/{id}/setup-guideline/regenerate).
+// 이미 존재하는 미션(템플릿 포함)에 나중에 가이드라인만 채우거나 다시 만들 때 쓴다 —
+// 미션 본문(title/description 등)은 절대 바꾸지 않고 setup_guideline만 만든다는 점이
+// generateMissionWithLlm(미션 자체를 새로 만드는 4단계)과 다르다.
+const SETUP_GUIDELINE_SYSTEM_PROMPT = `당신은 대화 연습 앱의 시나리오 설계자입니다.
+주어진 미션 하나에 대해, 사용자가 대화를 시작하기 전 고르는 6개 축(장소·상대 관계·친밀도·격식·상대 성별·상대 연령대)의
+기본 추천값과 선택 제한을 정합니다.
+
+${SETUP_GUIDELINE_RULES}
+
+반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
+${SETUP_GUIDELINE_JSON_SHAPE}`;
 
 const nonEmpty = (values: string[]): string[] =>
   values.map((value) => value.trim()).filter((value) => value.length > 0);
@@ -268,6 +297,8 @@ export const parseLlmMission = (rawContent: string): ParseResult => {
       rewardXp: data.difficulty * 10, // 템플릿과 동일한 난이도 비례 보상 규칙
       reason: data.reason,
       expectedEffect: data.expected_effect,
+      preparationTip: data.preparation_tip,
+      caution: data.caution,
       source: "llm",
       setupGuideline: normalizeSetupGuideline(data.setup_guideline),
       recommendationLogId: null, // recommendation.service가 로깅 후 채운다
@@ -337,6 +368,60 @@ export const generateMissionWithLlm = async (
     parseSuccess: true,
     fallbackReason: null,
   };
+};
+
+const buildSetupGuidelineMessages = (mission: {
+  title: string;
+  description: string;
+  category: string;
+  difficulty: number;
+}): ChatMessage[] => [
+  { role: "system", content: SETUP_GUIDELINE_SYSTEM_PROMPT },
+  {
+    role: "user",
+    content: `다음은 대상 미션입니다:\n${JSON.stringify(
+      {
+        title: mission.title,
+        description: mission.description,
+        category: mission.category,
+        difficulty: mission.difficulty,
+      },
+      null,
+      2
+    )}\n\n이 미션의 setup_guideline을 JSON으로 만들어주세요.`,
+  },
+];
+
+// POST /missions/{missionId}/setup-guideline/regenerate 전용.
+// 이미 있는 미션(주로 시드된 템플릿)에 setup_guideline만 새로 만든다 — 미션 본문은 건드리지 않는다.
+// 실패(키 없음/HTTP 오류/JSON 깨짐/스키마 검증 실패)하면 null을 반환하고, 호출부가 실패를 알린다
+// (자동 생성 경로와 달리 관리자가 명시적으로 요청한 작업이므로 조용히 넘기지 않는다).
+export const generateSetupGuidelineForMission = async (mission: {
+  title: string;
+  description: string;
+  category: string;
+  difficulty: number;
+}): Promise<SetupGuidelineDto | null> => {
+  const result = await callUpstageChat(buildSetupGuidelineMessages(mission), {
+    temperature: TEMPERATURE,
+    maxTokens: 400,
+    jsonMode: true,
+  });
+
+  if (!result.ok) {
+    logger.warn({ reason: result.reason }, "setup_guideline 단독 생성 LLM 호출 실패");
+    return null;
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(stripCodeFence(result.content));
+  } catch {
+    logger.warn("setup_guideline 단독 생성 응답 JSON 파싱 실패");
+    return null;
+  }
+
+  return normalizeSetupGuideline(json);
 };
 
 // 진단용 — 사용자 데이터 없이 Upstage에 최소 요청을 보내 연결 상태만 확인한다.

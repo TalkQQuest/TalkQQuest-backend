@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../../../config/database";
 import { MissionOrigin } from "../dtos/mission.constants";
+import * as missionRepository from "../../mission/repositories/mission.repository";
 
 // 미션 목록에 어떤 미션이 보여야 하는지 결정하는 기준.
 export interface MissionVisibility {
@@ -27,7 +28,9 @@ export interface MissionVisibility {
 // 내 미션은 "내 것" 조건과 "성향이 같은 사용자" 조건에 동시에 걸릴 수 있지만 OR이라 중복 행은
 // 생기지 않는다. 성향 정보가 없으면(온보딩 전) 유사 성향 조건 자체를 빼는데, null로 매칭하면
 // 성향이 기록되지 않은 과거 미션이 전부 딸려오기 때문이다.
-const buildVisibilityWhere = (visibility: MissionVisibility): Prisma.MissionsWhereInput => {
+// report 도메인(growth/weekly-compare 진행률 계산)에서도 "이 사용자에게 보이는 미션" 기준을
+// 동일하게 써야 하므로 export한다(#201) — GET /missions와 다른 기준으로 세면 숫자가 어긋난다.
+export const buildVisibilityWhere = (visibility: MissionVisibility): Prisma.MissionsWhereInput => {
   const template: Prisma.MissionsWhereInput = { is_template: true };
   const mine: Prisma.MissionsWhereInput = {
     is_template: false,
@@ -226,6 +229,15 @@ export const findMissionSetupGuideline = (missionId: string) =>
     select: { setup_guideline: true },
   });
 
+// POST /missions/{missionId}/setup-guideline/regenerate 전용. 템플릿 미션은 시드 시
+// setup_guideline이 채워지지 않으므로(#148-150 이전 데이터), 운영자가 이 값만 다시 만들어 넣는다.
+export const updateMissionSetupGuideline = (missionId: string, guideline: unknown) =>
+  prisma.missions.update({
+    where: { id: missionId },
+    data: { setup_guideline: guideline as Prisma.InputJsonValue },
+    select: { setup_guideline: true },
+  });
+
 export const createMissionSetup = (
   userId: string,
   missionId: string,
@@ -385,6 +397,8 @@ export const createMissionFromRecommendation = (data: {
   rewardXp: number;
   category: string;
   setupGuideline: unknown | null;
+  preparationTip: string | null;
+  caution: string | null;
   createdByUserId: string;
   creatorPersonalityType: PersonalityType | null;
 }) =>
@@ -400,6 +414,8 @@ export const createMissionFromRecommendation = (data: {
         data.setupGuideline === null
           ? Prisma.DbNull
           : (data.setupGuideline as Prisma.InputJsonValue),
+      preparation_tip: data.preparationTip,
+      caution: data.caution,
       is_template: false,
       created_by_user_id: data.createdByUserId,
       creator_personality_type: data.creatorPersonalityType,
@@ -432,6 +448,8 @@ export const createMissionForRecommendationLog = (
     rewardXp: number;
     category: string;
     setupGuideline: unknown | null;
+    preparationTip: string | null;
+    caution: string | null;
     createdByUserId: string;
     creatorPersonalityType: PersonalityType | null;
   }
@@ -455,6 +473,8 @@ export const createMissionForRecommendationLog = (
           data.setupGuideline === null
             ? Prisma.DbNull
             : (data.setupGuideline as Prisma.InputJsonValue),
+        preparation_tip: data.preparationTip,
+        caution: data.caution,
         is_template: false,
         created_by_user_id: data.createdByUserId,
         creator_personality_type: data.creatorPersonalityType,

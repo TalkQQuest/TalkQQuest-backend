@@ -17,6 +17,8 @@ const llmRecommendedMission = (overrides: Record<string, unknown> = {}) => ({
   category: "짧은 대화",
   reason: "이유",
   expectedEffect: "효과",
+  preparationTip: "메뉴판을 미리 살펴보면 편해요.",
+  caution: "점원이 바빠 보이면 짧게 물어보세요.",
   source: "llm",
   setupGuideline: {
     defaults: {
@@ -107,6 +109,8 @@ describe("saveRecommendedMission", () => {
       rewardXp: 20,
       category: "짧은 대화",
       setupGuideline: llmRecommendedMission().setupGuideline,
+      preparationTip: llmRecommendedMission().preparationTip,
+      caution: llmRecommendedMission().caution,
       // 유사 성향 필터가 쓸 수 있도록 생성자와 그 시점의 성향을 함께 남긴다.
       createdByUserId: "u1",
       creatorPersonalityType: "introvert",

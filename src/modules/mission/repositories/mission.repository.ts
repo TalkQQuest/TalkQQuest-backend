@@ -385,6 +385,8 @@ export const createMissionFromRecommendation = (data: {
   rewardXp: number;
   category: string;
   setupGuideline: unknown | null;
+  preparationTip: string | null;
+  caution: string | null;
   createdByUserId: string;
   creatorPersonalityType: PersonalityType | null;
 }) =>
@@ -400,6 +402,8 @@ export const createMissionFromRecommendation = (data: {
         data.setupGuideline === null
           ? Prisma.DbNull
           : (data.setupGuideline as Prisma.InputJsonValue),
+      preparation_tip: data.preparationTip,
+      caution: data.caution,
       is_template: false,
       created_by_user_id: data.createdByUserId,
       creator_personality_type: data.creatorPersonalityType,
@@ -432,6 +436,8 @@ export const createMissionForRecommendationLog = (
     rewardXp: number;
     category: string;
     setupGuideline: unknown | null;
+    preparationTip: string | null;
+    caution: string | null;
     createdByUserId: string;
     creatorPersonalityType: PersonalityType | null;
   }
@@ -455,6 +461,8 @@ export const createMissionForRecommendationLog = (
           data.setupGuideline === null
             ? Prisma.DbNull
             : (data.setupGuideline as Prisma.InputJsonValue),
+        preparation_tip: data.preparationTip,
+        caution: data.caution,
         is_template: false,
         created_by_user_id: data.createdByUserId,
         creator_personality_type: data.creatorPersonalityType,

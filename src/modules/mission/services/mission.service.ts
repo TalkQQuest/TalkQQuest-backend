@@ -154,6 +154,8 @@ const materializeRecommendedMission = async (
     rewardXp: number;
     category: string;
     setupGuideline: SetupGuidelineDto | null;
+    preparationTip: string | null;
+    caution: string | null;
   },
   personalityType: PersonalityType | null,
   recommendationLogId: string | null
@@ -177,6 +179,8 @@ const materializeRecommendedMission = async (
     rewardXp: recommended.rewardXp,
     category: recommended.category,
     setupGuideline: recommended.setupGuideline,
+    preparationTip: recommended.preparationTip,
+    caution: recommended.caution,
     createdByUserId: userId,
     creatorPersonalityType: personalityType,
   };
@@ -382,6 +386,9 @@ const persistedRecommendedMissionSchema = z.object({
   reason: z.string().default(""),
   expectedEffect: z.string().default(""),
   source: z.enum(["template", "fallback", "llm"]).default("template"),
+  // 이 필드 도입 전 추천 로그와 템플릿 추천은 준비 팁/주의사항이 없다(#194).
+  preparationTip: z.string().nullable().default(null),
+  caution: z.string().nullable().default(null),
   // 이 필드 도입 전 추천 로그와 템플릿 추천은 가이드라인이 없다.
   setupGuideline: setupGuidelineSchema.nullable().default(null),
 });

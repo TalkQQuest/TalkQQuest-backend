@@ -38,6 +38,8 @@ const recommended = (overrides: Record<string, unknown> = {}) => ({
   category: "짧은 대화",
   reason: "이유",
   expectedEffect: "효과",
+  preparationTip: "미리 메뉴판을 살펴보면 대화가 수월해요.",
+  caution: "직원이 바빠 보이면 짧게 물어보세요.",
   source: "llm" as const,
   setupGuideline: null,
   recommendationLogId: "log1",

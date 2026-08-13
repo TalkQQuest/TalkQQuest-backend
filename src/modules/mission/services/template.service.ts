@@ -22,9 +22,11 @@ export const INTRO_FALLBACK_MISSION: RecommendedMission = {
   rewardXp: 10,
   reason: "가장 작은 성공 경험부터 시작할 수 있는 입문 미션이에요.",
   expectedEffect: "작은 성공으로 대화 자신감을 얻습니다.",
+  preparationTip: "계산대에 다가가기 전, 가볍게 미소 짓는 연습을 해보세요.",
+  caution: "점원이 바빠 보이면 짧은 인사만으로도 충분합니다.",
   source: "fallback",
   setupGuideline: null,
-  recommendationLogId: null, // recommendation.service가 로깅 후 채운다
+  recommendationLogId: null,
 };
 
 // 후보의 카테고리/제목이 사용자 관심사 중 하나라도 포함하는지.
@@ -95,9 +97,12 @@ const toRecommendedMission = (
   rewardXp: candidate.rewardXp,
   reason: buildTemplateReason(criteria),
   expectedEffect: "작은 대화 시도를 반복하며 사회적 자신감을 쌓습니다.",
+  // 템플릿은 LLM 없이 DB에 미리 시드된 미션이라 준비 팁/주의사항을 생성하지 않는다(#194).
+  preparationTip: null,
+  caution: null,
   source: "template",
   setupGuideline: null,
-  recommendationLogId: null, // recommendation.service가 로깅 후 채운다
+  recommendationLogId: null,
 });
 
 // Prisma Missions row → 순수 함수가 다루는 후보 타입으로 평탄화.

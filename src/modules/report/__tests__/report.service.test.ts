@@ -210,6 +210,9 @@ describe("notifyNewWeeklyCompareReports — 전용 알림 type(#223)", () => {
     mockedNotification.createNotification.mockRejectedValueOnce(new Error("push 실패"));
 
     await expect(notifyNewWeeklyCompareReports("u1", ["w1"])).resolves.toBeUndefined();
+  });
+});
+
 // #216 — 저장 시점에 그 대화의 Feedbacks 점수를 recentScores로 함께 스냅샷 저장하고,
 // 상세 조회 시 저장된 값을 그대로(라이브 재계산 없이) 돌려줘야 한다.
 describe("saveReport / getReportDetail — recentScores 스냅샷(#216)", () => {

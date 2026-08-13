@@ -168,5 +168,21 @@ export const findWeeklyCompareReportsByUserId = (userId: string) =>
 export const findWeeklyCompareReportByIdAndUserId = (id: string, userId: string) =>
   prisma.weekly_Compare_Reports.findFirst({ where: { id, user_id: userId } });
 
+// #195 — data.lastWeek이 실제로 몇 번째 주(week_index)였는지 찾는다. 생성 로직이 항상
+// "그 시점에 가장 최근에 있던 리포트"와 비교하며 순서대로(건너뛰지 않고) 생성되므로,
+// weekIndex보다 작은 week_index 중 가장 큰 것이 곧 비교 대상 주다. 없으면(가입 후 첫
+// 리포트) null — 비교 대상 자체가 없다는 뜻이다.
+export const findPreviousWeeklyCompareWeekIndex = async (
+  userId: string,
+  weekIndex: number
+): Promise<number | null> => {
+  const row = await prisma.weekly_Compare_Reports.findFirst({
+    where: { user_id: userId, week_index: { lt: weekIndex } },
+    orderBy: { week_index: "desc" },
+    select: { week_index: true },
+  });
+  return row?.week_index ?? null;
+};
+
 export const deleteWeeklyCompareReport = (id: string, tx?: Prisma.TransactionClient) =>
   (tx ?? prisma).weekly_Compare_Reports.delete({ where: { id } });

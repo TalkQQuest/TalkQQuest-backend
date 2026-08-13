@@ -31,3 +31,11 @@ export const getSignupWeekRange = (signupAt: Date, weekIndex: number): { start: 
   const start = addDays(signupAt, (weekIndex - 1) * 7);
   return { start, end: addDays(start, 7) };
 };
+
+// #195 — 화면 상단 "7월 4주차 → 8월 1주차" 같은 완성된 문구를 만들 때 쓴다. 주(week)가 속한
+// 월과, 그 달의 몇 번째 주인지를 시작일 기준으로 계산한다.
+export const formatMonthWeekLabel = (date: Date): string => {
+  const month = date.getUTCMonth() + 1;
+  const weekOfMonth = Math.ceil(date.getUTCDate() / 7);
+  return `${month}월 ${weekOfMonth}주차`;
+};

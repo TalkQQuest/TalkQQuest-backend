@@ -3,6 +3,7 @@ jest.mock("../../archive/repositories/archive.repository");
 jest.mock("../../notification/repositories/notification.repository");
 jest.mock("../../mission/repositories/mission.repository");
 jest.mock("../services/growth.service");
+jest.mock("../../user/repositories/user.repository");
 
 import { Prisma } from "@prisma/client";
 import * as reportRepository from "../repositories/report.repository";
@@ -10,6 +11,7 @@ import * as archiveRepository from "../../archive/repositories/archive.repositor
 import * as notificationRepository from "../../notification/repositories/notification.repository";
 import * as missionRepository from "../../mission/repositories/mission.repository";
 import * as growthService from "../services/growth.service";
+import * as userRepository from "../../user/repositories/user.repository";
 import {
   saveReport,
   saveWeeklyCompareReport,
@@ -23,6 +25,7 @@ const mockedArchive = jest.mocked(archiveRepository);
 const mockedNotification = jest.mocked(notificationRepository);
 const mockedMission = jest.mocked(missionRepository);
 const mockedGrowth = jest.mocked(growthService);
+const mockedUser = jest.mocked(userRepository);
 
 const growthReport = {
   levelBefore: 1,
@@ -44,6 +47,8 @@ beforeEach(() => {
   mockedGrowth.getGrowthWindowStart.mockReturnValue(new Date("2026-07-08T00:00:00Z"));
   mockedNotification.findNotificationSettings.mockResolvedValue({ report_ready: true } as never);
   mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
+  mockedUser.findUserCreatedAt.mockResolvedValue(new Date("2026-07-01T00:00:00.000Z"));
+  mockedRepo.findPreviousWeeklyCompareWeekIndex.mockResolvedValue(null);
 });
 
 describe("saveReport", () => {
@@ -234,6 +239,74 @@ describe("getWeeklyCompareReportDetail — 이전/다음 리포트 탐색(#177)"
 
     expect(result.isSaved).toBe(false);
     expect(result.previousReportId).toBe("w1");
+  });
+});
+
+// #195 — 화면 상단에 표시할 완성된 주차 문구. 비교 대상(data.lastWeek)이 바로 직전 주가
+// 아닐 수 있어(활동 없는 주는 건너뜀) weekIndex-1로 가정하지 않고, 실제로 존재하는 이전
+// 리포트의 week_index를 찾아서 문구를 만든다.
+describe("getWeeklyCompareReportDetail — 기간(주차) 문구(#195)", () => {
+  it("비교 대상 주가 바로 직전(1주 전)이면 두 주차를 화살표로 잇는다", async () => {
+    mockedRepo.findWeeklyCompareReportByIdAndUserId.mockResolvedValue({
+      id: "w2",
+      week_index: 2,
+      data: {},
+      created_at: new Date("2026-08-08T00:00:00Z"),
+    } as never);
+    mockedUser.findUserCreatedAt.mockResolvedValue(new Date("2026-07-01T00:00:00.000Z")); // 1주차 = 7/1~7/7
+    mockedRepo.findPreviousWeeklyCompareWeekIndex.mockResolvedValue(1);
+
+    const result = await getWeeklyCompareReportDetail("u1", "w2");
+
+    // 1주차 시작 7/1(7월 1주차), 2주차 시작 7/8(7월 2주차)
+    expect(result.periodLabel).toBe("7월 1주차 → 7월 2주차");
+  });
+
+  it("비교 대상 주가 여러 주 전이어도(활동 없는 주 건너뜀) 실제 주차를 정확히 반영한다", async () => {
+    mockedRepo.findWeeklyCompareReportByIdAndUserId.mockResolvedValue({
+      id: "w4",
+      week_index: 4,
+      data: {},
+      created_at: new Date("2026-08-22T00:00:00Z"),
+    } as never);
+    mockedUser.findUserCreatedAt.mockResolvedValue(new Date("2026-07-01T00:00:00.000Z"));
+    // 1주차와 4주차를 비교(2, 3주차는 활동이 없어 건너뜀) — weekIndex-1(3주차)로 잘못 계산되면 안 된다.
+    mockedRepo.findPreviousWeeklyCompareWeekIndex.mockResolvedValue(1);
+
+    const result = await getWeeklyCompareReportDetail("u1", "w4");
+
+    expect(result.periodLabel).toBe("7월 1주차 → 7월 4주차");
+  });
+
+  it("가입 후 첫 리포트라 비교 대상이 없으면 이번 주 문구만 반환한다", async () => {
+    mockedRepo.findWeeklyCompareReportByIdAndUserId.mockResolvedValue({
+      id: "w1",
+      week_index: 1,
+      data: {},
+      created_at: new Date("2026-07-08T00:00:00Z"),
+    } as never);
+    mockedUser.findUserCreatedAt.mockResolvedValue(new Date("2026-07-01T00:00:00.000Z"));
+    mockedRepo.findPreviousWeeklyCompareWeekIndex.mockResolvedValue(null);
+
+    const result = await getWeeklyCompareReportDetail("u1", "w1");
+
+    expect(result.periodLabel).toBe("7월 1주차");
+  });
+
+  it("주차가 월 경계를 넘으면 각 주차의 월을 정확히 반영한다", async () => {
+    mockedRepo.findWeeklyCompareReportByIdAndUserId.mockResolvedValue({
+      id: "w5",
+      week_index: 5,
+      data: {},
+      created_at: new Date("2026-08-01T00:00:00Z"),
+    } as never);
+    mockedUser.findUserCreatedAt.mockResolvedValue(new Date("2026-07-01T00:00:00.000Z"));
+    // 4주차 시작 7/22(7월 4주차), 5주차 시작 7/29(7월 5주차 — 7월의 마지막 조각)
+    mockedRepo.findPreviousWeeklyCompareWeekIndex.mockResolvedValue(4);
+
+    const result = await getWeeklyCompareReportDetail("u1", "w5");
+
+    expect(result.periodLabel).toBe("7월 4주차 → 7월 5주차");
   });
 });
 

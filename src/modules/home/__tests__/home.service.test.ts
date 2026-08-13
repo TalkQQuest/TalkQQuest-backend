@@ -118,9 +118,10 @@ describe("getHomeSummary — newWeeklyCompareReport(#193)", () => {
     const result = await getHomeSummary("u1");
 
     expect(result.newWeeklyCompareReport).toEqual({ available: true, reportId: "w1" });
+    // #223 — 주간 비교 리포트 알림은 이제 report_ready가 아니라 전용 type을 쓴다.
     expect(mockedNotification.getLatestUnreadReportId).toHaveBeenCalledWith(
       "u1",
-      "report_ready",
+      "weekly_compare_ready",
       "weekly_compare"
     );
   });

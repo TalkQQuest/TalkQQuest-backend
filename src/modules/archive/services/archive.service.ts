@@ -455,6 +455,9 @@ export const getConversationDetail = async (
         // 대화 요약은 피드백 생성 시 함께 만들어 저장한다(Feedbacks.conversation_summary).
         // 피드백 생성 전이거나 재생성 중(status != ready)이면 빈 문자열.
         summary: feedback?.conversation_summary ?? "",
+        // 카드용 축약 요약(Feedbacks.card_summary) — 목록/저장 문장 상세와 동일하게 재사용(#221).
+        // 피드백 생성 전이거나 재생성 중이면 null.
+        description: feedback?.card_summary ?? null,
         duration: formatDuration(conversation.started_at, conversation.finished_at),
         // 대화 요약 칩은 피드백 생성 시 저장된다(Feedbacks.summary_chips).
         summaryChips: toSummaryChips(feedback?.summary_chips),

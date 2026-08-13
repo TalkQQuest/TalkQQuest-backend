@@ -14,9 +14,11 @@ import * as growthService from "../services/growth.service";
 import * as userRepository from "../../user/repositories/user.repository";
 import {
   saveReport,
+  getReportDetail,
   saveWeeklyCompareReport,
   deleteWeeklyCompareReport,
   getWeeklyCompareReportDetail,
+  notifyNewWeeklyCompareReports,
 } from "../services/report.service";
 import { ReportConversationNotFoundError, WeeklyCompareReportNotFoundError } from "../errors/report.error";
 
@@ -49,6 +51,12 @@ beforeEach(() => {
   mockedArchive.findArchiveItemByReference.mockResolvedValue(null);
   mockedUser.findUserCreatedAt.mockResolvedValue(new Date("2026-07-01T00:00:00.000Z"));
   mockedRepo.findPreviousWeeklyCompareWeekIndex.mockResolvedValue(null);
+  mockedRepo.findFeedbackScoresByConversationId.mockResolvedValue({
+    kindness_score: 80,
+    initiative_score: 70,
+    empathy_score: 90,
+    question_link_score: 60,
+  } as never);
 });
 
 describe("saveReport", () => {
@@ -118,7 +126,15 @@ describe("saveReport", () => {
     expect(mockedArchive.createArchiveItem).toHaveBeenCalledWith(
       expect.objectContaining({ item_type: "report", reference_id: "r-new" })
     );
-    expect(mockedNotification.createNotification).toHaveBeenCalled();
+    // #223 — 성장 리포트 저장 완료 알림은 report_ready 타입을 쓴다(주간 비교와 구분).
+    expect(mockedNotification.createNotification).toHaveBeenCalledWith(
+      "u1",
+      "report_ready",
+      expect.any(String),
+      expect.any(String),
+      "r-new",
+      "report"
+    );
   });
 
   it("동시에 같은 대화로 두 번 저장 요청이 오면(P2002) 먼저 만들어진 결과를 반환하고, 진 요청이 승자를 대신해 Archive 항목을 만든다", async () => {
@@ -161,6 +177,117 @@ describe("saveReport", () => {
 
     expect(result.reportId).toBe("r-new");
     expect(mockedArchive.findArchiveItemByReference).toHaveBeenCalledTimes(2);
+  });
+});
+
+// #223 — 주간 비교 리포트 알림은 성장 리포트(report_ready)와 구분되는 전용 type을 써야
+// 클라이언트가 제목 문자열이 아니라 type만으로 두 알림을 구분할 수 있다.
+describe("notifyNewWeeklyCompareReports — 전용 알림 type(#223)", () => {
+  it("weekly_compare_ready 타입으로, referenceType은 weekly_compare로 알림을 보낸다", async () => {
+    await notifyNewWeeklyCompareReports("u1", ["w1", "w2"]);
+
+    expect(mockedNotification.createNotification).toHaveBeenNthCalledWith(
+      1,
+      "u1",
+      "weekly_compare_ready",
+      expect.any(String),
+      expect.any(String),
+      "w1",
+      "weekly_compare"
+    );
+    expect(mockedNotification.createNotification).toHaveBeenNthCalledWith(
+      2,
+      "u1",
+      "weekly_compare_ready",
+      expect.any(String),
+      expect.any(String),
+      "w2",
+      "weekly_compare"
+    );
+  });
+
+  it("알림 발송이 실패해도 예외를 던지지 않는다(다른 리포트 생성 자체를 막지 않기 위해)", async () => {
+    mockedNotification.createNotification.mockRejectedValueOnce(new Error("push 실패"));
+
+    await expect(notifyNewWeeklyCompareReports("u1", ["w1"])).resolves.toBeUndefined();
+// #216 — 저장 시점에 그 대화의 Feedbacks 점수를 recentScores로 함께 스냅샷 저장하고,
+// 상세 조회 시 저장된 값을 그대로(라이브 재계산 없이) 돌려줘야 한다.
+describe("saveReport / getReportDetail — recentScores 스냅샷(#216)", () => {
+  beforeEach(() => {
+    // 이전 describe의 P2002 경합 테스트가 createArchiveItem을 영구 reject로 남겨둔다
+    // (jest.clearAllMocks는 mockRejectedValue로 설정한 구현까지는 초기화하지 않는다).
+    mockedArchive.createArchiveItem.mockResolvedValue({} as never);
+  });
+
+  it("저장 시점에 해당 대화의 피드백 점수를 recentScores로 함께 저장한다", async () => {
+    mockedRepo.findReportByConversationId.mockResolvedValue(null);
+    mockedRepo.createReport.mockResolvedValue({
+      id: "r-new",
+      created_at: new Date("2026-08-05T00:00:00Z"),
+    } as never);
+
+    await saveReport("u1", "c1");
+
+    expect(mockedRepo.findFeedbackScoresByConversationId).toHaveBeenCalledWith("c1");
+    expect(mockedRepo.createReport).toHaveBeenCalledWith(
+      "u1",
+      "c1",
+      expect.any(String),
+      expect.objectContaining({
+        recentScores: { kindness: 80, initiative: 70, empathy: 90, questionLink: 60 },
+      })
+    );
+  });
+
+  it("해당 대화의 피드백이 없으면(생성 실패 등) recentScores를 0으로 채운다", async () => {
+    mockedRepo.findReportByConversationId.mockResolvedValue(null);
+    mockedRepo.findFeedbackScoresByConversationId.mockResolvedValue(null);
+    mockedRepo.createReport.mockResolvedValue({
+      id: "r-new",
+      created_at: new Date("2026-08-05T00:00:00Z"),
+    } as never);
+
+    await saveReport("u1", "c1");
+
+    expect(mockedRepo.createReport).toHaveBeenCalledWith(
+      "u1",
+      "c1",
+      expect.any(String),
+      expect.objectContaining({
+        recentScores: { kindness: 0, initiative: 0, empathy: 0, questionLink: 0 },
+      })
+    );
+  });
+
+  it("상세 조회는 저장된 recentScores를 그대로 반환한다(라이브 재계산 없음)", async () => {
+    mockedRepo.findReportByIdAndUserId.mockResolvedValue({
+      id: "r1",
+      period: "2026-07-01~2026-07-29",
+      created_at: new Date("2026-07-29T00:00:00Z"),
+      data: {
+        title: "카페에서 음료 추천 물어보기",
+        growth: growthReport,
+        recentScores: { kindness: 80, initiative: 70, empathy: 90, questionLink: 60 },
+      },
+    } as never);
+
+    const result = await getReportDetail("u1", "r1");
+
+    expect(result.recentScores).toEqual({ kindness: 80, initiative: 70, empathy: 90, questionLink: 60 });
+    expect(mockedRepo.findFeedbackScoresByConversationId).not.toHaveBeenCalled();
+  });
+
+  it("#216 이전에 저장된 기존 리포트(recentScores 없음)는 0으로 채워 반환한다", async () => {
+    mockedRepo.findReportByIdAndUserId.mockResolvedValue({
+      id: "r-old",
+      period: "2026-06-01~2026-06-29",
+      created_at: new Date("2026-06-29T00:00:00Z"),
+      data: { title: "옛날 리포트", growth: growthReport },
+    } as never);
+
+    const result = await getReportDetail("u1", "r-old");
+
+    expect(result.recentScores).toEqual({ kindness: 0, initiative: 0, empathy: 0, questionLink: 0 });
   });
 });
 

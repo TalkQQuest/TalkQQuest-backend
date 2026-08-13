@@ -4,7 +4,7 @@ import {
     markNotificationAsRead,
     markAllNotificationsAsRead,
     findNotificationSettings,
-    updateNotificationSettings,
+    upsertNotificationSettings,
     createNotification,
     deleteNotification,
     deleteAllNotifications,
@@ -106,13 +106,13 @@ export const getNotifications = async (
     await deleteAllNotifications(userId);
     };
 
+    // #215 — 회원가입 시점에 Notification_Settings 행을 만들어주지 않아 모든 사용자가 404를
+    // 받고 있었다. upsert로 처리해 없으면 스키마 기본값으로 즉시 생성한다(기존 가입자 포함,
+    // 별도 백필 없이 첫 호출에서 자동으로 해결된다).
     export const getNotificationSettings = async (
     userId: string
     ): Promise<NotificationSettingsResponseDto> => {
-    const settings = await findNotificationSettings(userId);
-    if (!settings) {
-        throw new NotFoundError("알림 설정을 찾을 수 없습니다.");
-    }
+    const settings = await upsertNotificationSettings(userId, {});
 
     return {
         missionReminder: settings.mission_reminder,
@@ -127,12 +127,7 @@ export const getNotifications = async (
     userId: string,
     dto: UpdateNotificationSettingsRequestDto
     ): Promise<void> => {
-    const settings = await findNotificationSettings(userId);
-    if (!settings) {
-        throw new NotFoundError("알림 설정을 찾을 수 없습니다.");
-    }
-
-    await updateNotificationSettings(userId, {
+    await upsertNotificationSettings(userId, {
         ...(dto.missionReminder !== undefined && { mission_reminder: dto.missionReminder }),
         ...(dto.missionReminderTime !== undefined && { mission_reminder_time: dto.missionReminderTime }),
         ...(dto.communityApproved !== undefined && { community_approved: dto.communityApproved }),

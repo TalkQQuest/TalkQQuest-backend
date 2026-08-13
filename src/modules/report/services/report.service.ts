@@ -18,6 +18,7 @@ import {
   GrowthReportDto,
   ListReportsResponseDto,
   ListWeeklyCompareReportsResponseDto,
+  RecentScoresDto,
   ReportDetailResponseDto,
   SaveReportResponseDto,
   SaveWeeklyCompareReportResponseDto,
@@ -30,15 +31,38 @@ import * as missionRepository from "../../mission/repositories/mission.repositor
 
 
 // 성장 리포트 스냅샷 Json 컬럼 구조 (#145 — weeklyCompare는 더 이상 여기 포함되지 않는다).
+// recentScores(#216)는 저장 시점 그 대화의 Feedbacks 점수를 그대로 얼려서 담는다 — growth와
+// 달리 특정 대화 하나에 종속된 값이라 GrowthReportDto 안에 넣지 않고 별도 필드로 둔다.
 interface StoredReportData {
   title: string;
   growth: GrowthReportDto;
+  recentScores: RecentScoresDto;
 }
+
+// Feedbacks 점수 컬럼은 생성 실패 시 null일 수 있다 — 없으면 0으로 채운다
+// (calculateOverallScore가 점수 없음을 0으로 다루는 것과 동일한 관례).
+const toRecentScores = (
+  scores: {
+    kindness_score: number | null;
+    initiative_score: number | null;
+    empathy_score: number | null;
+    question_link_score: number | null;
+  } | null
+): RecentScoresDto => ({
+  kindness: scores?.kindness_score ?? 0,
+  initiative: scores?.initiative_score ?? 0,
+  empathy: scores?.empathy_score ?? 0,
+  questionLink: scores?.question_link_score ?? 0,
+});
 
 const toDateOnly = (date: Date): string => date.toISOString().slice(0, 10);
 
+// #223 — 이전에는 성장 리포트/주간 비교 리포트 알림이 둘 다 type: "report_ready"를 공유해서,
+// 클라이언트가 제목 문자열로 둘을 구분해야 했다. referenceType으로는 이미 서버 내부적으로
+// 구분되고 있었으므로, 호출부가 type도 함께 넘기도록 바꿔 알림 종류별로 다른 값을 내려준다.
 const notifyReportReady = async (
   userId: string,
+  type: string,
   title: string,
   body: string,
   referenceId: string,
@@ -46,7 +70,7 @@ const notifyReportReady = async (
 ): Promise<void> => {
   const settings = await findNotificationSettings(userId);
   if (!settings?.report_ready) return;
-  await notifyUser(userId, "report_ready", title, body, referenceId, referenceType);
+  await notifyUser(userId, type, title, body, referenceId, referenceType);
 };
 
 // Archive_Items에는 (user_id, item_type, reference_id) unique 제약이 있다. 이미 있으면
@@ -93,10 +117,14 @@ export const saveReport = async (
 
   const now = new Date();
   const growthWindowStart = getGrowthWindowStart(now);
-  const growth = await getGrowthReport(userId);
+  const [growth, feedbackScores] = await Promise.all([
+    getGrowthReport(userId),
+    reportRepository.findFeedbackScoresByConversationId(conversationId),
+  ]);
   const period = `${toDateOnly(growthWindowStart)}~${toDateOnly(now)}`;
   const title = conversation.mission.title;
-  const stored: StoredReportData = { title, growth };
+  const recentScores = toRecentScores(feedbackScores);
+  const stored: StoredReportData = { title, growth, recentScores };
 
   let created;
   try {
@@ -117,6 +145,7 @@ export const saveReport = async (
   await ensureReportArchived(userId, created.id);
   await notifyReportReady(
     userId,
+    "report_ready",
     "성장 리포트가 도착했어요!",
     "새로 저장한 성장 리포트를 확인해보세요.",
     created.id,
@@ -155,6 +184,8 @@ export const getReportDetail = async (
     period: row.period,
     title: data?.title ?? "톡깨 리포트",
     growth: data.growth,
+    // #216 이전에 저장된 기존 리포트는 스냅샷에 recentScores가 없다 — 0으로 채운다.
+    recentScores: data.recentScores ?? toRecentScores(null),
     createdAt: row.created_at.toISOString(),
   };
 };
@@ -299,6 +330,7 @@ export const notifyNewWeeklyCompareReports = async (
     try {
       await notifyReportReady(
         userId,
+        "weekly_compare_ready",
         "주간 비교 리포트가 도착했어요!",
         "지난 주와 이번 주를 비교한 리포트를 확인해보세요.",
         reportId,

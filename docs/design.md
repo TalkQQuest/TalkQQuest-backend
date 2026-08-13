@@ -966,7 +966,7 @@ PostgreSQL의 `JSONB` 컬럼은 MySQL 8.0의 네이티브 `JSON` 타입으로 �
 
 #### GET /archives/conversations/{conversationId}
 
-**Response (200):** `data` — `conversationId`, `missionTitle`(`string | null`), `summary`(현재 항상 빈 문자열 — AI 요약 파이프라인 미구현), `messages[]`(`sender: "USER"|"AI"`, `content`, `sentAt`), `feedback`(`{feedbackId, kindnessScore, initiativeScore, empathyScore, questionLinkScore} | null`).
+**Response (200):** `data` — `conversationId`, `missionTitle`(`string | null`), `summary`(전체 요약 2~3문장, `Feedbacks.conversation_summary`), `description`(`string | null`, 카드용 축약 요약 — `Feedbacks.card_summary`, `GET /archives`·`GET /archives/phrases/{id}`의 `description`과 동일한 값, `#221`), `duration`(`string | null`, "mm:ss"), `summaryChips`(`string[]`, 요약 칩 3개), `keyPoints`(`string[]`, "주요 내용" — 실제 대화 흐름을 시간순 2~3문장으로 서술, `Feedbacks.conversation_highlights`, `#169`), `messages[]`(`sender: "USER"|"AI"`, `content`, `sentAt`), `feedback`(`{feedbackId, kindnessScore, initiativeScore, empathyScore, questionLinkScore} | null`). `summary`/`description`/`summaryChips`/`keyPoints`는 피드백이 `ready` 상태일 때만 값을 채우고, 생성 전이거나 재생성 중(`pending`/`failed`)이면 각각 빈 문자열/`null`/빈 배열/빈 배열로 내려간다(`#169`).
 
 #### GET /archives/phrases/{phraseId}
 

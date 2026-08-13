@@ -281,6 +281,7 @@ describe("getConversationDetail — 재생성 중(pending/failed) 요약 숨김(
     id: "f1",
     status: "pending",
     conversation_summary: "예전 요약입니다.",
+    card_summary: "예전 카드 요약입니다.",
     summary_chips: ["예전칩1", "예전칩2", "예전칩3"],
     conversation_highlights: ["예전 흐름1", "예전 흐름2"],
     kindness_score: 80,
@@ -289,7 +290,7 @@ describe("getConversationDetail — 재생성 중(pending/failed) 요약 숨김(
     question_link_score: 50,
   };
 
-  it("피드백이 pending(재생성 중)이면 summary/summaryChips/keyPoints는 빈 값을 반환한다", async () => {
+  it("피드백이 pending(재생성 중)이면 summary/description/summaryChips/keyPoints는 빈 값을 반환한다", async () => {
     mockedArchive.findConversationDetail.mockResolvedValue({
       ...baseConversation,
       feedbacks: [staleFeedback],
@@ -298,13 +299,14 @@ describe("getConversationDetail — 재생성 중(pending/failed) 요약 숨김(
     const result = await getConversationDetail("u1", "c1");
 
     expect(result.summary).toBe("");
+    expect(result.description).toBeNull();
     expect(result.summaryChips).toEqual([]);
     expect(result.keyPoints).toEqual([]);
     // feedback 객체(점수) 자체는 status와 무관하게 그대로 노출한다(기존 정책 유지).
     expect(result.feedback).toMatchObject({ feedbackId: "f1", kindnessScore: 80 });
   });
 
-  it("피드백이 failed면 summary/summaryChips/keyPoints는 빈 값을 반환한다", async () => {
+  it("피드백이 failed면 summary/description/summaryChips/keyPoints는 빈 값을 반환한다", async () => {
     mockedArchive.findConversationDetail.mockResolvedValue({
       ...baseConversation,
       feedbacks: [{ ...staleFeedback, status: "failed" }],
@@ -313,11 +315,13 @@ describe("getConversationDetail — 재생성 중(pending/failed) 요약 숨김(
     const result = await getConversationDetail("u1", "c1");
 
     expect(result.summary).toBe("");
+    expect(result.description).toBeNull();
     expect(result.summaryChips).toEqual([]);
     expect(result.keyPoints).toEqual([]);
   });
 
-  it("피드백이 ready면 summary/summaryChips/keyPoints를 그대로 반환한다", async () => {
+  // #221 — 목록/저장 문장 상세에는 있던 카드용 축약 요약(description)이 대화 상세에는 없었다.
+  it("피드백이 ready면 summary/description/summaryChips/keyPoints를 그대로 반환한다", async () => {
     mockedArchive.findConversationDetail.mockResolvedValue({
       ...baseConversation,
       feedbacks: [{ ...staleFeedback, status: "ready" }],
@@ -326,6 +330,7 @@ describe("getConversationDetail — 재생성 중(pending/failed) 요약 숨김(
     const result = await getConversationDetail("u1", "c1");
 
     expect(result.summary).toBe("예전 요약입니다.");
+    expect(result.description).toBe("예전 카드 요약입니다.");
     expect(result.summaryChips).toEqual(["예전칩1", "예전칩2", "예전칩3"]);
     expect(result.keyPoints).toEqual(["예전 흐름1", "예전 흐름2"]);
   });

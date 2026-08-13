@@ -87,9 +87,11 @@ export const countCompletedMissionRecordsInRange = (userId: string, start: Date,
     where: { user_id: userId, status: "completed", completed_at: { gte: start, lt: end } },
   });
 
+// countTotalMissions와 같은 분모/분자 관계이므로 반드시 같은 기준(템플릿 포함)으로 세야 한다(#211).
+// 템플릿 미션만 걸러내면 템플릿 미션을 완료한 사용자의 completed가 실제보다 적게(0으로) 나온다.
 export const countDistinctCompletedMissions = async (userId: string) => {
   const rows = await prisma.mission_Records.findMany({
-    where: { user_id: userId, status: "completed", mission: { is_template: false } },
+    where: { user_id: userId, status: "completed" },
     select: { mission_id: true },
     distinct: ["mission_id"],
   });

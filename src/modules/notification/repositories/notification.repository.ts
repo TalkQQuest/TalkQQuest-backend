@@ -34,6 +34,16 @@ export const markAllNotificationsAsRead = (userId: string) =>
         data: { is_read: true },
     });
 
+// #199 — 알림 삭제. id와 user_id를 함께 조건으로 걸어 소유권 확인과 삭제를 한 번의 원자적
+// 작업으로 처리한다 — "조회 후 삭제" 2단계로 나누면 그 사이에 다른 요청이 같은 알림을 먼저
+// 지웠을 때 delete()가 P2025(레코드 없음)를 던져 의도한 404 대신 500이 나갈 수 있다.
+// count가 0이면 본인 소유가 아니거나 이미 삭제된 것이라 서비스에서 404로 처리한다.
+export const deleteNotification = (notificationId: string, userId: string) =>
+    prisma.notifications.deleteMany({ where: { id: notificationId, user_id: userId } });
+
+export const deleteAllNotifications = (userId: string) =>
+    prisma.notifications.deleteMany({ where: { user_id: userId } });
+
 export const findNotificationSettings = (userId: string) =>
     prisma.notification_Settings.findUnique({ where: { user_id: userId } });
 

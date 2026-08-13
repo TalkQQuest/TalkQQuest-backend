@@ -17,6 +17,12 @@ export interface NotificationsResponseDto {
     notifications: NotificationItem[];
 }
 
+// DELETE /notifications/{notificationId} (#199)
+export interface DeleteNotificationResponseDto {
+    notificationId: string;
+    deleted: true;
+}
+
 export interface NotificationSettingsResponseDto {
     missionReminder: boolean;
     missionReminderTime: string;

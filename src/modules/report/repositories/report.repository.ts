@@ -33,6 +33,19 @@ export const sumXpAmountInRange = async (userId: string, start: Date, end: Date)
 
 // ----- Feedbacks -----
 
+// #216 — 성장 리포트 저장(POST /reports) 시점에 그 대화에서 획득한 점수(recentScores)를
+// 스냅샷에 함께 담기 위해 조회한다. 대화당 피드백 1건(conversation_id unique)이라 findFirst로 충분.
+export const findFeedbackScoresByConversationId = (conversationId: string) =>
+  prisma.feedbacks.findFirst({
+    where: { conversation_id: conversationId, status: "ready" },
+    select: {
+      kindness_score: true,
+      initiative_score: true,
+      empathy_score: true,
+      question_link_score: true,
+    },
+  });
+
 export const findFeedbackScoresInRange = (userId: string, start: Date, end: Date) =>
   prisma.feedbacks.findMany({
     where: {

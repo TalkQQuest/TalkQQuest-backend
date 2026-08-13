@@ -50,8 +50,8 @@ const llmMissionSchema = z.object({
   reason: z.string().min(1),
   expected_effect: z.string().min(1),
   // 대화 전 준비 팁 / 주의사항. 사용자에게 그대로 노출되므로 비어있지 않아야 한다.
-  preparation_tip: z.string().min(1),
-  caution: z.string().min(1),
+  preparation_tip: z.string().trim().min(1),
+  caution: z.string().trim().min(1),
   // 별도 검증하여 이 필드만 깨진 경우 정상 미션까지 폴백하지 않는다.
   setup_guideline: z.unknown().optional(),
 });

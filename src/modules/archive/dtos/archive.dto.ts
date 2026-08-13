@@ -133,6 +133,12 @@ export interface ConversationDetailResponseDto {
     missionTitle: string | null;
     /** 대화 전체를 2~3문장으로 요약한 텍스트. 피드백 생성 전에는 빈 문자열. */
     summary: string;
+    /**
+     * 카드에 보여줄 1~2줄 축약 요약(Feedbacks.card_summary). 목록(GET /archives)·저장 문장
+     * 상세(GET /archives/phrases/{id})에는 이미 있던 필드인데 대화 상세만 빠져 있었다(#221).
+     * summary(전체 요약)와 같은 내용을 기반으로 한 짧은 버전 — 피드백 생성 전/재생성 중이면 null.
+     */
+    description: string | null;
     /** 대화 소요 시간 "mm:ss". 아직 종료되지 않았으면 null(#175 — 기존엔 분 단위 숫자였음). */
     duration: string | null;
     /** 대화 요약 키워드 칩 3개(단어 형태). 피드백 생성 전에는 빈 배열. */

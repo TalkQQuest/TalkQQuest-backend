@@ -9,6 +9,7 @@ jest.mock("../../../shared/ai", () => ({
 
 import { callUpstageChat } from "../../../shared/ai";
 import {
+  buildSuggestionMessages,
   generateSuggestions,
   SuggestionContext,
 } from "../services/conversation-suggestion.service";
@@ -57,5 +58,47 @@ describe("generateSuggestions", () => {
     mockedCall.mockResolvedValue({ ok: false, reason: "timeout" });
 
     expect(await generateSuggestions(ctx)).toBeNull();
+  });
+
+  // #222 — "오늘 특별히 사과 시나몬 라떼가 한정으로 나왔어" 같은 상대(점원) 역할 대사가
+  // 추천 답변에 섞여 나와, 그대로 눌러 보내면 role: user로 저장되던 문제.
+  it("상대 역할(점원 등)의 안내·판매 대사는 걸러내고, 부족하면 null을 돌려준다", async () => {
+    mockedCall.mockResolvedValue({
+      ok: true,
+      content: [
+        "오늘 특별히 사과 시나몬 라떼가 한정으로 나왔어",
+        "시원한 아이스 멜론 주스도 시즌 메뉴로 준비했어요",
+        "그럼 아이스 아메리카노로 주세요",
+      ].join("\n"),
+    });
+
+    // 3개 중 2개가 상대 역할 대사라 걸러지고 1개만 남는다 — 개수를 못 채우면 폴백에 맡긴다.
+    expect(await generateSuggestions(ctx)).toBeNull();
+  });
+
+  it("상대 역할 대사가 하나도 없으면 그대로 3개를 반환한다(오탐 없음 확인)", async () => {
+    mockedCall.mockResolvedValue({
+      ok: true,
+      content: [
+        "그럼 아이스 아메리카노로 주세요",
+        "혹시 시즌 메뉴 있나요?",
+        "저는 단 거 별로 안 좋아해요",
+      ].join("\n"),
+    });
+
+    expect(await generateSuggestions(ctx)).toEqual([
+      "그럼 아이스 아메리카노로 주세요",
+      "혹시 시즌 메뉴 있나요?",
+      "저는 단 거 별로 안 좋아해요",
+    ]);
+  });
+});
+
+describe("buildSuggestionMessages — 프롬프트에 역할 이탈 금지 규칙 포함(#222)", () => {
+  it("상대 역할 대사를 만들지 말라는 규칙이 시스템 프롬프트에 포함된다", () => {
+    const messages = buildSuggestionMessages(ctx);
+    const systemMessage = messages.find((m) => m.role === "system");
+
+    expect(systemMessage?.content).toContain("상대 역할");
   });
 });

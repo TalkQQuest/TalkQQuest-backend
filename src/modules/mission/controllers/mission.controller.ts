@@ -19,11 +19,13 @@ import {
   SaveRecommendedMissionRequestDto,
   saveRecommendedMissionRequestSchema,
   SaveRecommendedMissionResponseDto,
+  SetupGuidelineRegenerateResponseDto,
   TodayMissionResponseDto,
   LlmHealthResponseDto
 } from "../dtos/mission.dto";
 import * as missionService from "../services/mission.service";
 import { pingLlm } from "../services/llm.service";
+import * as setupGuidelineAdmin from "../services/setup-guideline-admin.service";
 
 @Route("missions")
 @Tags("Mission")
@@ -91,6 +93,25 @@ export class MissionController extends Controller {
   ): Promise<ApiResponse<SaveRecommendedMissionResponseDto>> {
     const result = await missionService.saveRecommendedMission(req.user!.id, body.recommendationLogId);
     return success(result, "미션이 저장되었습니다.");
+  }
+
+  /**
+   * @summary 미션 준비 가이드라인(setup_guideline) 재생성 (운영·백필용)
+   *
+   * LLM으로 새로 만들어 덮어쓴다. 시드된 템플릿 미션처럼 setup_guideline이 아직 없는 미션을
+   * 채우거나, 자동 생성 결과가 마음에 들지 않을 때 쓴다. 미션 본문은 바꾸지 않는다.
+   */
+  @Post("{missionId}/setup-guideline/regenerate")
+  @Security("bearerAuth")
+  @Middlewares(authorizeUser())
+  @Response(401, "UNAUTHORIZED")
+  @Response(404, "MISSION_NOT_FOUND")
+  @Response(503, "SETUP_GUIDELINE_GENERATION_FAILED")
+  public async regenerateSetupGuideline(
+    @Path() missionId: string
+  ): Promise<ApiResponse<SetupGuidelineRegenerateResponseDto>> {
+    const result = await setupGuidelineAdmin.regenerateSetupGuideline(missionId);
+    return success(result, "미션 준비 가이드라인이 재생성되었습니다.");
   }
 
   /**

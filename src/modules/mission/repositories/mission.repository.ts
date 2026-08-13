@@ -226,6 +226,15 @@ export const findMissionSetupGuideline = (missionId: string) =>
     select: { setup_guideline: true },
   });
 
+// POST /missions/{missionId}/setup-guideline/regenerate 전용. 템플릿 미션은 시드 시
+// setup_guideline이 채워지지 않으므로(#148-150 이전 데이터), 운영자가 이 값만 다시 만들어 넣는다.
+export const updateMissionSetupGuideline = (missionId: string, guideline: unknown) =>
+  prisma.missions.update({
+    where: { id: missionId },
+    data: { setup_guideline: guideline as Prisma.InputJsonValue },
+    select: { setup_guideline: true },
+  });
+
 export const createMissionSetup = (
   userId: string,
   missionId: string,

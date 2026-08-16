@@ -330,6 +330,39 @@ describe("searchArchives — 저장 문장(phrase) keyword 검색에 부모 미�
 
     expect(mockedArchive.findMissionTitlesForPhrases).not.toHaveBeenCalled();
   });
+
+  // 코드래빗 리뷰: phraseMissionTitleMap은 keyword 매칭에만 쓰이므로, keyword가 없으면
+  // 불필요한 조회다.
+  it("keyword가 없으면 부모 미션 제목 배치 조회를 하지 않는다", async () => {
+    mockedArchive.searchArchiveItems.mockResolvedValue([phraseRow] as never);
+    mockedArchive.findSavedPhraseContent.mockResolvedValue({ content: "안녕하세요, 반갑습니다." } as never);
+
+    const result = await searchArchives("u1", { type: "phrase" });
+
+    expect(result.items).toHaveLength(1);
+    expect(mockedArchive.findMissionTitlesForPhrases).not.toHaveBeenCalled();
+  });
+
+  // 코드래빗 리뷰: N+1 방지 회귀 테스트 — phrase가 여러 건이어도 배치 조회가 한 번만 일어나고,
+  // 모든 phraseId를 포함해서 호출돼야 한다.
+  it("phrase가 여러 건이어도 부모 미션 제목 조회는 한 번만, 모든 phraseId를 모아서 호출한다", async () => {
+    const phraseRow2 = { ...phraseRow, id: "a2", reference_id: "p2" };
+    mockedArchive.searchArchiveItems.mockResolvedValue([phraseRow, phraseRow2] as never);
+    mockedArchive.findSavedPhraseContent
+      .mockResolvedValueOnce({ content: "안녕하세요, 반갑습니다." } as never)
+      .mockResolvedValueOnce({ content: "오늘 날씨가 좋네요." } as never);
+    mockedArchive.findMissionTitlesForPhrases.mockResolvedValue([
+      { id: "p1", conversation: { mission: { title: "카페에서 음료 추천 물어보기" } } },
+      { id: "p2", conversation: { mission: { title: "다른 미션" } } },
+    ] as never);
+
+    const result = await searchArchives("u1", { type: "phrase", keyword: "카페" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].referenceId).toBe("p1");
+    expect(mockedArchive.findMissionTitlesForPhrases).toHaveBeenCalledTimes(1);
+    expect(mockedArchive.findMissionTitlesForPhrases).toHaveBeenCalledWith(["p1", "p2"]);
+  });
 });
 
 // #169 회귀 테스트 — 재시도(retryFeedback)는 status만 pending으로 되돌리고 이전

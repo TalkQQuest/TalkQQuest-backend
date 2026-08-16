@@ -305,10 +305,14 @@ export const searchArchives = async (
     const conversationExtrasMap = await resolveConversationExtrasBatch(
         rows.filter((row) => row.item_type === "conversation").map((row) => row.reference_id)
     );
-    // #241 — phrase의 reference_id는 Saved_Phrases.id.
-    const phraseMissionTitleMap = await resolvePhraseMissionTitlesBatch(
-        rows.filter((row) => row.item_type === "phrase").map((row) => row.reference_id)
-    );
+    // #241 — phraseMissionTitleMap은 keyword 매칭에만 쓰인다. keyword가 없으면 조회 자체가
+    // 불필요하므로(코드래빗 리뷰), keyword가 있을 때만 배치 조회한다.
+    // phrase의 reference_id는 Saved_Phrases.id.
+    const phraseMissionTitleMap = keyword
+        ? await resolvePhraseMissionTitlesBatch(
+              rows.filter((row) => row.item_type === "phrase").map((row) => row.reference_id)
+          )
+        : new Map<string, string>();
 
     const itemsWithTitle: ArchiveSearchItemDto[] = await Promise.all(
         rows.map(async (row) => {

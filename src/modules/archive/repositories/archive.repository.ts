@@ -182,6 +182,15 @@ export const findSavedPhraseContent = (phraseId: string) =>
         select: { content: true },
     });
 
+// #241 — 저장 문장을 부모 미션 제목으로도 검색할 수 있어야 한다. 문장 개수만큼 개별 조회하면
+// N+1이 되므로(#155/#175와 같은 이유), phraseId 목록을 모아 한 번의 IN 쿼리로 조회한다.
+// conversation_id가 null(대화 삭제 등)이거나 미션 없는 대화면 title은 null.
+export const findMissionTitlesForPhrases = (phraseIds: string[]) =>
+    prisma.saved_Phrases.findMany({
+        where: { id: { in: phraseIds } },
+        select: { id: true, conversation: { select: { mission: { select: { title: true } } } } },
+    });
+
 export const findReportData = (reportId: string) =>
     prisma.reports.findUnique({
         where: { id: reportId },

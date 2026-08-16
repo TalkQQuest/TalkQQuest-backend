@@ -21,6 +21,8 @@ beforeEach(() => {
   mockedMission.findSavedMissionIds.mockResolvedValue([] as never);
   // #175 — 카드 목록의 duration 계산에 쓰인다. 기본값을 비워두면 각 테스트가 필요할 때 덮어쓴다.
   mockedArchive.findConversationDurationInfoByIds.mockResolvedValue([] as never);
+  // #241 — 저장 문장 검색용 부모 미션 제목 배치 조회. 기본값을 비워두면 각 테스트가 필요할 때 덮어쓴다.
+  mockedArchive.findMissionTitlesForPhrases.mockResolvedValue([] as never);
 });
 
 // #145 — 성장 리포트(report)와 저장된 주간 비교 리포트(weekly_compare)는 아카이브에서
@@ -262,6 +264,71 @@ describe("conversation 타입 — AI 요약 칩/설명(#154, #155, #169)", () =>
     expect(mockedArchive.searchArchiveItems).toHaveBeenCalledWith(
       expect.not.objectContaining({ tags: expect.anything() })
     );
+  });
+});
+
+// #241 — 미션 이름으로 검색해도 그 미션에서 저장한 문장이 결과에 나와야 한다.
+describe("searchArchives — 저장 문장(phrase) keyword 검색에 부모 미션 제목 포함(#241)", () => {
+  const phraseRow = {
+    id: "a1",
+    reference_id: "p1",
+    item_type: "phrase",
+    tags: [],
+    folder_id: null,
+    created_at: new Date("2026-08-08T00:00:00Z"),
+  };
+
+  it("문장 내용에 매칭되지 않아도 부모 미션 제목에 매칭되면 결과에 포함된다", async () => {
+    mockedArchive.searchArchiveItems.mockResolvedValue([phraseRow] as never);
+    mockedArchive.findSavedPhraseContent.mockResolvedValue({ content: "안녕하세요, 반갑습니다." } as never);
+    mockedArchive.findMissionTitlesForPhrases.mockResolvedValue([
+      { id: "p1", conversation: { mission: { title: "카페에서 음료 추천 물어보기" } } },
+    ] as never);
+
+    const result = await searchArchives("u1", { type: "phrase", keyword: "카페" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].referenceId).toBe("p1");
+    // 응답 title은 그대로 문장 내용 스니펫이다 — 매칭 조건에만 미션 제목을 썼을 뿐 필드는 안 바뀐다.
+    expect(result.items[0].title).toBe("안녕하세요, 반갑습니다.");
+  });
+
+  it("문장 내용과 미션 제목 둘 다 매칭되지 않으면 결과에서 빠진다", async () => {
+    mockedArchive.searchArchiveItems.mockResolvedValue([phraseRow] as never);
+    mockedArchive.findSavedPhraseContent.mockResolvedValue({ content: "안녕하세요, 반갑습니다." } as never);
+    mockedArchive.findMissionTitlesForPhrases.mockResolvedValue([
+      { id: "p1", conversation: { mission: { title: "카페에서 음료 추천 물어보기" } } },
+    ] as never);
+
+    const result = await searchArchives("u1", { type: "phrase", keyword: "도서관" });
+
+    expect(result.items).toHaveLength(0);
+  });
+
+  it("부모 대화/미션이 없는 문장(conversation_id null 등)은 문장 내용만으로 매칭한다", async () => {
+    mockedArchive.searchArchiveItems.mockResolvedValue([phraseRow] as never);
+    mockedArchive.findSavedPhraseContent.mockResolvedValue({ content: "카페에서 주문했어요." } as never);
+    mockedArchive.findMissionTitlesForPhrases.mockResolvedValue([
+      { id: "p1", conversation: null },
+    ] as never);
+
+    const result = await searchArchives("u1", { type: "phrase", keyword: "카페" });
+
+    expect(result.items).toHaveLength(1);
+  });
+
+  it("conversation 타입 검색에는 영향을 주지 않는다(phrase 배치 조회를 호출하지 않음)", async () => {
+    mockedArchive.searchArchiveItems.mockResolvedValue([
+      { id: "a2", reference_id: "c1", item_type: "conversation", tags: null, folder_id: null, created_at: new Date("2026-08-08T00:00:00Z") },
+    ] as never);
+    mockedArchive.findConversationDurationInfoByIds.mockResolvedValue([
+      { id: "c1", started_at: new Date(), finished_at: new Date() },
+    ] as never);
+    mockedArchive.findConversationSummaryInfoByIds.mockResolvedValue([]);
+
+    await searchArchives("u1", { type: "conversation", keyword: "카페" });
+
+    expect(mockedArchive.findMissionTitlesForPhrases).not.toHaveBeenCalled();
   });
 });
 

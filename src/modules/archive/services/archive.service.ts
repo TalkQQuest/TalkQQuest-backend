@@ -128,6 +128,20 @@ const resolveConversationExtrasBatch = async (
 
 const EMPTY_CONVERSATION_EXTRAS: ConversationExtras = { tags: [], description: null, duration: null };
 
+// #241 — 저장 문장(phrase) 검색 시 문장 내용뿐 아니라 부모 미션 제목으로도 찾을 수 있어야 한다.
+// 응답 필드(title)는 그대로 문장 내용 스니펫을 쓰고, 이 맵은 keyword 매칭에만 쓴다.
+const resolvePhraseMissionTitlesBatch = async (phraseIds: string[]): Promise<Map<string, string>> => {
+    if (phraseIds.length === 0) return new Map();
+
+    const rows = await archiveRepository.findMissionTitlesForPhrases(phraseIds);
+    const map = new Map<string, string>();
+    for (const row of rows) {
+        const title = row.conversation?.mission?.title;
+        if (title) map.set(row.id, title);
+    }
+    return map;
+};
+
 // Archive_Items.item_type("report"/"weekly_compare")을 API 레벨 type("report")과
 // 구분 필드(reportType)로 변환한다 — 미션이 missionStatus로 완료/진행중을 나누는 것과 같은 방식.
 const toApiTypeAndReportType = (
@@ -291,6 +305,10 @@ export const searchArchives = async (
     const conversationExtrasMap = await resolveConversationExtrasBatch(
         rows.filter((row) => row.item_type === "conversation").map((row) => row.reference_id)
     );
+    // #241 — phrase의 reference_id는 Saved_Phrases.id.
+    const phraseMissionTitleMap = await resolvePhraseMissionTitlesBatch(
+        rows.filter((row) => row.item_type === "phrase").map((row) => row.reference_id)
+    );
 
     const itemsWithTitle: ArchiveSearchItemDto[] = await Promise.all(
         rows.map(async (row) => {
@@ -325,9 +343,19 @@ export const searchArchives = async (
     // 주의: 나중에 페이지네이션이 추가되면
     // DB에서 N개 가져온 뒤 그중 일부만 keyword/tag에 매칭되는 문제 발생
     // 이 때는 title을 Archive_Items에 비정규화 후 저장하는 방식 고려 필요
+    //
+    // #241 — phrase는 title(문장 내용)뿐 아니라 부모 미션 제목으로도 매칭한다. 미션 이름으로
+    // 검색해도 그 미션에서 저장한 문장이 결과에 나와야 한다는 요청 — 응답 필드는 그대로 두고
+    // 매칭 조건에만 반영한다.
     const tag = query.tag;
     const items = itemsWithTitle.filter((item) => {
-        if (keyword && !item.title.toLowerCase().includes(keyword)) return false;
+        if (keyword) {
+            const matchesTitle = item.title.toLowerCase().includes(keyword);
+            const matchesMissionTitle =
+                item.type === "phrase" &&
+                (phraseMissionTitleMap.get(item.referenceId)?.toLowerCase().includes(keyword) ?? false);
+            if (!matchesTitle && !matchesMissionTitle) return false;
+        }
         if (tag && !item.tags.includes(tag)) return false;
         return true;
     });

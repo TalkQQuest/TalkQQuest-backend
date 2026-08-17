@@ -66,6 +66,8 @@ beforeEach(() => {
   mockedRepo.createMissionFromRecommendation.mockResolvedValue({ id: "m-new" } as never);
   mockedRepo.createMissionForRecommendationLog.mockResolvedValue("m-new");
   mockedRepo.markRecommendationLogMissionCreated.mockResolvedValue({} as never);
+  // #245 — 기본값은 "재사용할 미션 없음"(새로 만든다). 재사용 테스트에서만 덮어쓴다.
+  mockedRepo.findMissionByTitleForReuse.mockResolvedValue(null);
   mockedRecommend.recommendMission.mockResolvedValue(recommended());
 });
 
@@ -145,6 +147,35 @@ describe("getTodayMission — 일일 캐시", () => {
 
     expect(mockedRecommend.recommendMission).toHaveBeenCalledTimes(1);
     expect(result.isNew).toBe(true);
+  });
+});
+
+// #245 — LLM이 서로 다른 요청(다른 유저·다른 날)에서 같은 제목의 미션을 반복 생성해
+// 완전히 동일한 미션이 목록에 중복으로 쌓이던 문제. 같은 제목(+같은 성향)의 미션이 이미
+// 있으면 새로 만들지 않고 재사용해야 한다.
+describe("getTodayMission — 같은 제목의 AI 미션 재사용(#245)", () => {
+  it("같은 제목·같은 성향의 미션이 이미 있으면 새로 만들지 않고 재사용한다", async () => {
+    mockedRepo.findMissionByTitleForReuse.mockResolvedValue({ id: "m-reused" } as never);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    expect(mockedRepo.findMissionByTitleForReuse).toHaveBeenCalledWith(
+      "카페에서 음료 추천 물어보기",
+      "introvert"
+    );
+    expect(mockedRepo.createMissionForRecommendationLog).not.toHaveBeenCalled();
+    expect(mockedRepo.createMissionFromRecommendation).not.toHaveBeenCalled();
+    expect(mockedRepo.markRecommendationLogMissionCreated).toHaveBeenCalledWith("log1", "m-reused");
+    expect(result.missionId).toBe("m-reused");
+  });
+
+  it("같은 제목의 미션이 없으면 평소대로 새로 만든다", async () => {
+    mockedRepo.findMissionByTitleForReuse.mockResolvedValue(null);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    expect(mockedRepo.createMissionForRecommendationLog).toHaveBeenCalledTimes(1);
+    expect(result.missionId).toBe("m-new");
   });
 });
 

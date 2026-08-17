@@ -422,6 +422,18 @@ export const createMissionFromRecommendation = (data: {
     },
   });
 
+// #245 — LLM이 서로 다른 요청에서 같은(또는 거의 같은) 제목의 미션을 반복 생성해서, 완전히
+// 동일한 미션이 목록에 중복으로 쌓이던 문제. AI 미션은 어차피 같은 성향의 다른 사용자에게도
+// 후보로 노출되는 설계라(buildVisibilityWhere의 similarPerformed), 같은 제목의 미션이 이미
+// 있으면 새로 만들지 않고 그 미션을 재사용한다. creator_personality_type까지 같아야 재사용
+// 대상으로 본다 — 다른 성향군끼리는 애초에 목록에서 서로 안 섞이므로 굳이 합칠 이유가 없다.
+export const findMissionByTitleForReuse = (title: string, personalityType: PersonalityType | null) =>
+  prisma.missions.findFirst({
+    where: { is_template: false, title, creator_personality_type: personalityType },
+    select: { id: true },
+    orderBy: { created_at: "asc" },
+  });
+
 // 저장 완료 후 로그에 생성된 mission_id를 백링크해 재요청 시 중복 생성을 막는다.
 export const markRecommendationLogMissionCreated = (logId: string, missionId: string) =>
   prisma.recommendation_Logs.update({

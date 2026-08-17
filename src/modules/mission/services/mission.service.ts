@@ -171,9 +171,10 @@ const materializeRecommendedMission = async (
     return recommended.missionId;
   }
 
-  // #245 — 같은 제목의 AI 미션이 이미 있으면 새로 만들지 않고 재사용한다. LLM이 서로 다른
-  // 요청(다른 유저·다른 날)에서 같은 문장을 반복 생성해 완전히 동일한 미션이 목록에 중복으로
-  // 쌓이던 문제를 막는다 — 어차피 같은 성향군에게는 이 미션이 공용 후보로 노출되는 설계다.
+  // #245 — 같은 제목·같은 성향의 AI 미션이 이미 있으면 새로 만들지 않고 재사용한다. LLM이
+  // 서로 다른 요청(다른 유저·다른 날)에서 같은 문장을 반복 생성해 완전히 동일한 미션이
+  // 목록에 중복으로 쌓이던 문제를 막는다. 성향까지 맞추는 이유는 findMissionByTitleForReuse
+  // 주석 참고 — 성향이 다르면 재사용된 미션을 그 사용자가 아예 못 보는 문제가 있었다.
   const reusable = await missionRepository.findMissionByTitleForReuse(
     recommended.title,
     personalityType

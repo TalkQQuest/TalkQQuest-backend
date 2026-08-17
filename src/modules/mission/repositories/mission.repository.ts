@@ -422,11 +422,17 @@ export const createMissionFromRecommendation = (data: {
     },
   });
 
-// #245 — LLM이 서로 다른 요청에서 같은(또는 거의 같은) 제목의 미션을 반복 생성해서, 완전히
-// 동일한 미션이 목록에 중복으로 쌓이던 문제. AI 미션은 어차피 같은 성향의 다른 사용자에게도
-// 후보로 노출되는 설계라(buildVisibilityWhere의 similarPerformed), 같은 제목의 미션이 이미
-// 있으면 새로 만들지 않고 그 미션을 재사용한다. creator_personality_type까지 같아야 재사용
-// 대상으로 본다 — 다른 성향군끼리는 애초에 목록에서 서로 안 섞이므로 굳이 합칠 이유가 없다.
+// #245 — LLM이 서로 다른 요청에서 같은 제목의 미션을 반복 생성해서, 완전히 동일한 미션이
+// 목록에 중복으로 쌓이던 문제. 같은 제목의 미션이 이미 있으면 새로 만들지 않고 재사용한다.
+//
+// creator_personality_type까지 같아야 재사용 대상으로 본다 — 실제 서버 테스트로 확인한
+// 결과, 성향을 빼고 제목만으로 매칭하면 다른 성향 사용자가 재사용한 미션을
+// GET /missions/{id}(findVisibleMissionById)와 GET /missions 목록에서 아예 볼 수 없는
+// 문제가 생긴다. buildVisibilityWhere의 "내가 만든 미션(mine)" 조건은
+// created_by_user_id만 보는데, 재사용된 미션의 created_by_user_id는 여전히 원래
+// 만든 사람 것이라 재사용한 사용자 본인 것으로 인정되지 않고, "남이 만든 미션
+// (similarPerformed)" 조건은 creator_personality_type이 요청자와 같아야 하므로
+// 성향이 다르면 그 조건에도 안 걸려 결국 어디에도 노출되지 않는다(404).
 export const findMissionByTitleForReuse = (title: string, personalityType: PersonalityType | null) =>
   prisma.missions.findFirst({
     where: { is_template: false, title, creator_personality_type: personalityType },

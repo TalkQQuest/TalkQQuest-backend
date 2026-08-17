@@ -141,7 +141,7 @@ describe("saveRecommendedMission", () => {
     );
   });
 
-  // #245 — 같은 제목·같은 성향의 미션이 이미 있으면 새로 만들지 않고 재사용한다.
+  // #245 — 같은 제목의 미션이 요청자에게 보이는(visible) 미션이면 새로 만들지 않고 재사용한다.
   it("같은 제목의 AI 미션이 이미 있으면 새로 만들지 않고 재사용해 백링크만 남긴다", async () => {
     mockedRepo.findRecommendationLogByIdAndUser.mockResolvedValue(buildLog());
     mockedRepo.findMissionByTitleForReuse.mockResolvedValue({ id: "m-reused" } as never);
@@ -150,6 +150,7 @@ describe("saveRecommendedMission", () => {
 
     expect(mockedRepo.findMissionByTitleForReuse).toHaveBeenCalledWith(
       "카페에서 음료 추천 물어보기",
+      "u1",
       "introvert"
     );
     expect(mockedRepo.createMissionForRecommendationLog).not.toHaveBeenCalled();

@@ -425,17 +425,29 @@ export const createMissionFromRecommendation = (data: {
 // #245 — LLM이 서로 다른 요청에서 같은 제목의 미션을 반복 생성해서, 완전히 동일한 미션이
 // 목록에 중복으로 쌓이던 문제. 같은 제목의 미션이 이미 있으면 새로 만들지 않고 재사용한다.
 //
-// creator_personality_type까지 같아야 재사용 대상으로 본다 — 실제 서버 테스트로 확인한
-// 결과, 성향을 빼고 제목만으로 매칭하면 다른 성향 사용자가 재사용한 미션을
-// GET /missions/{id}(findVisibleMissionById)와 GET /missions 목록에서 아예 볼 수 없는
-// 문제가 생긴다. buildVisibilityWhere의 "내가 만든 미션(mine)" 조건은
-// created_by_user_id만 보는데, 재사용된 미션의 created_by_user_id는 여전히 원래
-// 만든 사람 것이라 재사용한 사용자 본인 것으로 인정되지 않고, "남이 만든 미션
-// (similarPerformed)" 조건은 creator_personality_type이 요청자와 같아야 하므로
-// 성향이 다르면 그 조건에도 안 걸려 결국 어디에도 노출되지 않는다(404).
-export const findMissionByTitleForReuse = (title: string, personalityType: PersonalityType | null) =>
+// 재사용 대상은 반드시 요청자에게 buildVisibilityWhere 기준으로 "보이는" 미션이어야 한다.
+// 실제 서버 테스트(+코드래빗 리뷰)로 확인한 결과, 이 조건 없이 title(+personality)만으로
+// 매칭하면 재사용된 미션이 GET /missions/{id}·GET /missions에서 404가 나는 문제가 있었다.
+// buildVisibilityWhere의 "내가 만든 미션(mine)"은 created_by_user_id만 보고, "남이 만든
+// 미션(similarPerformed)"은 creator_personality_type이 같을 뿐 아니라 mission_records가
+// 하나 이상 있어야(=누군가 실제로 수행한 적 있어야) 노출된다 — 재사용 후보를 고를 때도
+// 정확히 같은 두 조건(OR)으로 좁혀야, 재사용해도 요청자가 그 미션을 바로 볼 수 있다.
+export const findMissionByTitleForReuse = (
+  title: string,
+  userId: string,
+  personalityType: PersonalityType | null
+) =>
   prisma.missions.findFirst({
-    where: { is_template: false, title, creator_personality_type: personalityType },
+    where: {
+      is_template: false,
+      title,
+      OR: [
+        { created_by_user_id: userId },
+        ...(personalityType
+          ? [{ creator_personality_type: personalityType, mission_records: { some: {} } }]
+          : []),
+      ],
+    },
     select: { id: true },
     orderBy: { created_at: "asc" },
   });

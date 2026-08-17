@@ -25,33 +25,74 @@ beforeEach(() => {
 });
 
 describe("notifyUser", () => {
-  it("인앱 알림을 만들고 같은 내용으로 푸시를 발송한다", async () => {
+  it("weekly_compare_ready는 인앱 알림을 만들고 같은 내용으로 푸시를 발송한다", async () => {
     mockedRepo.createNotification.mockResolvedValue({} as never);
     mockedPush.sendPushToUser.mockResolvedValue(undefined);
 
-    await notifyUser("u1", "report_ready", "제목", "본문", "report-1", "report");
+    await notifyUser("u1", "weekly_compare_ready", "제목", "본문", "report-1", "weekly_compare");
 
     expect(mockedRepo.createNotification).toHaveBeenCalledWith(
       "u1",
-      "report_ready",
+      "weekly_compare_ready",
       "제목",
       "본문",
       "report-1",
-      "report"
+      "weekly_compare"
     );
     expect(mockedPush.sendPushToUser).toHaveBeenCalledWith("u1", {
       title: "제목",
       body: "본문",
-      data: { type: "report_ready", referenceId: "report-1", referenceType: "report" },
+      data: {
+        type: "weekly_compare_ready",
+        referenceId: "report-1",
+        referenceType: "weekly_compare",
+      },
     });
   });
 
-  it("푸시 발송이 실패해도 예외를 던지지 않는다(인앱 알림은 이미 생성됨)", async () => {
+  it("mission_completed는 인앱 알림만 만들고 푸시는 발송하지 않는다", async () => {
+    mockedRepo.createNotification.mockResolvedValue({} as never);
+
+    await notifyUser("u1", "mission_completed", "미션 완료", "축하합니다", "record-1", "mission_record");
+
+    expect(mockedRepo.createNotification).toHaveBeenCalledWith(
+      "u1",
+      "mission_completed",
+      "미션 완료",
+      "축하합니다",
+      "record-1",
+      "mission_record"
+    );
+    expect(mockedPush.sendPushToUser).not.toHaveBeenCalled();
+  });
+
+  it("weekly_compare_ready 푸시 발송이 실패해도 예외를 던지지 않는다(인앱 알림은 이미 생성됨)", async () => {
     mockedRepo.createNotification.mockResolvedValue({} as never);
     mockedPush.sendPushToUser.mockRejectedValue(new Error("fcm down"));
 
-    await expect(notifyUser("u1", "report_ready", "제목")).resolves.toBeUndefined();
+    await expect(
+      notifyUser("u1", "weekly_compare_ready", "제목", "본문", "report-1", "weekly_compare")
+    ).resolves.toBeUndefined();
+
     expect(mockedRepo.createNotification).toHaveBeenCalledTimes(1);
+    expect(mockedRepo.createNotification).toHaveBeenCalledWith(
+      "u1",
+      "weekly_compare_ready",
+      "제목",
+      "본문",
+      "report-1",
+      "weekly_compare"
+    );
+    expect(mockedPush.sendPushToUser).toHaveBeenCalledTimes(1);
+    expect(mockedPush.sendPushToUser).toHaveBeenCalledWith("u1", {
+      title: "제목",
+      body: "본문",
+      data: {
+        type: "weekly_compare_ready",
+        referenceId: "report-1",
+        referenceType: "weekly_compare",
+      },
+    });
   });
 });
 

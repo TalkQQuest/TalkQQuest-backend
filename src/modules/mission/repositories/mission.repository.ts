@@ -81,6 +81,39 @@ export const countMissions = (params: {
   visibility: MissionVisibility;
 }) => prisma.missions.count({ where: buildMissionWhere(params) });
 
+// #246 — 1페이지 맨 앞에 끌어올릴 템플릿 후보를 고르기 위한 조회. 템플릿은 모두에게 공개라
+// visibility(성향) 조건이 필요 없다.
+export const findTemplateMissionIds = (params: { difficulty?: number; category?: string }) =>
+  prisma.missions.findMany({
+    where: {
+      is_template: true,
+      ...(params.difficulty !== undefined && { difficulty: params.difficulty }),
+      ...(params.category && { category: params.category }),
+    },
+    select: { id: true },
+    orderBy: { id: "asc" }, // 매번 같은 순서로 받아야 일별 시드 셔플 결과가 안정적이다.
+  });
+
+// #246 — 나머지(rest) 목록 조회. front로 뽑힌 템플릿은 어느 페이지에서도 다시 끼어들지
+// 않도록 매번 제외한다.
+export const findMissionsExcluding = (params: {
+  difficulty?: number;
+  category?: string;
+  visibility: MissionVisibility;
+  excludeIds: string[];
+  skip: number;
+  take: number;
+}) =>
+  prisma.missions.findMany({
+    where: { ...buildMissionWhere(params), id: { notIn: params.excludeIds } },
+    orderBy: { created_at: "desc" },
+    skip: params.skip,
+    take: params.take,
+  });
+
+export const findMissionsByIds = (ids: string[]) =>
+  prisma.missions.findMany({ where: { id: { in: ids } } });
+
 export const findMissionById = (missionId: string) =>
   prisma.missions.findUnique({ where: { id: missionId } });
 

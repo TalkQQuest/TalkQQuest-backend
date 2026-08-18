@@ -321,11 +321,16 @@ export const findActiveGoalsByUserId = (userId: string) =>
 // 난이도 조정·회피 유형 판단은 최근 몇 건만 보므로 take로 제한합니다.
 export const findRecentMissionRecords = (userId: string, limit: number) =>
   prisma.mission_Records.findMany({
-    where: { user_id: userId },
+    // 완료된 기록만 본다. in_progress를 포함하면 아직 안 끝난 미션이 "최근 난이도"나
+    // "연속 완료 횟수"(#244) 계산에 섞여 들어가 부정확해진다.
+    where: { user_id: userId, status: "completed" },
     include: {
       mission: { select: { id: true, title: true, category: true, difficulty: true } },
     },
-    orderBy: { created_at: "desc" },
+    // completed_at 기준으로 정렬한다. created_at(기록 생성 시점)과 완료 시점이 다를 수 있어,
+    // created_at으로 정렬하면 countLeadingStreak(#244)가 실제로 가장 최근 완료된 게 아닌
+    // 기록을 "최신"으로 잘못 볼 수 있다.
+    orderBy: { completed_at: "desc" },
     take: limit,
   });
 

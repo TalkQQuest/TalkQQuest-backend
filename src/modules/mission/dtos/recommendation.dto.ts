@@ -50,9 +50,10 @@ export interface GrowthHint {
 // 2단계 산출물 일부: 난이도가 어디서 왔는지 추적용(추천 로그에 남는다).
 export interface DifficultyDecision {
   baseDifficulty: number; // 최근 완료 미션 난이도 또는 성향 시드
-  targetDifficulty: number; // 성장 프로필 제안을 ±1로 클램프한 최종값
-  // base = 제안이 없거나 클램프 결과가 기준과 같음 / growth_profile = 제안이 반영됨
-  source: "base" | "growth_profile";
+  targetDifficulty: number; // 성장 프로필 제안 또는 연속 완료 승급을 반영한 최종값
+  // base = 제안도 승급도 없어 기준과 동일 / growth_profile = 성장 프로필 제안이 반영됨 /
+  // streak_promotion = 성장 프로필 제안이 없어(#244) 연속 완료 횟수로 승급됨
+  source: "base" | "growth_profile" | "streak_promotion";
 }
 
 // 2단계 최종 산출물: 이후 템플릿 조회/LLM 프롬프트에 힌트로 넘길 추천 기준.

@@ -3,8 +3,7 @@
 // 대화 플레이북 조회·수정 (운영·튜닝용).
 //
 // ⚠️ 플레이북은 **미션 단위로 모든 사용자가 공유**한다. 한 명이 고치면 그 미션으로 대화하는
-//    모두에게 적용되므로 사실상 관리자 기능이다. 현재 프로젝트에 관리자 역할이 없어
-//    인증만 통과하면 호출할 수 있다 — 운영 배포 전 권한 게이트를 반드시 추가할 것.
+//    모두에게 적용되므로 사실상 관리자 기능이다 — authorizeAdmin()으로 막는다(#240).
 
 import {
   Body,
@@ -21,7 +20,7 @@ import {
   SuccessResponse,
   Tags,
 } from "tsoa";
-import { authorizeUser } from "../../../middlewares/auth";
+import { authorizeAdmin, authorizeUser } from "../../../middlewares/auth";
 import { validate } from "../../../middlewares/validator";
 import { success, ApiResponse } from "../../../shared/utils/response";
 import {
@@ -42,8 +41,9 @@ export class PlaybookController extends Controller {
    */
   @Get("{missionId}/playbook")
   @Security("bearerAuth")
-  @Middlewares(authorizeUser())
+  @Middlewares(authorizeUser(), authorizeAdmin())
   @Response(401, "UNAUTHORIZED")
+  @Response(403, "FORBIDDEN")
   @Response(404, "MISSION_NOT_FOUND")
   @Response(404, "PLAYBOOK_NOT_FOUND")
   public async getPlaybook(@Path() missionId: string): Promise<ApiResponse<PlaybookResponseDto>> {
@@ -58,9 +58,10 @@ export class PlaybookController extends Controller {
    */
   @Put("{missionId}/playbook")
   @Security("bearerAuth")
-  @Middlewares(authorizeUser(), validate(playbookRequestSchema))
+  @Middlewares(authorizeUser(), authorizeAdmin(), validate(playbookRequestSchema))
   @Response(400, "VALIDATION_ERROR")
   @Response(401, "UNAUTHORIZED")
+  @Response(403, "FORBIDDEN")
   @Response(404, "MISSION_NOT_FOUND")
   public async replacePlaybook(
     @Path() missionId: string,
@@ -77,8 +78,9 @@ export class PlaybookController extends Controller {
    */
   @Post("{missionId}/playbook/regenerate")
   @Security("bearerAuth")
-  @Middlewares(authorizeUser())
+  @Middlewares(authorizeUser(), authorizeAdmin())
   @Response(401, "UNAUTHORIZED")
+  @Response(403, "FORBIDDEN")
   @Response(404, "MISSION_NOT_FOUND")
   @Response(503, "PLAYBOOK_GENERATION_FAILED")
   public async regeneratePlaybook(
@@ -95,9 +97,10 @@ export class PlaybookController extends Controller {
    */
   @Delete("{missionId}/playbook")
   @Security("bearerAuth")
-  @Middlewares(authorizeUser())
+  @Middlewares(authorizeUser(), authorizeAdmin())
   @SuccessResponse(200, "OK")
   @Response(401, "UNAUTHORIZED")
+  @Response(403, "FORBIDDEN")
   @Response(404, "MISSION_NOT_FOUND")
   @Response(404, "PLAYBOOK_NOT_FOUND")
   public async deletePlaybook(@Path() missionId: string): Promise<ApiResponse<null>> {

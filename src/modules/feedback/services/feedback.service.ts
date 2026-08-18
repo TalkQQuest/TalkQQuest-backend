@@ -43,6 +43,36 @@ export const hasSufficientUserInput = (messages: { role: string; content: string
   return userMessages.length >= MIN_USER_MESSAGES && totalChars >= MIN_USER_CHARS;
 };
 
+// 최소 기준(MIN_USER_MESSAGES/MIN_USER_CHARS)을 겨우 넘긴 정도로는 진지한 대화 참여로 볼 수
+// 없다. 채점 프롬프트에 "50~59점: 최소한의 의사 표현만 했고 그 이상의 노력은 없는 경우"라는
+// 밴드가 명시돼 있음에도 LLM이 이를 지키지 않는 사례가 확인되어(#247), 서버에서 점수 상한을
+// 강제한다. 글자 수 기준을 2배 넘겨야("더 노력했다"고 볼 근거) 상한을 풀어준다.
+const MINIMAL_INPUT_CHAR_MULTIPLIER = 2;
+const MINIMAL_INPUT_SCORE_CAP = 59;
+
+const isMinimalInput = (messages: { role: string; content: string }[]): boolean => {
+  const userMessages = messages.filter((m) => m.role === "user");
+  const totalChars = userMessages.reduce((sum, m) => sum + m.content.trim().length, 0);
+  return totalChars < MIN_USER_CHARS * MINIMAL_INPUT_CHAR_MULTIPLIER;
+};
+
+// 최소 수준 입력이면 4개 지표 점수 전부를 상한으로 클램프한다. 최소 기준을 넘었다면
+// 점수를 부풀리지 않고, LLM이 이미 더 낮게 매겼다면 그 값을 그대로 존중한다(내리지 않음).
+const applyMinimalInputCap = (
+  metrics: FeedbackLlmResult["metrics"]
+): FeedbackLlmResult["metrics"] => {
+  const cap = (metric: FeedbackLlmResult["metrics"]["kindness"]) => ({
+    ...metric,
+    score: Math.min(metric.score, MINIMAL_INPUT_SCORE_CAP),
+  });
+  return {
+    kindness: cap(metrics.kindness),
+    initiative: cap(metrics.initiative),
+    empathy: cap(metrics.empathy),
+    questionLink: cap(metrics.questionLink),
+  };
+};
+
 const assertSufficientInput = (messages: { role: string; content: string }[]): void => {
   if (!hasSufficientUserInput(messages)) {
     throw new FeedbackInputTooShortError();
@@ -165,12 +195,19 @@ const runGeneration = async (
     return;
   }
 
+  // 채점 프롬프트가 "최소한의 의사 표현만 한 경우 50~59점"을 명시하고 있음에도 LLM이 이를
+  // 지키지 않는 사례가 있어(#247), 발화 분량이 최소 기준을 겨우 넘긴 수준이면 서버에서
+  // 점수 상한을 강제한다.
+  const metrics = isMinimalInput(transcript)
+    ? applyMinimalInputCap(result.metrics)
+    : result.metrics;
+
   await feedbackRepository.markFeedbackReady(feedbackId, {
-    kindnessScore: result.metrics.kindness.score,
-    initiativeScore: result.metrics.initiative.score,
-    empathyScore: result.metrics.empathy.score,
-    questionLinkScore: result.metrics.questionLink.score,
-    metrics: buildMetricsArray(result.metrics),
+    kindnessScore: metrics.kindness.score,
+    initiativeScore: metrics.initiative.score,
+    empathyScore: metrics.empathy.score,
+    questionLinkScore: metrics.questionLink.score,
+    metrics: buildMetricsArray(metrics),
     missionSummary: result.missionSummary,
     summaryChips: result.summaryChips,
     conversationSummary: result.conversationSummary,

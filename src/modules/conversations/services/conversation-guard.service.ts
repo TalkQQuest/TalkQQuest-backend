@@ -143,9 +143,26 @@ export type ReplyRejectionReason =
 const AI_SELF_REFERENCE = /(ai|에이아이|인공지능|챗봇|언어\s*모델|어시스턴트|도우미)/i;
 
 // 답변이 몇 문장인지 대략 센다(종결 부호 기준). 규칙은 1~2문장이고 3문장까지 허용한다.
+//
+// #252 — "어, 펜?", "아 이게?" 같은 맨 앞의 짧은 감탄사·되물음이 종결 부호(?) 하나로
+// 끝난다는 이유만으로 "문장 하나"로 세져서, 실제로는 자연스러운 1~2문장짜리 답("어, 펜?
+// 이건 내가 좋아하는 샤프야. 근데 너 취미는 뭐야?")이 4문장으로 계산돼 too_long으로
+// 거부되는 경우가 실측 확인됐다. **맨 앞** 조각이 아주 짧을 때만 다음 조각에 붙여 하나로
+// 센다 — 뒤이은 조각들까지 전부 이렇게 봐주면 "네. 그렇군요. 저도요. 정말 좋네요. 또
+// 얘기해요."처럼 짧은 문장을 속사포로 늘어놓는 진짜 too_long 사례까지 통과시켜 버린다.
 const MAX_SENTENCES = 3;
-const countSentences = (text: string): number =>
-  text.split(/[.!?。！？]+/).filter((part) => part.trim().length > 0).length;
+const MIN_STANDALONE_SENTENCE_LENGTH = 5;
+const countSentences = (text: string): number => {
+  const parts = text
+    .split(/[.!?。！？]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  if (parts.length === 0) return 0;
+
+  const startsWithInterjection = parts[0].length <= MIN_STANDALONE_SENTENCE_LENGTH;
+  return startsWithInterjection ? Math.max(1, parts.length - 1) : parts.length;
+};
 
 // 생성된 답변이 규칙을 지켰는지 본다. 통과하면 null, 어기면 사유를 돌려준다.
 // cleanReply를 거친 문자열을 넣어야 한다(세척으로 해결되는 건 여기서 거르지 않기 위함).

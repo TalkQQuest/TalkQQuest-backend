@@ -66,6 +66,8 @@ beforeEach(() => {
   mockedRepo.createMissionFromRecommendation.mockResolvedValue({ id: "m-new" } as never);
   mockedRepo.createMissionForRecommendationLog.mockResolvedValue("m-new");
   mockedRepo.markRecommendationLogMissionCreated.mockResolvedValue({} as never);
+  // #245 — 기본값은 "재사용할 미션 없음"(새로 만든다). 재사용 테스트에서만 덮어쓴다.
+  mockedRepo.findMissionByTitleForReuse.mockResolvedValue(null);
   mockedRecommend.recommendMission.mockResolvedValue(recommended());
 });
 
@@ -145,6 +147,40 @@ describe("getTodayMission — 일일 캐시", () => {
 
     expect(mockedRecommend.recommendMission).toHaveBeenCalledTimes(1);
     expect(result.isNew).toBe(true);
+  });
+});
+
+// #245 — LLM이 서로 다른 요청(다른 유저·다른 날)에서 같은 제목의 미션을 반복 생성해
+// 완전히 동일한 미션이 목록에 중복으로 쌓이던 문제. 같은 제목의 미션이 요청자에게
+// 보이는(visible) 미션이면 새로 만들지 않고 재사용해야 한다 — 재사용해도 요청자가 그
+// 미션을 목록/상세에서 바로 볼 수 있어야 한다(코드래빗 리뷰: 안 보이는 미션을 재사용하면
+// GET /missions/{id}가 404가 나는 회귀가 있었다).
+describe("getTodayMission — 같은 제목의 AI 미션 재사용(#245)", () => {
+  it("같은 제목의 미션이 이미 있으면 새로 만들지 않고 재사용한다", async () => {
+    mockedRepo.findMissionByTitleForReuse.mockResolvedValue({ id: "m-reused" } as never);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    // findMissionByTitleForReuse가 buildVisibilityWhere와 같은 기준(mine 또는
+    // 성향+mission_records)으로 걸러주므로, userId도 함께 넘겨야 한다.
+    expect(mockedRepo.findMissionByTitleForReuse).toHaveBeenCalledWith(
+      "카페에서 음료 추천 물어보기",
+      "u1",
+      "introvert"
+    );
+    expect(mockedRepo.createMissionForRecommendationLog).not.toHaveBeenCalled();
+    expect(mockedRepo.createMissionFromRecommendation).not.toHaveBeenCalled();
+    expect(mockedRepo.markRecommendationLogMissionCreated).toHaveBeenCalledWith("log1", "m-reused");
+    expect(result.missionId).toBe("m-reused");
+  });
+
+  it("같은 제목의 미션이 없으면 평소대로 새로 만든다", async () => {
+    mockedRepo.findMissionByTitleForReuse.mockResolvedValue(null);
+
+    const result = await getTodayMission("u1", { date: TODAY });
+
+    expect(mockedRepo.createMissionForRecommendationLog).toHaveBeenCalledTimes(1);
+    expect(result.missionId).toBe("m-new");
   });
 });
 

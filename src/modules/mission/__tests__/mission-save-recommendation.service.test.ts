@@ -57,6 +57,8 @@ const buildLog = (overrides: Record<string, unknown> = {}) =>
 beforeEach(() => {
   jest.clearAllMocks();
   mockedRepo.findUserPersonalityType.mockResolvedValue("introvert");
+  // #245 — 기본값은 "재사용할 미션 없음"(새로 만든다). 재사용 테스트에서만 덮어쓴다.
+  mockedRepo.findMissionByTitleForReuse.mockResolvedValue(null);
 });
 
 describe("saveRecommendedMission", () => {
@@ -137,5 +139,22 @@ describe("saveRecommendedMission", () => {
     await expect(saveRecommendedMission("u1", "log1")).rejects.toBeInstanceOf(
       RecommendationLogNotFoundError
     );
+  });
+
+  // #245 — 같은 제목의 미션이 요청자에게 보이는(visible) 미션이면 새로 만들지 않고 재사용한다.
+  it("같은 제목의 AI 미션이 이미 있으면 새로 만들지 않고 재사용해 백링크만 남긴다", async () => {
+    mockedRepo.findRecommendationLogByIdAndUser.mockResolvedValue(buildLog());
+    mockedRepo.findMissionByTitleForReuse.mockResolvedValue({ id: "m-reused" } as never);
+
+    const result = await saveRecommendedMission("u1", "log1");
+
+    expect(mockedRepo.findMissionByTitleForReuse).toHaveBeenCalledWith(
+      "카페에서 음료 추천 물어보기",
+      "u1",
+      "introvert"
+    );
+    expect(mockedRepo.createMissionForRecommendationLog).not.toHaveBeenCalled();
+    expect(mockedRepo.markRecommendationLogMissionCreated).toHaveBeenCalledWith("log1", "m-reused");
+    expect(result).toEqual({ missionId: "m-reused" });
   });
 });

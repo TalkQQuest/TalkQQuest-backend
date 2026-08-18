@@ -22,7 +22,10 @@ export type UpstageChatResult =
   | { ok: false; reason: "no_api_key" | "timeout" | "network_error" | "empty_response" }
   | { ok: false; reason: "http_error"; status: number };
 
-const REQUEST_TIMEOUT_MS = 10000;
+// #252 — 대화 응답 파이프라인이 생성 + 관련성 검증(judge) 호출을 연달아 여러 번 태울 수
+// 있게 되면서, 너무 타이트한 타임아웃이 정상적으로 끝났을 호출까지 잘라내고 재시도만
+// 늘리는 역효과가 날 수 있다. 응답 시간보다 완성도를 우선한다는 방향에 맞춰 여유를 둔다.
+const REQUEST_TIMEOUT_MS = 15000;
 
 const fetchWithTimeout = async (url: string, init: RequestInit): Promise<Response> => {
   const controller = new AbortController();

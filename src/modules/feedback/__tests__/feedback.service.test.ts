@@ -165,6 +165,108 @@ describe("createFeedback", () => {
     expect(mockedRepo.createPendingFeedback).not.toHaveBeenCalled();
   });
 
+  // #247 — 채점 프롬프트에 "최소한의 의사 표현만 한 경우 50~59점" 밴드가 명시돼 있음에도
+// LLM이 이를 지키지 않아 실제로는 80점대가 나오는 사례가 있었다. 발화 분량이 최소 기준을
+// 겨우 넘긴 수준이면 서버에서 점수 상한(59점)을 강제한다.
+describe("createFeedback — 최소 입력 점수 상한(#247)", () => {
+  it("발화가 최소 기준을 겨우 넘긴 수준이면 LLM 점수가 높아도 59점으로 클램프된다", async () => {
+    // 기본 buildConversation()의 user 발화 2개, 총 글자 수는 40자 미만(최소 기준의 2배 미만)이라
+    // isMinimalInput이 true가 되는 케이스다.
+    mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
+    mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
+    mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
+    mockedGenerate.mockResolvedValue(llmSuccess()); // validMetric.score = 90
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
+
+    await createFeedback("u1", { conversationId: "c1" });
+
+    expect(mockedRepo.markFeedbackReady).toHaveBeenCalledWith(
+      "f1",
+      expect.objectContaining({
+        kindnessScore: 59,
+        initiativeScore: 59,
+        empathyScore: 59,
+        questionLinkScore: 59,
+      })
+    );
+  });
+
+  it("발화가 충분히 많으면 LLM 점수가 그대로 유지된다", async () => {
+    mockedRepo.findConversationForFeedback.mockResolvedValue(
+      buildConversation({
+        messages: [
+          {
+            role: "user",
+            content:
+              "안녕하세요! 오늘 날씨가 정말 좋네요. 이 근처 자주 오시나요? 저는 오늘 처음 와봤는데 분위기가 참 좋은 것 같아요.",
+          },
+          { role: "guide", content: "그러게요, 저도 여기 자주 와요" },
+          {
+            role: "user",
+            content:
+              "그렇군요! 혹시 추천해주실 만한 메뉴가 있을까요? 저는 커피 종류를 잘 몰라서 고민이 되네요.",
+          },
+        ],
+      })
+    );
+    mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
+    mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
+    mockedGenerate.mockResolvedValue(llmSuccess()); // validMetric.score = 90
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
+
+    await createFeedback("u1", { conversationId: "c1" });
+
+    expect(mockedRepo.markFeedbackReady).toHaveBeenCalledWith(
+      "f1",
+      expect.objectContaining({
+        kindnessScore: 90,
+        initiativeScore: 90,
+        empathyScore: 90,
+        questionLinkScore: 90,
+      })
+    );
+  });
+
+  it("최소 입력이어도 LLM이 이미 상한보다 낮은 점수를 줬다면 그대로 유지한다(더 깎지 않음)", async () => {
+    const lowMetric = {
+      score: 40,
+      strengths: ["잘했어요"],
+      improvements: ["더 해보세요"],
+      bestSentence: "안녕하세요",
+    };
+    mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
+    mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
+    mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
+    mockedGenerate.mockResolvedValue({
+      metrics: {
+        kindness: lowMetric,
+        initiative: lowMetric,
+        empathy: lowMetric,
+        questionLink: lowMetric,
+      },
+      missionSummary: ["장소 경험을 공유했어요"],
+      summaryChips: ["자기성장", "첫 만남", "스몰토크"],
+      conversationSummary: "카페에서 처음 만난 사람과 날씨 이야기를 나눴습니다.",
+      cardSummary: "처음 만난 사람과 인사를 나눴어요.",
+      conversationHighlights: ["먼저 인사를 건넸어요", "날씨 이야기로 대화를 이어갔어요"],
+      savedPhrase: "오늘 날씨가 좋네요.",
+    });
+    mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
+
+    await createFeedback("u1", { conversationId: "c1" });
+
+    expect(mockedRepo.markFeedbackReady).toHaveBeenCalledWith(
+      "f1",
+      expect.objectContaining({
+        kindnessScore: 40,
+        initiativeScore: 40,
+        empathyScore: 40,
+        questionLinkScore: 40,
+      })
+    );
+  });
+});
+
   it("기존 피드백이 없으면 새로 만들고 동기로 생성해 ready로 반환한다", async () => {
     mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
     mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);

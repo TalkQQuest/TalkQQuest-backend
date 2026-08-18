@@ -142,10 +142,43 @@ export type ReplyRejectionReason =
 // AI·도우미 정체를 가리키는 표현. 이 단어가 보이면 정확히 고정 문구여야 한다.
 const AI_SELF_REFERENCE = /(ai|에이아이|인공지능|챗봇|언어\s*모델|어시스턴트|도우미)/i;
 
-// 답변이 몇 문장인지 대략 센다(종결 부호 기준). 규칙은 1~2문장이고 3문장까지 허용한다.
-const MAX_SENTENCES = 3;
-const countSentences = (text: string): number =>
-  text.split(/[.!?。！？]+/).filter((part) => part.trim().length > 0).length;
+// 답변이 몇 문장인지 대략 센다(종결 부호 기준). 규칙은 1~2문장이고 4문장까지 허용한다.
+//
+// #252 — "어, 펜?", "아 이게?" 같은 맨 앞의 짧은 감탄사·되물음이 종결 부호(?) 하나로
+// 끝난다는 이유만으로 "문장 하나"로 세져서, 실제로는 자연스러운 1~2문장짜리 답("어, 펜?
+// 이건 내가 좋아하는 샤프야. 근데 너 취미는 뭐야?")이 4문장으로 계산돼 too_long으로
+// 거부되는 경우가 실측 확인됐다. **맨 앞** 조각이 아주 짧을 때만 다음 조각에 붙여 하나로
+// 센다 — 뒤이은 조각들까지 전부 이렇게 봐주면 "네. 그렇군요. 저도요. 정말 좋네요. 또
+// 얘기해요."처럼 짧은 문장을 속사포로 늘어놓는 진짜 too_long 사례까지 통과시켜 버린다.
+//
+// 상한을 3 → 4로도 살짝 올렸다. 여러 미션·설정으로 폭넓게 실측한 결과(#252), 특히
+// 친밀도가 아주 높고 격식이 낮은 반말 배역은 감탄사를 걸러낸 뒤에도 자연스럽게 4문장
+// (반응+정보+되묻는 질문 2개 등)이 나오는 경우가 잦아, 정상적인 답변까지 재시도만
+// 반복하다 무관한 정적 폴백으로 떨어지는 사례가 실측에서 확인됐다.
+const MAX_SENTENCES = 4;
+const MIN_STANDALONE_SENTENCE_LENGTH = 5;
+// 맨 앞 조각이 "감탄사·되물음"인지 판단하는 기준. 길이만 보면 "네.", "그래요." 같은
+// 평범한 짧은 평서문까지 감탄사로 오인해 병합해버려, 짧은 문장을 여러 개 늘어놓은
+// 진짜 too_long 사례가 병합 한 번으로 상한(4)을 피해가는 경계 케이스가 생긴다(#254 리뷰 지적).
+// 되물음(끝이 물음표)이거나, 흔한 감탄사로 시작할 때만 병합 대상으로 좁힌다.
+const INTERJECTION_START = /^(어|아|음|오|엥|헐|와|아이고|아하|허|흠|참|자|저기|그니까|근데)\b/;
+const countSentences = (text: string): number => {
+  // 종결 부호를 유지한 채로 나눠야 맨 앞 조각이 되물음(?)이었는지 알 수 있다.
+  const parts = (text.match(/[^.!?。！？]+[.!?。！？]*/g) ?? [])
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  if (parts.length === 0) return 0;
+
+  const first = parts[0];
+  const isRhetoricalQuestion = /[?？]\s*$/.test(first);
+  const strippedFirst = first.replace(/[.!?。！？,、\s]/g, "");
+  const isShortInterjection =
+    strippedFirst.length <= MIN_STANDALONE_SENTENCE_LENGTH &&
+    (isRhetoricalQuestion || INTERJECTION_START.test(first));
+
+  return isShortInterjection ? Math.max(1, parts.length - 1) : parts.length;
+};
 
 // 생성된 답변이 규칙을 지켰는지 본다. 통과하면 null, 어기면 사유를 돌려준다.
 // cleanReply를 거친 문자열을 넣어야 한다(세척으로 해결되는 건 여기서 거르지 않기 위함).

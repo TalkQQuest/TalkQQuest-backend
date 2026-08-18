@@ -81,6 +81,39 @@ export const countMissions = (params: {
   visibility: MissionVisibility;
 }) => prisma.missions.count({ where: buildMissionWhere(params) });
 
+// #246 — 1페이지 맨 앞에 끌어올릴 템플릿 후보를 고르기 위한 조회. 템플릿은 모두에게 공개라
+// visibility(성향) 조건이 필요 없다.
+export const findTemplateMissionIds = (params: { difficulty?: number; category?: string }) =>
+  prisma.missions.findMany({
+    where: {
+      is_template: true,
+      ...(params.difficulty !== undefined && { difficulty: params.difficulty }),
+      ...(params.category && { category: params.category }),
+    },
+    select: { id: true },
+    orderBy: { id: "asc" }, // 매번 같은 순서로 받아야 일별 시드 셔플 결과가 안정적이다.
+  });
+
+// #246 — 나머지(rest) 목록 조회. front로 뽑힌 템플릿은 어느 페이지에서도 다시 끼어들지
+// 않도록 매번 제외한다.
+export const findMissionsExcluding = (params: {
+  difficulty?: number;
+  category?: string;
+  visibility: MissionVisibility;
+  excludeIds: string[];
+  skip: number;
+  take: number;
+}) =>
+  prisma.missions.findMany({
+    where: { ...buildMissionWhere(params), id: { notIn: params.excludeIds } },
+    orderBy: { created_at: "desc" },
+    skip: params.skip,
+    take: params.take,
+  });
+
+export const findMissionsByIds = (ids: string[]) =>
+  prisma.missions.findMany({ where: { id: { in: ids } } });
+
 export const findMissionById = (missionId: string) =>
   prisma.missions.findUnique({ where: { id: missionId } });
 
@@ -288,11 +321,16 @@ export const findActiveGoalsByUserId = (userId: string) =>
 // 난이도 조정·회피 유형 판단은 최근 몇 건만 보므로 take로 제한합니다.
 export const findRecentMissionRecords = (userId: string, limit: number) =>
   prisma.mission_Records.findMany({
-    where: { user_id: userId },
+    // 완료된 기록만 본다. in_progress를 포함하면 아직 안 끝난 미션이 "최근 난이도"나
+    // "연속 완료 횟수"(#244) 계산에 섞여 들어가 부정확해진다.
+    where: { user_id: userId, status: "completed" },
     include: {
       mission: { select: { id: true, title: true, category: true, difficulty: true } },
     },
-    orderBy: { created_at: "desc" },
+    // completed_at 기준으로 정렬한다. created_at(기록 생성 시점)과 완료 시점이 다를 수 있어,
+    // created_at으로 정렬하면 countLeadingStreak(#244)가 실제로 가장 최근 완료된 게 아닌
+    // 기록을 "최신"으로 잘못 볼 수 있다.
+    orderBy: { completed_at: "desc" },
     take: limit,
   });
 
@@ -420,6 +458,36 @@ export const createMissionFromRecommendation = (data: {
       created_by_user_id: data.createdByUserId,
       creator_personality_type: data.creatorPersonalityType,
     },
+  });
+
+// #245 — LLM이 서로 다른 요청에서 같은 제목의 미션을 반복 생성해서, 완전히 동일한 미션이
+// 목록에 중복으로 쌓이던 문제. 같은 제목의 미션이 이미 있으면 새로 만들지 않고 재사용한다.
+//
+// 재사용 대상은 반드시 요청자에게 buildVisibilityWhere 기준으로 "보이는" 미션이어야 한다.
+// 실제 서버 테스트(+코드래빗 리뷰)로 확인한 결과, 이 조건 없이 title(+personality)만으로
+// 매칭하면 재사용된 미션이 GET /missions/{id}·GET /missions에서 404가 나는 문제가 있었다.
+// buildVisibilityWhere의 "내가 만든 미션(mine)"은 created_by_user_id만 보고, "남이 만든
+// 미션(similarPerformed)"은 creator_personality_type이 같을 뿐 아니라 mission_records가
+// 하나 이상 있어야(=누군가 실제로 수행한 적 있어야) 노출된다 — 재사용 후보를 고를 때도
+// 정확히 같은 두 조건(OR)으로 좁혀야, 재사용해도 요청자가 그 미션을 바로 볼 수 있다.
+export const findMissionByTitleForReuse = (
+  title: string,
+  userId: string,
+  personalityType: PersonalityType | null
+) =>
+  prisma.missions.findFirst({
+    where: {
+      is_template: false,
+      title,
+      OR: [
+        { created_by_user_id: userId },
+        ...(personalityType
+          ? [{ creator_personality_type: personalityType, mission_records: { some: {} } }]
+          : []),
+      ],
+    },
+    select: { id: true },
+    orderBy: { created_at: "asc" },
   });
 
 // 저장 완료 후 로그에 생성된 mission_id를 백링크해 재요청 시 중복 생성을 막는다.

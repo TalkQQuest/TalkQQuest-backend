@@ -2,6 +2,7 @@
 import { PersonalityType, Prisma } from "@prisma/client";
 import { z } from "zod";
 import * as missionRepository from "../repositories/mission.repository";
+import { MissionVisibility } from "../repositories/mission.repository";
 import { DuplicatedError } from "../../../shared/errors/common.error";
 import {
   InvalidMissionDateError,
@@ -75,6 +76,119 @@ const toListItemDto = (
   isMine: !mission.is_template && mission.created_by_user_id === userId,
 });
 
+// #246 — AI 생성 미션이 계속 쌓이면서 created_at desc 정렬만으로는 핵심 템플릿 미션이
+// 뒤로 밀려 안 보이는 문제. 완료 안 한 템플릿 몇 개를 1페이지 맨 앞으로 끌어올린다.
+const FRONT_TEMPLATE_COUNT = 4;
+// 템플릿을 전부 완료했어도 다시 해볼 수 있게 완료한 것 중 일부는 보여준다.
+const FRONT_TEMPLATE_COUNT_WHEN_ALL_COMPLETED = 2;
+
+// 같은 유저가 하루 안에 페이지를 넘기는 동안은 "맨 앞 템플릿" 구성이 흔들리면 안 된다
+// (2페이지 조회 시 다른 조합이 뽑히면 어떤 템플릿을 뺴야 할지 알 수 없어 중복/누락이 생김).
+// 그렇다고 완전히 고정하면 "랜덤"이 아니므로, userId+오늘 날짜(KST)로 시드를 고정해 그날
+// 안에는 결정적이고 다음 날에는 다시 섞이는 "일별 고정 랜덤"으로 구현한다.
+const hashSeed = (input: string): number => {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+
+const mulberry32 = (seed: number): (() => number) => {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const seededShuffle = <T,>(items: T[], seed: number): T[] => {
+  const rng = mulberry32(seed);
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
+// 완료 안 한 템플릿 중 최대 FRONT_TEMPLATE_COUNT개(부족하면 있는 만큼)를 그날 고정 랜덤으로
+// 고른다. 전부 완료했다면 완료한 것 중 최대 FRONT_TEMPLATE_COUNT_WHEN_ALL_COMPLETED개를 고른다.
+// 템플릿이 아예 없거나 difficulty/category 필터에 걸리는 템플릿이 없으면 빈 배열(기존 동작 유지).
+const pickFrontTemplateIds = async (
+  userId: string,
+  difficulty?: number,
+  category?: string
+): Promise<string[]> => {
+  const templateRows = await missionRepository.findTemplateMissionIds({ difficulty, category });
+  const templateIds = templateRows.map((row) => row.id);
+  if (templateIds.length === 0) return [];
+
+  const records = await missionRepository.findLatestMissionRecordsByMissionIds(userId, templateIds);
+  const completedIds = [...new Set(
+    records.filter((r) => r.status === "completed").map((r) => r.mission_id)
+  )];
+  const completedSet = new Set(completedIds);
+  const incompleteIds = templateIds.filter((id) => !completedSet.has(id));
+
+  const seed = hashSeed(`${userId}:${todayInKst()}`);
+  if (incompleteIds.length > 0) {
+    return seededShuffle(incompleteIds, seed).slice(0, FRONT_TEMPLATE_COUNT);
+  }
+  return seededShuffle(completedIds, seed).slice(0, FRONT_TEMPLATE_COUNT_WHEN_ALL_COMPLETED);
+};
+
+// front로 뽑힌 템플릿(있다면)을 앞세우고, 나머지는 기존처럼 created_at desc로 이어 붙인
+// "가상의 한 목록"을 페이지네이션한다. frontTemplateIds는 페이지와 무관하게 항상 같은
+// 값으로 재계산되므로(그날 고정), 2페이지 이후 조회에서도 어느 페이지에도 다시 끼어들지
+// 않고 정확히 한 번만 노출된다.
+const findMissionsPage = async (params: {
+  difficulty?: number;
+  category?: string;
+  visibility: MissionVisibility;
+  page: number;
+  size: number;
+  frontTemplateIds: string[];
+}) => {
+  const { difficulty, category, visibility, page, size, frontTemplateIds } = params;
+  if (frontTemplateIds.length === 0) {
+    return missionRepository.findMissions({ difficulty, category, visibility, page, size });
+  }
+
+  const skipVirtual = (page - 1) * size;
+  const frontStart = Math.min(skipVirtual, frontTemplateIds.length);
+  const frontEnd = Math.min(skipVirtual + size, frontTemplateIds.length);
+  const frontSliceIds = frontTemplateIds.slice(frontStart, frontEnd);
+  const restTake = size - frontSliceIds.length;
+  const restSkip = Math.max(0, skipVirtual - frontTemplateIds.length);
+
+  const [frontRows, restRows] = await Promise.all([
+    frontSliceIds.length > 0 ? missionRepository.findMissionsByIds(frontSliceIds) : [],
+    restTake > 0
+      ? missionRepository.findMissionsExcluding({
+          difficulty,
+          category,
+          visibility,
+          excludeIds: frontTemplateIds,
+          skip: restSkip,
+          take: restTake,
+        })
+      : [],
+  ]);
+
+  // findMissionsByIds는 DB가 정한 순서로 돌아오므로, 뽑았던(셔플된) 순서로 다시 맞춘다.
+  const frontById = new Map(frontRows.map((row) => [row.id, row]));
+  const orderedFront = frontSliceIds
+    .map((id) => frontById.get(id))
+    .filter((row): row is (typeof frontRows)[number] => row !== undefined);
+
+  return [...orderedFront, ...restRows];
+};
+
 // 미션 목록 = 템플릿 미션 + 내가 받은 AI 미션 + 나와 같은 성향의 사용자가 실제로 수행한 AI 미션.
 // 어떤 미션이 보이는지는 성향에 따라 달라지므로 목록/카운트 모두 같은 visibility로 조회한다.
 export const getMissions = async (
@@ -88,13 +202,20 @@ export const getMissions = async (
   const personalityType = await missionRepository.findUserPersonalityType(userId);
   const visibility = { userId, personalityType, origin: query.origin };
 
+  // origin을 명시해 템플릿/AI 중 하나만 좁혀 조회할 때는 "섞어서 앞세울" 대상이 없으므로
+  // 기존 동작(created_at desc)을 그대로 쓴다.
+  const frontTemplateIds = query.origin
+    ? []
+    : await pickFrontTemplateIds(userId, difficultyInt, query.category);
+
   const [missions, totalCount] = await Promise.all([
-    missionRepository.findMissions({
+    findMissionsPage({
       difficulty: difficultyInt,
       category: query.category,
       visibility,
       page,
       size,
+      frontTemplateIds,
     }),
     missionRepository.countMissions({
       difficulty: difficultyInt,
@@ -169,6 +290,22 @@ const materializeRecommendedMission = async (
       );
     }
     return recommended.missionId;
+  }
+
+  // #245 — 같은 제목의 AI 미션이 이미 있고, 그 미션이 요청자에게 보이는(visible) 미션이면
+  // 새로 만들지 않고 재사용한다. LLM이 서로 다른 요청(다른 유저·다른 날)에서 같은 문장을
+  // 반복 생성해 완전히 동일한 미션이 목록에 중복으로 쌓이던 문제를 막는다. "보이는" 조건까지
+  // 확인하는 이유는 findMissionByTitleForReuse 주석 참고.
+  const reusable = await missionRepository.findMissionByTitleForReuse(
+    recommended.title,
+    userId,
+    personalityType
+  );
+  if (reusable) {
+    if (recommendationLogId) {
+      await missionRepository.markRecommendationLogMissionCreated(recommendationLogId, reusable.id);
+    }
+    return reusable.id;
   }
 
   const missionData = {

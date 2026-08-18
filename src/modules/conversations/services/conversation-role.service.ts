@@ -94,6 +94,30 @@ const parseRoleSetup = (raw: string): RoleSetup => {
   };
 };
 
+// #250 — persona가 "동아리 1년차 선배, 친근한 존댓말"처럼 AI 자신의 배역만 서술하고,
+// 그 배역 기준으로 "사용자를 어떻게 대해야 하는지(호칭·태도의 방향)"는 명시하지 않았다.
+// 그래서 사용자가 먼저 "선배님"이라고 부르면 LLM이 그 호칭을 그대로 반사해 역할이
+// 뒤집히는 사례가 있었다. 이 방향 정보를 매번 LLM이 자연어로 정확히 표현하길 기대하는
+// 대신, 구조화된 partnerRole 값에서 결정적으로(항상 같은 문장으로) 만들어 persona 뒤에
+// 덧붙인다 — LLM 생성 품질에 기대지 않는 구조적 방지책이다.
+const PARTNER_ROLE_DIRECTION_CLAUSE: Record<MissionSetupPartnerRole, string> = {
+  friend: "사용자는 당신의 친구입니다. 사용자가 어떤 호칭이나 말투를 쓰든 그것과 무관하게 서로 편한 친구 사이를 유지합니다.",
+  senior: "사용자는 당신의 후배입니다. 사용자가 당신을 '선배님' 등으로 부르거나 높임말을 쓰더라도, 그 호칭에 이끌려 역할을 사용자 쪽으로 넘기지 말고 당신이 계속 선배 입장을 유지하며 사용자를 편하게 대합니다.",
+  junior: "사용자는 당신의 선배입니다. 당신이 사용자보다 손아랫사람이라는 점을 계속 유지하며, 사용자를 높여 대합니다.",
+  peer: "사용자는 당신과 동기·동료 관계입니다. 서로 대등한 위치를 유지합니다.",
+  other: "사용자는 당신과 초면이거나 가벼운 친분이 있는 사이입니다. 상대의 지위를 넘겨짚어 자신을 손윗사람으로 대하지 않습니다.",
+};
+
+// Conversations.persona는 VARCHAR(255)다. persona(최대 100자) + 방향 문구를 합쳐도
+// 넉넉히 안전하지만, 방어적으로 컬럼 한도에 맞춰 자른다.
+const PERSONA_COLUMN_MAX_LENGTH = 255;
+
+const applyPartnerRoleDirection = (
+  persona: string,
+  partnerRole: MissionSetupPartnerRole
+): string =>
+  `${persona} (${PARTNER_ROLE_DIRECTION_CLAUSE[partnerRole]})`.slice(0, PERSONA_COLUMN_MAX_LENGTH);
+
 const buildMissionSetupLines = (setup: MissionSetupContext): string[] => [
   `- 장소/환경: ${ENVIRONMENT_LABEL[setup.environment]}`,
   `- 상대방과의 관계: ${PARTNER_ROLE_LABEL[setup.partnerRole]}`,
@@ -153,5 +177,8 @@ export const generateRoleSetup = async (
     logger.warn({ reason: result.reason }, "배역 설정 LLM 호출 실패 — 배역 없이 진행");
     return { persona: null, userTask: null };
   }
-  return parseRoleSetup(result.content);
+  const roleSetup = parseRoleSetup(result.content);
+  if (!roleSetup.persona || !missionSetup) return roleSetup;
+
+  return { ...roleSetup, persona: applyPartnerRoleDirection(roleSetup.persona, missionSetup.partnerRole) };
 };

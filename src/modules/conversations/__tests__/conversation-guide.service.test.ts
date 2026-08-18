@@ -268,6 +268,33 @@ describe("generateGuideReply", () => {
     expect(userMessage).toContain("안녕하세요! 오늘 기분은 어떠세요?");
   });
 
+  // #254 리뷰 지적 — 위 테스트는 이력이 2개뿐이라 RELEVANCE_HISTORY_MESSAGES(4) 상한이
+  // 없어지거나 잘못 바뀌어도 그대로 통과한다. 5개 이상을 넣어 최신 4개만 남고
+  // 더 오래된 메시지는 빠지는지 직접 확인한다.
+  it("관련성 검증 요청의 최근 대화는 최신 4개만 담고 더 오래된 건 뺀다", async () => {
+    const history: GuideReplyContext["history"] = [
+      { role: "user", content: "가장오래된메시지" },
+      { role: "guide", content: "두번째메시지" },
+      { role: "user", content: "세번째메시지" },
+      { role: "guide", content: "네번째메시지" },
+      { role: "user", content: "다섯번째메시지" },
+    ];
+    mockFetch
+      .mockResolvedValueOnce(okResponse("긴장되는 게 당연해요. 천천히 해봐요!"))
+      .mockResolvedValueOnce(relevantJudge());
+    await generateGuideReply({ ...baseCtx, history });
+
+    const relevanceCallBody = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+    const userMessage = relevanceCallBody.messages.find(
+      (m: { role: string }) => m.role === "user"
+    ).content;
+    expect(userMessage).not.toContain("가장오래된메시지");
+    expect(userMessage).toContain("두번째메시지");
+    expect(userMessage).toContain("세번째메시지");
+    expect(userMessage).toContain("네번째메시지");
+    expect(userMessage).toContain("다섯번째메시지");
+  });
+
   it("모든 시도(생성 자체)가 실패하면 null을 반환한다 (→ 템플릿 폴백)", async () => {
     mockFetch.mockResolvedValue(errorResponse);
     const reply = await generateGuideReply(baseCtx);

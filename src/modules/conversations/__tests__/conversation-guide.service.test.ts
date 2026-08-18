@@ -138,6 +138,61 @@ describe("buildGuideMessages", () => {
     expect(system).toContain("해설하지 않습니다");
     expect(system).toContain("따옴표로 감싸지도 마세요");
   });
+
+  // #251 — 사용자가 "대화도 하기 싫어요"라고 하거나 "닥쳐. 말 걸지 마."라고 해도 AI가
+  // "저도 그런 경험이 있어요", "흥미롭네요, 더 얘기해주세요!"처럼 대화를 계속 유도했다.
+  describe("대화 중단 의사·적대적 발화 규칙(#251)", () => {
+    it("중단 의사·적대적 발화에는 후속 질문을 붙이지 말라고 지시한다", () => {
+      const system = buildGuideMessages(baseCtx)[0].content;
+      expect(system).toContain("대화를 그만하려는 의사·적대적 발화에 대한 규칙:");
+      expect(system).toContain("**후속 질문을 덧붙이지 않습니다.**");
+      expect(system).toContain("상대의 의사를 존중해 짧게 대화를 맺습니다");
+    });
+
+    it("무례한 발화에는 맞받지 않고 차분하게 경계를 표현하도록 한다", () => {
+      const system = buildGuideMessages(baseCtx)[0].content;
+      expect(system).toContain("감정적으로 맞받지 않고");
+      expect(system).toContain("차분하게 경계를 표현");
+    });
+
+    // 이 규칙이 맥락 이탈 규칙보다 뒤에 있어, 우선순위를 명시하지 않으면 중단 의사가
+    // "갑자기 딴소리"로 분류돼 당황 반응 후 원래 상황으로 돌아간다(이 버그의 실제 증상).
+    it("맥락 이탈 규칙보다 우선한다는 것을 명시한다", () => {
+      const system = buildGuideMessages(baseCtx)[0].content;
+      expect(system).toContain("위 맥락 이탈 규칙을 적용하지 않습니다");
+    });
+
+    // 회귀 방어: 실제 LLM 검증에서 "죽고 싶어요. 말 걸지 마세요."에 안전 응답 대신
+    // 중단 의사 응답이 나왔다(변경 전에는 위기 상담번호까지 안내하던 발화). 표면이 겹치는
+    // 안전 발화에서 이 규칙이 먼저 걸리지 않도록 양쪽에서 우선순위를 못박는다.
+    it("안전 규칙 쪽에도 이 규칙보다 우선한다고 명시한다", () => {
+      const system = buildGuideMessages(baseCtx)[0].content;
+      expect(system).toContain("다른 모든 규칙(맥락 이탈 규칙, 대화 중단 의사 규칙 포함)보다 이 규칙을 우선");
+      expect(system).toContain("그 말을 이유로 물러나지 않습니다");
+    });
+
+    it("중단 의사 규칙 쪽에는 적용 전 안전 여부를 먼저 확인하도록 절차를 적는다", () => {
+      const system = buildGuideMessages(baseCtx)[0].content;
+      expect(system).toContain("**적용 전 확인**");
+      expect(system).toContain("이 규칙을 적용하지 말고 위 안전 규칙만 따릅니다");
+    });
+
+    // 완성된 예시 문장을 주면 모델이 그대로 복사해 붙였다(안전 발화에까지 나왔다).
+    it("복사 가능한 완성 문장 대신 방향만 예시로 준다", () => {
+      const system = buildGuideMessages(baseCtx)[0].content;
+      expect(system).toContain("맞는 방향:");
+      expect(system).not.toContain("불편하셨다면 죄송해요");
+    });
+
+    // 말투 규칙의 "필요하면 짧은 후속 질문을 덧붙입니다"가 뒤에 무조건형으로 남아 있으면
+    // 모델이 뒤 지시를 우선해 후속 질문을 다시 붙인다.
+    it("말투 규칙의 후속 질문 지시에도 예외를 함께 적어 규칙이 되살아나지 않게 한다", () => {
+      const system = buildGuideMessages(baseCtx)[0].content;
+      expect(system).toContain(
+        "짧은 후속 질문을 덧붙입니다(위 중단 의사·적대적 발화 규칙에 해당할 때는 덧붙이지 않습니다)"
+      );
+    });
+  });
 });
 
 // #252 — 형식 검증만으로는 "형식은 맞지만 내용이 무관한" 답변을 못 걸러낸다. 형식 검증을

@@ -51,6 +51,40 @@ describe("generateRoleSetup — 상대 역할 방향 명시(#250)", () => {
     expect(junior.persona).toContain("사용자는 당신의 선배입니다");
   });
 
+  // 코드래빗 리뷰 — senior/junior만 검증하고 있어 friend/peer/other 방향 문구는
+  // 회귀 방지가 안 되고 있었다. 5개 역할 전부를 각자 기대 문구로 검증한다.
+  it.each([
+    ["friend", "사용자는 당신의 친구입니다"],
+    ["senior", "사용자는 당신의 후배입니다"],
+    ["junior", "사용자는 당신의 선배입니다"],
+    ["peer", "사용자는 당신과 동기·동료 관계입니다"],
+    ["other", "사용자는 당신과 초면이거나 가벼운 친분이 있는 사이입니다"],
+  ] as const)("partnerRole=%s이면 '%s' 문구가 persona에 포함된다", async (role, expectedPhrase) => {
+    mockedCall.mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({ persona: "배역", userTask: "과제" }),
+    });
+
+    const result = await generateRoleSetup("미션", null, missionSetup(role));
+
+    expect(result.persona).toContain(expectedPhrase);
+  });
+
+  // 코드래빗 리뷰 — persona(LLM 최대 100자) + 방향 문구를 합친 최종 길이가
+  // Conversations.persona 컬럼(VARCHAR(255)) 한도를 넘지 않는지 확인한다.
+  it("persona가 최대 길이여도 합친 결과가 255자를 넘지 않는다", async () => {
+    const maxLengthPersona = "가".repeat(100);
+    mockedCall.mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({ persona: maxLengthPersona, userTask: "과제" }),
+    });
+
+    const result = await generateRoleSetup("미션", null, missionSetup("senior"));
+
+    expect(result.persona).not.toBeNull();
+    expect(result.persona!.length).toBeLessThanOrEqual(255);
+  });
+
   it("missionSetup이 없으면 방향 문구를 붙이지 않는다(기존 동작 유지)", async () => {
     mockedCall.mockResolvedValue({
       ok: true,

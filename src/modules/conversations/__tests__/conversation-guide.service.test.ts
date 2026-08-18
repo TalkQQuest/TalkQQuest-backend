@@ -140,12 +140,19 @@ describe("buildGuideMessages", () => {
   });
 });
 
+// #252 — 형식 검증만으로는 "형식은 맞지만 내용이 무관한" 답변을 못 걸러낸다. 형식 검증을
+// 통과한 답변마다 별도 호출(judge)로 관련성까지 확인하고, 관련 없다고 판정되면 재생성한다.
+// 그래서 아래 테스트들은 "생성 호출"과 "관련성 검증 호출"이 항상 짝을 이뤄 fetch가
+// 호출된다고 가정한다(생성이 실패/형식 위반이면 관련성 호출 자체가 없다).
 describe("generateGuideReply", () => {
   const mockFetch = jest.fn();
   const okResponse = (content: string) => ({
     ok: true,
     json: async () => ({ choices: [{ message: { content } }] }),
   });
+  const errorResponse = { ok: false, status: 500, json: async () => ({}) };
+  const relevantJudge = () => okResponse("RELEVANT");
+  const irrelevantJudge = () => okResponse("IRRELEVANT");
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -160,32 +167,139 @@ describe("generateGuideReply", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("정상 응답이면 대화 문자열을 반환한다", async () => {
-    mockFetch.mockResolvedValue(okResponse("긴장되는 게 당연해요. 천천히 해봐요!"));
+  it("정상 응답 + 관련성 통과면 대화 문자열을 반환한다", async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse("긴장되는 게 당연해요. 천천히 해봐요!"))
+      .mockResolvedValueOnce(relevantJudge());
     const reply = await generateGuideReply(baseCtx);
     expect(reply).toBe("긴장되는 게 당연해요. 천천히 해봐요!");
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2); // 생성 1회 + 관련성 검증 1회
   });
 
   it("응답을 감싼 따옴표는 벗겨낸다", async () => {
-    mockFetch.mockResolvedValue(okResponse('"좋아요, 잘하고 있어요!"'));
+    mockFetch
+      .mockResolvedValueOnce(okResponse('"좋아요, 잘하고 있어요!"'))
+      .mockResolvedValueOnce(relevantJudge());
     expect(await generateGuideReply(baseCtx)).toBe("좋아요, 잘하고 있어요!");
   });
 
-  it("1차 실패 시 1회 재시도하고, 재시도가 성공하면 그 응답을 쓴다 (5.5)", async () => {
+  it("1차 형식 검증 실패 시 재시도하고, 재시도가 성공+관련성도 통과하면 그 응답을 쓴다 (5.5)", async () => {
     mockFetch
-      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) })
-      .mockResolvedValueOnce(okResponse("다시 생성한 응답"));
+      .mockResolvedValueOnce(errorResponse) // 1차 생성 실패
+      .mockResolvedValueOnce(okResponse("다시 생성한 응답")) // 2차 생성 성공
+      .mockResolvedValueOnce(relevantJudge()); // 관련성 통과
     const reply = await generateGuideReply(baseCtx);
     expect(reply).toBe("다시 생성한 응답");
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
-  it("재시도까지 실패하면 null을 반환한다 (→ 템플릿 폴백)", async () => {
-    mockFetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+  it("관련성 검증에서 걸리면 재생성하고, 재생성한 답이 관련 있으면 그걸 쓴다", async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse("이런 날엔 산책하기 좋을 것 같아요")) // 1차: 형식은 OK
+      .mockResolvedValueOnce(irrelevantJudge()) // 관련성 검증에서 걸림
+      .mockResolvedValueOnce(okResponse("펜촉이 얇아서 필기감이 좋아요")) // 2차: 재생성
+      .mockResolvedValueOnce(relevantJudge()); // 관련성 통과
+    const reply = await generateGuideReply(baseCtx);
+    expect(reply).toBe("펜촉이 얇아서 필기감이 좋아요");
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("관련성 검증에서 계속 걸려도(최대 시도 소진), 형식은 맞는 마지막 응답을 반환한다", async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse("응답1"))
+      .mockResolvedValueOnce(irrelevantJudge())
+      .mockResolvedValueOnce(okResponse("응답2"))
+      .mockResolvedValueOnce(irrelevantJudge())
+      .mockResolvedValueOnce(okResponse("응답3"))
+      .mockResolvedValueOnce(irrelevantJudge());
+    const reply = await generateGuideReply(baseCtx);
+    // 완전히 무관한 정적 폴백보다는, 형식은 맞는 마지막 LLM 응답이 낫다고 보고 그걸 반환한다.
+    expect(reply).toBe("응답3");
+    expect(mockFetch).toHaveBeenCalledTimes(6); // 생성 3회 + 관련성 검증 3회(최대 시도)
+  });
+
+  it("관련성 검증 호출 자체가 실패하면 통과 처리한다(fail open)", async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse("긴장되는 게 당연해요. 천천히 해봐요!"))
+      .mockResolvedValueOnce(errorResponse); // 관련성 검증 호출 실패
+    const reply = await generateGuideReply(baseCtx);
+    expect(reply).toBe("긴장되는 게 당연해요. 천천히 해봐요!");
+  });
+
+  // #254 리뷰 지적 — 이전에는 "IRRELEVANT" 미포함이면 무조건 관련 있음으로 처리해,
+  // judge가 UNKNOWN이나 설명형 문장 등 애매한 값을 내도 검증 없이 통과했다.
+  // 정확히 RELEVANT일 때만 통과시키고, 그 외 값은 재생성으로 보낸다(호출 자체 실패와는 구분).
+  it("관련성 판정이 RELEVANT/IRRELEVANT가 아닌 애매한 값이면 재생성한다", async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse("이런 날엔 산책하기 좋을 것 같아요"))
+      .mockResolvedValueOnce(okResponse("UNKNOWN")) // 애매한 판정값
+      .mockResolvedValueOnce(okResponse("펜촉이 얇아서 필기감이 좋아요"))
+      .mockResolvedValueOnce(relevantJudge());
+    const reply = await generateGuideReply(baseCtx);
+    expect(reply).toBe("펜촉이 얇아서 필기감이 좋아요");
+  });
+
+  it("관련성 판정이 한국어 설명형 응답이어도 재생성한다", async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse("이런 날엔 산책하기 좋을 것 같아요"))
+      .mockResolvedValueOnce(okResponse("이 답변은 관련이 없어 보입니다"))
+      .mockResolvedValueOnce(okResponse("펜촉이 얇아서 필기감이 좋아요"))
+      .mockResolvedValueOnce(relevantJudge());
+    const reply = await generateGuideReply(baseCtx);
+    expect(reply).toBe("펜촉이 얇아서 필기감이 좋아요");
+  });
+
+  // #254 리뷰 지적 — judge가 미션 제목·방금 발화만 보고 판정해, 배역·최근 맥락과
+  // 자연스럽게 이어지는 답을 오판할 여지가 있었다. persona·미션 설명·흐름 단계·최근
+  // 이력이 관련성 검증 요청에 실제로 실려 가는지 확인한다.
+  it("관련성 검증 요청에 배역·미션 설명·최근 대화 맥락을 함께 담는다", async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse("긴장되는 게 당연해요. 천천히 해봐요!"))
+      .mockResolvedValueOnce(relevantJudge());
+    await generateGuideReply(baseCtx);
+
+    const relevanceCallBody = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+    const userMessage = relevanceCallBody.messages.find(
+      (m: { role: string }) => m.role === "user"
+    ).content;
+    expect(userMessage).toContain(baseCtx.persona);
+    expect(userMessage).toContain(baseCtx.missionDescription);
+    expect(userMessage).toContain(baseCtx.flowStep);
+    expect(userMessage).toContain("안녕하세요! 오늘 기분은 어떠세요?");
+  });
+
+  // #254 리뷰 지적 — 위 테스트는 이력이 2개뿐이라 RELEVANCE_HISTORY_MESSAGES(4) 상한이
+  // 없어지거나 잘못 바뀌어도 그대로 통과한다. 5개 이상을 넣어 최신 4개만 남고
+  // 더 오래된 메시지는 빠지는지 직접 확인한다.
+  it("관련성 검증 요청의 최근 대화는 최신 4개만 담고 더 오래된 건 뺀다", async () => {
+    const history: GuideReplyContext["history"] = [
+      { role: "user", content: "가장오래된메시지" },
+      { role: "guide", content: "두번째메시지" },
+      { role: "user", content: "세번째메시지" },
+      { role: "guide", content: "네번째메시지" },
+      { role: "user", content: "다섯번째메시지" },
+    ];
+    mockFetch
+      .mockResolvedValueOnce(okResponse("긴장되는 게 당연해요. 천천히 해봐요!"))
+      .mockResolvedValueOnce(relevantJudge());
+    await generateGuideReply({ ...baseCtx, history });
+
+    const relevanceCallBody = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+    const userMessage = relevanceCallBody.messages.find(
+      (m: { role: string }) => m.role === "user"
+    ).content;
+    expect(userMessage).not.toContain("가장오래된메시지");
+    expect(userMessage).toContain("두번째메시지");
+    expect(userMessage).toContain("세번째메시지");
+    expect(userMessage).toContain("네번째메시지");
+    expect(userMessage).toContain("다섯번째메시지");
+  });
+
+  it("모든 시도(생성 자체)가 실패하면 null을 반환한다 (→ 템플릿 폴백)", async () => {
+    mockFetch.mockResolvedValue(errorResponse);
     const reply = await generateGuideReply(baseCtx);
     expect(reply).toBeNull();
-    expect(mockFetch).toHaveBeenCalledTimes(2); // 최초 + 재시도 1회
+    expect(mockFetch).toHaveBeenCalledTimes(3); // 최대 시도(3회) 전부 생성 자체가 실패 — 관련성 호출은 없음
   });
 
   it("네트워크 예외가 나도 null을 반환한다", async () => {

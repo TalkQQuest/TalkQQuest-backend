@@ -226,6 +226,48 @@ describe("generateGuideReply", () => {
     expect(reply).toBe("긴장되는 게 당연해요. 천천히 해봐요!");
   });
 
+  // #254 리뷰 지적 — 이전에는 "IRRELEVANT" 미포함이면 무조건 관련 있음으로 처리해,
+  // judge가 UNKNOWN이나 설명형 문장 등 애매한 값을 내도 검증 없이 통과했다.
+  // 정확히 RELEVANT일 때만 통과시키고, 그 외 값은 재생성으로 보낸다(호출 자체 실패와는 구분).
+  it("관련성 판정이 RELEVANT/IRRELEVANT가 아닌 애매한 값이면 재생성한다", async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse("이런 날엔 산책하기 좋을 것 같아요"))
+      .mockResolvedValueOnce(okResponse("UNKNOWN")) // 애매한 판정값
+      .mockResolvedValueOnce(okResponse("펜촉이 얇아서 필기감이 좋아요"))
+      .mockResolvedValueOnce(relevantJudge());
+    const reply = await generateGuideReply(baseCtx);
+    expect(reply).toBe("펜촉이 얇아서 필기감이 좋아요");
+  });
+
+  it("관련성 판정이 한국어 설명형 응답이어도 재생성한다", async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse("이런 날엔 산책하기 좋을 것 같아요"))
+      .mockResolvedValueOnce(okResponse("이 답변은 관련이 없어 보입니다"))
+      .mockResolvedValueOnce(okResponse("펜촉이 얇아서 필기감이 좋아요"))
+      .mockResolvedValueOnce(relevantJudge());
+    const reply = await generateGuideReply(baseCtx);
+    expect(reply).toBe("펜촉이 얇아서 필기감이 좋아요");
+  });
+
+  // #254 리뷰 지적 — judge가 미션 제목·방금 발화만 보고 판정해, 배역·최근 맥락과
+  // 자연스럽게 이어지는 답을 오판할 여지가 있었다. persona·미션 설명·흐름 단계·최근
+  // 이력이 관련성 검증 요청에 실제로 실려 가는지 확인한다.
+  it("관련성 검증 요청에 배역·미션 설명·최근 대화 맥락을 함께 담는다", async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse("긴장되는 게 당연해요. 천천히 해봐요!"))
+      .mockResolvedValueOnce(relevantJudge());
+    await generateGuideReply(baseCtx);
+
+    const relevanceCallBody = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+    const userMessage = relevanceCallBody.messages.find(
+      (m: { role: string }) => m.role === "user"
+    ).content;
+    expect(userMessage).toContain(baseCtx.persona);
+    expect(userMessage).toContain(baseCtx.missionDescription);
+    expect(userMessage).toContain(baseCtx.flowStep);
+    expect(userMessage).toContain("안녕하세요! 오늘 기분은 어떠세요?");
+  });
+
   it("모든 시도(생성 자체)가 실패하면 null을 반환한다 (→ 템플릿 폴백)", async () => {
     mockFetch.mockResolvedValue(errorResponse);
     const reply = await generateGuideReply(baseCtx);

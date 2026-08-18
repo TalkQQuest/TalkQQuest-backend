@@ -157,16 +157,27 @@ const AI_SELF_REFERENCE = /(ai|에이아이|인공지능|챗봇|언어\s*모델|
 // 반복하다 무관한 정적 폴백으로 떨어지는 사례가 실측에서 확인됐다.
 const MAX_SENTENCES = 4;
 const MIN_STANDALONE_SENTENCE_LENGTH = 5;
+// 맨 앞 조각이 "감탄사·되물음"인지 판단하는 기준. 길이만 보면 "네.", "그래요." 같은
+// 평범한 짧은 평서문까지 감탄사로 오인해 병합해버려, 짧은 문장을 여러 개 늘어놓은
+// 진짜 too_long 사례가 병합 한 번으로 상한(4)을 피해가는 경계 케이스가 생긴다(#254 리뷰 지적).
+// 되물음(끝이 물음표)이거나, 흔한 감탄사로 시작할 때만 병합 대상으로 좁힌다.
+const INTERJECTION_START = /^(어|아|음|오|엥|헐|와|아이고|아하|허|흠|참|자|저기|그니까|근데)\b/;
 const countSentences = (text: string): number => {
-  const parts = text
-    .split(/[.!?。！？]+/)
+  // 종결 부호를 유지한 채로 나눠야 맨 앞 조각이 되물음(?)이었는지 알 수 있다.
+  const parts = (text.match(/[^.!?。！？]+[.!?。！？]*/g) ?? [])
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 
   if (parts.length === 0) return 0;
 
-  const startsWithInterjection = parts[0].length <= MIN_STANDALONE_SENTENCE_LENGTH;
-  return startsWithInterjection ? Math.max(1, parts.length - 1) : parts.length;
+  const first = parts[0];
+  const isRhetoricalQuestion = /[?？]\s*$/.test(first);
+  const strippedFirst = first.replace(/[.!?。！？,、\s]/g, "");
+  const isShortInterjection =
+    strippedFirst.length <= MIN_STANDALONE_SENTENCE_LENGTH &&
+    (isRhetoricalQuestion || INTERJECTION_START.test(first));
+
+  return isShortInterjection ? Math.max(1, parts.length - 1) : parts.length;
 };
 
 // 생성된 답변이 규칙을 지켰는지 본다. 통과하면 null, 어기면 사유를 돌려준다.

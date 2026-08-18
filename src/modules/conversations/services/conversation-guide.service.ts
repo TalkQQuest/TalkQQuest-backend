@@ -202,33 +202,56 @@ const generateOnce = async (messages: UpstageChatMessage[]): Promise<string | nu
 const RELEVANCE_MAX_TOKENS = 20;
 const RELEVANCE_TEMPERATURE = 0;
 
+// 판정에 넣을 최근 대화 이력 상한. 전체 이력을 다 넣으면 토큰이 커지고, 판정 자체와
+// 무관한 오래된 맥락까지 들어가 판단을 흐린다 — 직전 흐름만 알면 충분하다.
+const RELEVANCE_HISTORY_MESSAGES = 4;
+
+// #254 리뷰 지적 — 미션 제목과 방금 발화만으로는 judge가 배역(persona)·진행 단계·직전
+// 맥락을 모른 채 판정하게 되어, 문맥에 자연스럽게 이어지는 답을 무관하다고 오판할 여지가
+// 있었다. persona·미션 설명·현재 흐름 단계·최근 이력(상한 있음)을 함께 준다.
 const buildRelevanceMessages = (
   ctx: GuideReplyContext,
   reply: string
-): UpstageChatMessage[] => [
-  {
-    role: "system",
-    content: [
-      "당신은 대화 연습 앱의 답변 품질을 검수하는 검수자입니다.",
-      "아래 '미션 상황', '사용자의 방금 발화', 'AI가 생성한 답변 후보'를 보고,",
-      "답변 후보가 사용자의 발화 내용에 실제로 이어지는 대답인지 판단하세요.",
-      "",
-      "판단 기준:",
-      "- 사용자가 특정 대상(사물·사람·화제)을 언급했는데 답변이 그와 무관한 다른 화제를 말하면 관련 없음입니다.",
-      "- 사용자의 질문에 답이 되지 않고 엉뚱한 감상·맞장구만 있으면 관련 없음입니다.",
-      "- 짧은 리액션이라도 직전 발화 내용과 자연스럽게 이어지면 관련 있음입니다.",
-      "- 반드시 RELEVANT 또는 IRRELEVANT 한 단어로만 답하세요. 다른 설명을 덧붙이지 마세요.",
-    ].join("\n"),
-  },
-  {
-    role: "user",
-    content: [
-      `미션 상황: ${ctx.missionTitle}`,
-      `사용자의 방금 발화: "${ctx.latestUserMessage}"`,
-      `답변 후보: "${reply}"`,
-    ].join("\n"),
-  },
-];
+): UpstageChatMessage[] => {
+  const contextLines = [`미션 상황: ${ctx.missionTitle}`];
+  if (ctx.missionDescription) contextLines.push(`미션 설명: ${ctx.missionDescription}`);
+  if (ctx.persona) contextLines.push(`AI의 배역: ${ctx.persona}`);
+  if (ctx.flowStep) contextLines.push(`현재 대화 단계: ${ctx.flowStep}`);
+
+  const recentHistory = ctx.history.slice(-RELEVANCE_HISTORY_MESSAGES);
+  if (recentHistory.length > 0) {
+    contextLines.push(
+      "최근 대화:",
+      ...recentHistory.map((msg) => `  ${msg.role === "guide" ? "AI" : "사용자"}: ${msg.content}`)
+    );
+  }
+
+  contextLines.push(
+    `사용자의 방금 발화: "${ctx.latestUserMessage}"`,
+    `답변 후보: "${reply}"`
+  );
+
+  return [
+    {
+      role: "system",
+      content: [
+        "당신은 대화 연습 앱의 답변 품질을 검수하는 검수자입니다.",
+        "아래 맥락(미션 상황, 배역, 최근 대화)과 '사용자의 방금 발화', 'AI가 생성한 답변 후보'를 보고,",
+        "답변 후보가 사용자의 발화 내용에 실제로 이어지는 대답인지 판단하세요.",
+        "",
+        "판단 기준:",
+        "- 사용자가 특정 대상(사물·사람·화제)을 언급했는데 답변이 그와 무관한 다른 화제를 말하면 관련 없음입니다.",
+        "- 사용자의 질문에 답이 되지 않고 엉뚱한 감상·맞장구만 있으면 관련 없음입니다.",
+        "- 짧은 리액션이라도 직전 발화·최근 대화 흐름과 자연스럽게 이어지면 관련 있음입니다.",
+        "- 반드시 RELEVANT 또는 IRRELEVANT 한 단어로만 답하세요. 다른 설명을 덧붙이지 마세요.",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: contextLines.join("\n"),
+    },
+  ];
+};
 
 // 판정 호출 자체가 실패하면(타임아웃 등) 관련 있음으로 간주해 통과시킨다(fail open) —
 // 검수 도구가 죽었다는 이유로 이미 형식 검증까지 통과한 정상 답변을 계속 폐기하면 안 된다.
@@ -242,10 +265,15 @@ const checkReplyRelevance = async (ctx: GuideReplyContext, reply: string): Promi
     return true;
   }
 
-  const verdict = result.content.trim().toUpperCase();
-  // "IRRELEVANT"는 "RELEVANT"를 부분 문자열로 포함하므로, 반드시 "IRRELEVANT" 포함 여부만
-  // 본다(모델이 마침표 등을 덧붙여도 안전하게 판정되도록 정확히 일치시키지 않는다).
-  return !verdict.includes("IRRELEVANT");
+  // #254 리뷰 지적 — 이전에는 "IRRELEVANT" 미포함이면 전부 관련 있음으로 처리해,
+  // judge가 UNKNOWN이나 설명형 문장 등 예상 밖 값을 내도 검증되지 않은 채 통과했다.
+  // 정확히 RELEVANT일 때만 통과시키고, 그 외(IRRELEVANT 포함 애매한 값 전부)는
+  // 재생성 쪽으로 보낸다. 호출 자체의 실패(타임아웃 등)만 fail-open을 유지한다.
+  const verdict = result.content.trim().toUpperCase().replace(/[.!?。！？\s]/g, "");
+  if (verdict !== "RELEVANT") {
+    logger.warn({ verdict: result.content.trim() }, "관련성 검증 결과가 RELEVANT가 아님 — 재생성");
+  }
+  return verdict === "RELEVANT";
 };
 
 // 대화 응답 생성 진입점. 실패 시 null (호출부가 템플릿으로 폴백).

@@ -288,7 +288,9 @@ export const findActiveGoalsByUserId = (userId: string) =>
 // 난이도 조정·회피 유형 판단은 최근 몇 건만 보므로 take로 제한합니다.
 export const findRecentMissionRecords = (userId: string, limit: number) =>
   prisma.mission_Records.findMany({
-    where: { user_id: userId },
+    // 완료된 기록만 본다. in_progress를 포함하면 아직 안 끝난 미션이 "최근 난이도"나
+    // "연속 완료 횟수"(#244) 계산에 섞여 들어가 부정확해진다.
+    where: { user_id: userId, status: "completed" },
     include: {
       mission: { select: { id: true, title: true, category: true, difficulty: true } },
     },

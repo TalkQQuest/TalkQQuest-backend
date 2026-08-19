@@ -20,9 +20,12 @@ import { NotFoundError } from "../../../shared/errors/common.error";
 import { logger } from "../../../config/logger";
 import { sendPushToUser } from "./push.service";
 
-const FCM_NOTIFICATION_TYPE = "weekly_compare_ready";
+// #264 — 미션 완료 등 매번 발생하는 알림까지 시스템 푸시가 울리면 사용자가 거슬려해서,
+// Android 시스템 푸시는 이 집합에 속한 타입에만 발송한다. mission_reminder는 사용자가
+// 직접 설정한 시각에 하루 한 번만 울리므로 weekly_compare_ready와 함께 허용한다.
+const FCM_NOTIFICATION_TYPES = new Set(["weekly_compare_ready", "mission_reminder"]);
 
-// 인앱 알림은 모든 타입을 저장하되, Android 시스템 푸시는 주간 비교 리포트에만 발송한다.
+// 인앱 알림은 모든 타입을 저장하되, Android 시스템 푸시는 위 허용 타입에만 발송한다.
 // 푸시 발송 실패가 알림 생성 자체를 막으면 안 되므로 try/catch로 감싼다.
 export const notifyUser = async (
     userId: string,
@@ -34,7 +37,7 @@ export const notifyUser = async (
 ): Promise<void> => {
     await createNotification(userId, type, title, body, referenceId, referenceType);
 
-    if (type !== FCM_NOTIFICATION_TYPE) return;
+    if (!FCM_NOTIFICATION_TYPES.has(type)) return;
 
     try {
         await sendPushToUser(userId, { title, body: body ?? "", data: { type, referenceId, referenceType } });

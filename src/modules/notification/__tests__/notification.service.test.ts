@@ -50,6 +50,34 @@ describe("notifyUser", () => {
     });
   });
 
+  // #264 — 미션 리마인드는 사용자가 설정한 시각에 하루 한 번만 울려서 다른 알림과 달리
+  // 시스템 푸시를 허용한다. 이전에는 weekly_compare_ready 하나만 통과하는 단일 상수
+  // 비교라 mission_reminder가 여기 걸려 인앱 알림만 생성되고 푸시가 전혀 안 갔다.
+  it("mission_reminder는 인앱 알림을 만들고 같은 내용으로 푸시를 발송한다", async () => {
+    mockedRepo.createNotification.mockResolvedValue({} as never);
+    mockedPush.sendPushToUser.mockResolvedValue(undefined);
+
+    await notifyUser("u1", "mission_reminder", "오늘의 미션을 시작해보세요!", "설정한 시간이 되었어요. 오늘의 대화 미션을 확인해보세요.");
+
+    expect(mockedRepo.createNotification).toHaveBeenCalledWith(
+      "u1",
+      "mission_reminder",
+      "오늘의 미션을 시작해보세요!",
+      "설정한 시간이 되었어요. 오늘의 대화 미션을 확인해보세요.",
+      undefined,
+      undefined
+    );
+    expect(mockedPush.sendPushToUser).toHaveBeenCalledWith("u1", {
+      title: "오늘의 미션을 시작해보세요!",
+      body: "설정한 시간이 되었어요. 오늘의 대화 미션을 확인해보세요.",
+      data: {
+        type: "mission_reminder",
+        referenceId: undefined,
+        referenceType: undefined,
+      },
+    });
+  });
+
   it("mission_completed는 인앱 알림만 만들고 푸시는 발송하지 않는다", async () => {
     mockedRepo.createNotification.mockResolvedValue({} as never);
 

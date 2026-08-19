@@ -44,27 +44,30 @@ export const findUserCreatedAt = async (userId: string): Promise<Date | null> =>
 export const findUsageByUserAndCycleStart = (userId: string, cycleStart: Date) =>
   prisma.usage.findUnique({ where: { user_id_cycle_start: { user_id: userId, cycle_start: cycleStart } } });
 
-// 관심사를 원자적으로 병합한다. 두 피드백이 동시에 완료돼도 read-modify-write 경쟁으로
-// 한쪽이 유실되지 않도록, 같은 행을 잠근 트랜잭션 안에서 조회→병합→저장을 한 번에 처리한다(#262).
-export const mergeInterests = (
+// 대화에서 추출된 관심사를 extracted_interests에 원자적으로 병합한다(#262). 온보딩에서
+// 사용자가 직접 고른 interests와는 별도 컬럼이다 — 같은 필드에 섞으면 잡담 중 스친 키워드가
+// 캡(maxCount)에 밀려 사용자가 신중하게 고른 값을 조용히 지워버릴 수 있다(리뷰 반영).
+// 두 피드백이 동시에 완료돼도 read-modify-write 경쟁으로 한쪽이 유실되지 않도록, 같은 행을
+// 잠근 트랜잭션 안에서 조회→병합→저장을 한 번에 처리한다.
+export const mergeExtractedInterests = (
   userId: string,
   newInterests: string[],
   maxCount: number
 ): Promise<void> =>
   prisma.$transaction(async (tx) => {
     // FOR UPDATE로 이 트랜잭션이 끝날 때까지 다른 트랜잭션의 동시 읽기/쓰기를 막는다.
-    const rows = await tx.$queryRaw<{ interests: unknown }[]>`
-      SELECT interests FROM User_Profiles WHERE user_id = ${userId} FOR UPDATE
+    const rows = await tx.$queryRaw<{ extracted_interests: unknown }[]>`
+      SELECT extracted_interests FROM User_Profiles WHERE user_id = ${userId} FOR UPDATE
     `;
     if (rows.length === 0) return;
 
-    const existing = Array.isArray(rows[0].interests)
-      ? (rows[0].interests as unknown[]).filter((v): v is string => typeof v === "string")
+    const existing = Array.isArray(rows[0].extracted_interests)
+      ? (rows[0].extracted_interests as unknown[]).filter((v): v is string => typeof v === "string")
       : [];
     const merged = [...new Set([...newInterests, ...existing])].slice(0, maxCount);
 
     await tx.user_Profiles.update({
       where: { user_id: userId },
-      data: { interests: merged as unknown as Prisma.InputJsonValue },
+      data: { extracted_interests: merged as unknown as Prisma.InputJsonValue },
     });
   });

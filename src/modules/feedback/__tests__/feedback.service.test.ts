@@ -10,7 +10,7 @@ jest.mock("../../badge/services/badge.service", () => ({
 // 병합 결과가 맞는지 검증하기 위해 mock한다.
 jest.mock("../../user/repositories/user.repository", () => ({
   ...jest.requireActual("../../user/repositories/user.repository"),
-  mergeInterests: jest.fn(),
+  mergeExtractedInterests: jest.fn(),
 }));
 // runGeneration이 fire-and-forget으로 부르는 다른 부수효과들(성장 프로필 갱신, 주간
 // 리포트 생성)은 실제 함수 그대로 두면 내부에서 Prisma를 호출해 테스트가 느려지거나
@@ -28,7 +28,7 @@ jest.mock("../../report/services/report.service", () => ({
 import * as repository from "../repositories/feedback.repository";
 import { generateFeedbackWithLlm } from "../services/feedback-llm.service";
 import { checkAndAwardBadges } from "../../badge/services/badge.service";
-import { mergeInterests } from "../../user/repositories/user.repository";
+import { mergeExtractedInterests } from "../../user/repositories/user.repository";
 import {
   FeedbackConversationNotFoundError,
   FeedbackInputTooShortError,
@@ -37,7 +37,7 @@ import {
 } from "../errors/feedback.error";
 import { createFeedback, retryFeedback } from "../services/feedback.service";
 
-const mockedMergeInterests = jest.mocked(mergeInterests);
+const mockedMergeInterests = jest.mocked(mergeExtractedInterests);
 
 const mockedRepo = jest.mocked(repository);
 const mockedGenerate = jest.mocked(generateFeedbackWithLlm);
@@ -193,7 +193,7 @@ describe("createFeedback", () => {
 
   // #262 — 대화에서 추출된 관심사를 User_Profiles.interests에 병합 반영한다.
   describe("관심사 자동 반영(mergeExtractedInterests)", () => {
-    it("추출된 관심사가 있으면 mergeInterests를 호출한다", async () => {
+    it("추출된 관심사가 없으면 mergeExtractedInterests를 호출하지 않는다", async () => {
       mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
       mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
       mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
@@ -206,7 +206,7 @@ describe("createFeedback", () => {
       expect(mockedMergeInterests).toHaveBeenCalledWith("u1", ["카페", "산책"], 10);
     });
 
-    it("추출된 관심사가 없으면 mergeInterests를 호출하지 않는다", async () => {
+    it("추출된 관심사가 없으면 mergeExtractedInterests를 호출하지 않는다", async () => {
       mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
       mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
       mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);

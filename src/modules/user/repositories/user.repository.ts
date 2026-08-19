@@ -43,3 +43,28 @@ export const findUserCreatedAt = async (userId: string): Promise<Date | null> =>
 
 export const findUsageByUserAndCycleStart = (userId: string, cycleStart: Date) =>
   prisma.usage.findUnique({ where: { user_id_cycle_start: { user_id: userId, cycle_start: cycleStart } } });
+
+// 관심사를 원자적으로 병합한다. 두 피드백이 동시에 완료돼도 read-modify-write 경쟁으로
+// 한쪽이 유실되지 않도록, 같은 행을 잠근 트랜잭션 안에서 조회→병합→저장을 한 번에 처리한다(#262).
+export const mergeInterests = (
+  userId: string,
+  newInterests: string[],
+  maxCount: number
+): Promise<void> =>
+  prisma.$transaction(async (tx) => {
+    // FOR UPDATE로 이 트랜잭션이 끝날 때까지 다른 트랜잭션의 동시 읽기/쓰기를 막는다.
+    const rows = await tx.$queryRaw<{ interests: unknown }[]>`
+      SELECT interests FROM User_Profiles WHERE user_id = ${userId} FOR UPDATE
+    `;
+    if (rows.length === 0) return;
+
+    const existing = Array.isArray(rows[0].interests)
+      ? (rows[0].interests as unknown[]).filter((v): v is string => typeof v === "string")
+      : [];
+    const merged = [...new Set([...newInterests, ...existing])].slice(0, maxCount);
+
+    await tx.user_Profiles.update({
+      where: { user_id: userId },
+      data: { interests: merged as unknown as Prisma.InputJsonValue },
+    });
+  });

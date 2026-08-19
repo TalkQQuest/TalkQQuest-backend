@@ -2,7 +2,7 @@
 import { logger } from "../../../config/logger";
 import { prisma } from "../../../config/database";
 import { checkAndAwardBadges } from "../../badge/services/badge.service";
-import { findUserCreatedAt, findProfileByUserId, updateProfile } from "../../user/repositories/user.repository";
+import { findUserCreatedAt, mergeInterests } from "../../user/repositories/user.repository";
 import { refreshGrowthProfile } from "../../growth/services/growth-profile.service";
 import { generateMissingWeeklyReports } from "../../report/services/weekly-compare.service";
 import { notifyNewWeeklyCompareReports } from "../../report/services/report.service";
@@ -29,16 +29,13 @@ import {
   FeedbackTranscriptMessage,
   generateFeedbackWithLlm,
 } from "./feedback-llm.service";
-import { Prisma } from "@prisma/client";
 
 const MAX_STORED_INTERESTS = 10;
 
-// User_Profiles.interests는 Json 컬럼이라 unknown으로 들어온다. 문자열 배열만 걸러낸다
-// (recommendation.service.ts의 toStringArray와 동일한 안전장치).
-const toStringArray = (value: unknown): string[] => {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string");
-};
+// 대화에서 새로 추출된 관심사를 기존 프로필에 누적 병합한다. 최신 관심사를 앞에 두고
+// 중복은 제거하며, 개수가 넘치면 오래된 것부터 잘라낸다. 실패해도 피드백 생성 자체를
+// 막지 않는다(#262) — 관심사 갱신은 부가 기능이라 조용히 로그만 남긴다. 동시 완료로 인한
+// 유실을 막기 위해 실제 병합은 트랜잭션(FOR UPDATE)으로 처리한다(mergeInterests).
 
 // 대화에서 새로 추출된 관심사를 기존 프로필에 누적 병합한다. 최신 관심사를 앞에 두고
 // 중복은 제거하며, 개수가 넘치면 오래된 것부터 잘라낸다. 실패해도 피드백 생성 자체를
@@ -50,13 +47,7 @@ const mergeExtractedInterests = async (
   if (extractedInterests.length === 0) return;
 
   try {
-    const profile = await findProfileByUserId(userId);
-    if (!profile) return;
-
-    const existing = toStringArray(profile.interests);
-    const merged = [...new Set([...extractedInterests, ...existing])].slice(0, MAX_STORED_INTERESTS);
-
-    await updateProfile(userId, { interests: merged as unknown as Prisma.InputJsonValue });
+    await mergeInterests(userId, extractedInterests, MAX_STORED_INTERESTS);
   } catch (error) {
     logger.warn({ err: error, userId }, "대화 기반 관심사 자동 반영 실패");
   }

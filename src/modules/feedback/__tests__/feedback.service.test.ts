@@ -10,8 +10,7 @@ jest.mock("../../badge/services/badge.service", () => ({
 // 병합 결과가 맞는지 검증하기 위해 mock한다.
 jest.mock("../../user/repositories/user.repository", () => ({
   ...jest.requireActual("../../user/repositories/user.repository"),
-  findProfileByUserId: jest.fn(),
-  updateProfile: jest.fn(),
+  mergeInterests: jest.fn(),
 }));
 // runGeneration이 fire-and-forget으로 부르는 다른 부수효과들(성장 프로필 갱신, 주간
 // 리포트 생성)은 실제 함수 그대로 두면 내부에서 Prisma를 호출해 테스트가 느려지거나
@@ -29,7 +28,7 @@ jest.mock("../../report/services/report.service", () => ({
 import * as repository from "../repositories/feedback.repository";
 import { generateFeedbackWithLlm } from "../services/feedback-llm.service";
 import { checkAndAwardBadges } from "../../badge/services/badge.service";
-import { findProfileByUserId, updateProfile } from "../../user/repositories/user.repository";
+import { mergeInterests } from "../../user/repositories/user.repository";
 import {
   FeedbackConversationNotFoundError,
   FeedbackInputTooShortError,
@@ -38,8 +37,7 @@ import {
 } from "../errors/feedback.error";
 import { createFeedback, retryFeedback } from "../services/feedback.service";
 
-const mockedFindProfileByUserId = jest.mocked(findProfileByUserId);
-const mockedUpdateProfile = jest.mocked(updateProfile);
+const mockedMergeInterests = jest.mocked(mergeInterests);
 
 const mockedRepo = jest.mocked(repository);
 const mockedGenerate = jest.mocked(generateFeedbackWithLlm);
@@ -131,8 +129,7 @@ beforeEach(() => {
   mockedCheckAndAwardBadges.mockResolvedValue([]);
   // 기본값: 프로필이 없으면 mergeExtractedInterests가 조용히 종료한다.
   // 관심사 병합을 검증하는 테스트에서만 개별적으로 override한다.
-  mockedFindProfileByUserId.mockResolvedValue(null as never);
-  mockedUpdateProfile.mockResolvedValue({} as never);
+  mockedMergeInterests.mockResolvedValue(undefined);
 });
 
 describe("createFeedback", () => {
@@ -196,26 +193,20 @@ describe("createFeedback", () => {
 
   // #262 — 대화에서 추출된 관심사를 User_Profiles.interests에 병합 반영한다.
   describe("관심사 자동 반영(mergeExtractedInterests)", () => {
-    it("추출된 관심사를 기존 프로필 관심사와 병합해 저장한다", async () => {
+    it("추출된 관심사가 있으면 mergeInterests를 호출한다", async () => {
       mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
       mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
       mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
       mockedGenerate.mockResolvedValue(llmSuccess({ extractedInterests: ["카페", "산책"] }));
       mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
-      mockedFindProfileByUserId.mockResolvedValue({ interests: ["영화"] } as never);
 
       await createFeedback("u1", { conversationId: "c1" });
-
-      // fire-and-forget이라 이벤트 루프를 한 틱 넘겨줘야 내부 await가 끝난다.
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(mockedUpdateProfile).toHaveBeenCalledWith(
-        "u1",
-        expect.objectContaining({ interests: expect.arrayContaining(["카페", "산책", "영화"]) })
-      );
+      expect(mockedMergeInterests).toHaveBeenCalledWith("u1", ["카페", "산책"], 10);
     });
 
-    it("추출된 관심사가 없으면 프로필을 갱신하지 않는다", async () => {
+    it("추출된 관심사가 없으면 mergeInterests를 호출하지 않는다", async () => {
       mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
       mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
       mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
@@ -225,7 +216,7 @@ describe("createFeedback", () => {
       await createFeedback("u1", { conversationId: "c1" });
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(mockedUpdateProfile).not.toHaveBeenCalled();
+      expect(mockedMergeInterests).not.toHaveBeenCalled();
     });
 
     it("관심사 갱신이 실패해도 피드백 생성 자체는 정상적으로 완료된다", async () => {
@@ -234,7 +225,7 @@ describe("createFeedback", () => {
       mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
       mockedGenerate.mockResolvedValue(llmSuccess({ extractedInterests: ["카페"] }));
       mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
-      mockedFindProfileByUserId.mockRejectedValue(new Error("DB 오류"));
+      mockedMergeInterests.mockRejectedValue(new Error("DB 오류"));
 
       const result = await createFeedback("u1", { conversationId: "c1" });
       await new Promise((resolve) => setImmediate(resolve));

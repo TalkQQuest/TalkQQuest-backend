@@ -66,7 +66,7 @@ const feedbackLlmSchema = z.object({
   // 대화에서 드러난 사용자의 관심사/관심 주제. 대화 분위기 키워드인 summaryChips와 달리,
   // 미션 추천에 재사용할 구체적 대상(활동/주제)만 담는다(#262). 관심사로 볼 만한 내용이
   // 없으면 빈 배열을 허용한다 — 억지로 채우지 않는다.
-  extractedInterests: z.array(z.string().min(1).max(20)).max(3),
+  extractedInterests: z.array(z.string().trim().min(1).max(20)).max(3),
   savedPhraseIndex: userUtteranceIndexSchema,
 });
 

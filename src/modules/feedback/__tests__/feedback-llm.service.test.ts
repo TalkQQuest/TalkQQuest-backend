@@ -38,6 +38,7 @@ const validResponse = JSON.stringify({
   conversationSummary: "카페에서 처음 만난 사람에게 먼저 인사를 건네고 날씨와 동네 이야기를 나눴습니다.",
   cardSummary: "처음 만난 사람과 인사를 나눴어요.",
   conversationHighlights: ["먼저 인사를 건넸어요", "날씨 이야기로 대화를 이어갔어요"],
+  extractedInterests: [],
   savedPhraseIndex: 1,
 });
 
@@ -254,6 +255,7 @@ describe("generateFeedbackWithLlm", () => {
         conversationSummary: "요약 문장입니다.",
         cardSummary: "짧은 요약입니다.",
         conversationHighlights: ["흐름1", "흐름2"],
+        extractedInterests: [],
         savedPhraseIndex: 1,
       }),
     });
@@ -295,6 +297,7 @@ describe("generateFeedbackWithLlm", () => {
         conversationSummary: "요약 문장입니다.",
         cardSummary: "짧은 요약입니다.",
         conversationHighlights: ["흐름1", "흐름2"],
+        extractedInterests: [],
         savedPhraseIndex: 1,
       }),
     });
@@ -315,6 +318,7 @@ describe("generateFeedbackWithLlm", () => {
         conversationSummary: "요약 문장입니다.",
         cardSummary: "짧은 요약입니다.",
         conversationHighlights: ["흐름1", "흐름2"],
+        extractedInterests: [],
         savedPhraseIndex: 99,
       }),
     });
@@ -335,6 +339,7 @@ describe("generateFeedbackWithLlm", () => {
         conversationSummary: "요약 문장입니다.",
         cardSummary: "짧은 요약입니다.",
         conversationHighlights: ["흐름1", "흐름2"],
+        extractedInterests: [],
         savedPhraseIndex: 1,
       }),
     });
@@ -390,6 +395,7 @@ describe("generateFeedbackWithLlm", () => {
         conversationSummary: "요약 문장입니다.",
         cardSummary: "짧은 요약입니다.",
         conversationHighlights: ["흐름1", "흐름2"],
+        extractedInterests: [],
         savedPhraseIndex: 1,
       }),
     });
@@ -410,6 +416,7 @@ describe("generateFeedbackWithLlm", () => {
         conversationSummary: "요약 문장입니다.",
         cardSummary: "짧은 요약입니다.",
         conversationHighlights: ["흐름1", "흐름2"],
+        extractedInterests: [],
         savedPhraseIndex: 1,
       }),
     });
@@ -427,6 +434,7 @@ describe("generateFeedbackWithLlm", () => {
         conversationSummary: "요약 문장입니다.",
         cardSummary: "짧은 요약입니다.",
         conversationHighlights: ["흐름1", "흐름2"],
+        extractedInterests: [],
         savedPhraseIndex: 1,
       }),
     });

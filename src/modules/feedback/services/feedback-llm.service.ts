@@ -63,6 +63,10 @@ const feedbackLlmSchema = z.object({
   cardSummary: z.string().min(1).max(100),
   // "주요 내용" — 대화에서 실제 있었던 흐름을 시간 순으로 2~3개(#169).
   conversationHighlights: z.array(z.string().min(1).max(80)).min(2).max(3),
+  // 대화에서 드러난 사용자의 관심사/관심 주제. 대화 분위기 키워드인 summaryChips와 달리,
+  // 미션 추천에 재사용할 구체적 대상(활동/주제)만 담는다(#262). 관심사로 볼 만한 내용이
+  // 없으면 빈 배열을 허용한다 — 억지로 채우지 않는다.
+  extractedInterests: z.array(z.string().trim().min(1).max(20)).max(3),
   savedPhraseIndex: userUtteranceIndexSchema,
 });
 
@@ -83,6 +87,7 @@ export interface FeedbackLlmResult {
   conversationSummary: string;
   cardSummary: string;
   conversationHighlights: string[];
+  extractedInterests: string[];
   savedPhrase: string;
 }
 
@@ -153,6 +158,7 @@ Playbook 평가 문맥이 제공되지 않은 경우에는 미션 제목·설명
 - conversationSummary: 이 대화가 어떤 내용이었는지 2~3문장으로 요약합니다. 나중에 대화 기록을 다시 볼 때 한눈에 파악할 수 있도록 무엇에 대해 이야기했는지 중심으로 쓰고, 평가나 점수는 넣지 않습니다.
 - cardSummary: conversationSummary와 같은 대화 내용을 바탕으로, 목록 카드에 보여줄 1~2줄(50자 내외)의 축약 버전을 씁니다. 새로운 내용을 넣지 말고 conversationSummary를 짧게 줄인 버전이어야 합니다.
 - conversationHighlights: 이 대화에서 실제로 있었던 흐름을 시간 순서대로 2~3개의 짧은 문장으로 씁니다 (예: "먼저 인사를 건네며 대화를 시작했어요", "상대의 질문에 답하며 대화를 이어갔어요"). missionSummary(평가 태그)나 conversationSummary(전체 요약)와 달리, 대화 중 실제로 일어난 행동을 순서대로 나열하는 것입니다.
+- extractedInterests: 이 대화에서 사용자가 관심을 보인 구체적인 주제나 활동을 최대 3개 뽑습니다 (예: "카페", "반려동물", "영화 감상"). summaryChips(대화 분위기 키워드)와 다르게, 나중에 이 사용자에게 맞는 새로운 미션을 추천할 때 참고할 수 있는 구체적 대상만 담습니다. 사용자가 실제로 언급하거나 관심을 드러낸 것만 포함하고, 대화 내용만으로 알 수 없다면 빈 배열로 둡니다.
 - savedPhraseIndex: 사용자가 나중에 다시 쓰기 좋은 발화를 "사용자 발화 목록"에서 골라 그 **번호만** 적습니다. bestSentenceIndex와 같은 규칙입니다.
 - 근거 없이 과장하지 말고, 실제 대화 내용에 기반해 구체적으로 씁니다.
 - 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
@@ -166,6 +172,7 @@ Playbook 평가 문맥이 제공되지 않은 경우에는 미션 제목·설명
   "conversationSummary": "string",
   "cardSummary": "string",
   "conversationHighlights": ["string", "string"],
+  "extractedInterests": ["string"],
   "savedPhraseIndex": 정수
 }`;
 
@@ -295,6 +302,7 @@ const parseFeedbackLlm = (
     conversationSummary: data.conversationSummary,
     cardSummary: data.cardSummary,
     conversationHighlights: data.conversationHighlights,
+    extractedInterests: data.extractedInterests,
     savedPhrase,
   };
 };

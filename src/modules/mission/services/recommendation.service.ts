@@ -67,7 +67,12 @@ export const assembleUserContext = async (userId: string): Promise<UserContext> 
     personalityType: profile.personality_type,
     statusType: profile.status_type,
     difficultSituations: toStringArray(profile.difficult_situations),
-    interests: toStringArray(profile.interests),
+    // 온보딩에서 직접 고른 관심사(interests)를 우선하고, 대화에서 자동 추출된 관심사
+    // (extracted_interests)를 보조로 뒤에 붙인다. 두 출처를 분리 저장하는 이유는
+    // user.repository.ts의 mergeExtractedInterests 주석 참고(#262 리뷰 반영).
+    interests: [
+      ...new Set([...toStringArray(profile.interests), ...toStringArray(profile.extracted_interests)]),
+    ],
     goals: [...new Set(goals.map((goal) => goal.target))],
     // purpose는 "연습하고 싶은 대화 유형 배열"(Json)로 바뀌어 문자열만 추출한다.
     practiceTypes: toStringArray(profile.purpose),

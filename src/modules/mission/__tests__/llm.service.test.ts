@@ -87,6 +87,13 @@ describe("buildLlmMessages", () => {
     expect(messages[1].role).toBe("user");
   });
 
+  it("SYSTEM_PROMPT에 최근 카테고리 회피 지시가 포함돼 있다", () => {
+  const systemContent = buildLlmMessages(context, criteria)[0].content;
+
+  expect(systemContent).toContain("recentMissions");
+  expect(systemContent).toContain("겹치지 않는 카테고리");
+});
+
   it("성별 기본값은 중요도와 무관하게 male 또는 female만 생성하도록 명시한다", () => {
     const systemContent = buildLlmMessages(context, criteria)[0].content;
 

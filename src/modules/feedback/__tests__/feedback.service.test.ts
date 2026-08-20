@@ -6,10 +6,29 @@ jest.mock("../services/feedback-llm.service", () => ({
 jest.mock("../../badge/services/badge.service", () => ({
   checkAndAwardBadges: jest.fn(),
 }));
+// #262 — mergeExtractedInterests(fire-and-forget)가 이 두 함수를 실제로 호출하는지,
+// 병합 결과가 맞는지 검증하기 위해 mock한다.
+jest.mock("../../user/repositories/user.repository", () => ({
+  ...jest.requireActual("../../user/repositories/user.repository"),
+  mergeExtractedInterests: jest.fn(),
+}));
+// runGeneration이 fire-and-forget으로 부르는 다른 부수효과들(성장 프로필 갱신, 주간
+// 리포트 생성)은 실제 함수 그대로 두면 내부에서 Prisma를 호출해 테스트가 느려지거나
+// unhandled rejection 경고가 뜰 수 있다 — 조용히 무력화한다.
+jest.mock("../../growth/services/growth-profile.service", () => ({
+  refreshGrowthProfile: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock("../../report/services/weekly-compare.service", () => ({
+  generateMissingWeeklyReports: jest.fn().mockResolvedValue([]),
+}));
+jest.mock("../../report/services/report.service", () => ({
+  notifyNewWeeklyCompareReports: jest.fn().mockResolvedValue(undefined),
+}));
 
 import * as repository from "../repositories/feedback.repository";
 import { generateFeedbackWithLlm } from "../services/feedback-llm.service";
 import { checkAndAwardBadges } from "../../badge/services/badge.service";
+import { mergeExtractedInterests } from "../../user/repositories/user.repository";
 import {
   FeedbackConversationNotFoundError,
   FeedbackInputTooShortError,
@@ -17,6 +36,8 @@ import {
   FeedbackNotReadyError,
 } from "../errors/feedback.error";
 import { createFeedback, retryFeedback } from "../services/feedback.service";
+
+const mockedMergeInterests = jest.mocked(mergeExtractedInterests);
 
 const mockedRepo = jest.mocked(repository);
 const mockedGenerate = jest.mocked(generateFeedbackWithLlm);
@@ -29,14 +50,16 @@ const validMetric = {
   bestSentence: "안녕하세요",
 };
 
-const llmSuccess = () => ({
+const llmSuccess = (overrides: Record<string, unknown> = {}) => ({
   metrics: { kindness: validMetric, initiative: validMetric, empathy: validMetric, questionLink: validMetric },
   missionSummary: ["장소 경험을 공유했어요"],
   summaryChips: ["자기성장", "첫 만남", "스몰토크"],
   conversationSummary: "카페에서 처음 만난 사람과 날씨 이야기를 나눴습니다.",
   cardSummary: "처음 만난 사람과 인사를 나눴어요.",
   conversationHighlights: ["먼저 인사를 건넸어요", "날씨 이야기로 대화를 이어갔어요"],
+  extractedInterests: [],
   savedPhrase: "오늘 날씨가 좋네요.",
+  ...overrides,
 });
 
 const buildConversation = (overrides: Record<string, unknown> = {}) =>
@@ -104,6 +127,9 @@ beforeEach(() => {
   mockedRepo.markFeedbackFailed.mockResolvedValue({} as never);
   mockedRepo.markFeedbackReady.mockResolvedValue({} as never);
   mockedCheckAndAwardBadges.mockResolvedValue([]);
+  // 기본값: 프로필이 없으면 mergeExtractedInterests가 조용히 종료한다.
+  // 관심사 병합을 검증하는 테스트에서만 개별적으로 override한다.
+  mockedMergeInterests.mockResolvedValue(undefined);
 });
 
 describe("createFeedback", () => {
@@ -163,6 +189,49 @@ describe("createFeedback", () => {
     expect(result.overallScore).toBe(Math.round((92 + 88 + 85 + 78) / 4));
     expect(mockedGenerate).not.toHaveBeenCalled();
     expect(mockedRepo.createPendingFeedback).not.toHaveBeenCalled();
+  });
+
+  // #262 — 대화에서 추출된 관심사를 User_Profiles.interests에 병합 반영한다.
+  describe("관심사 자동 반영(mergeExtractedInterests)", () => {
+    it("추출된 관심사가 없으면 mergeExtractedInterests를 호출하지 않는다", async () => {
+      mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
+      mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
+      mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
+      mockedGenerate.mockResolvedValue(llmSuccess({ extractedInterests: ["카페", "산책"] }));
+      mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
+
+      await createFeedback("u1", { conversationId: "c1" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(mockedMergeInterests).toHaveBeenCalledWith("u1", ["카페", "산책"], 10);
+    });
+
+    it("추출된 관심사가 없으면 mergeExtractedInterests를 호출하지 않는다", async () => {
+      mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
+      mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
+      mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
+      mockedGenerate.mockResolvedValue(llmSuccess({ extractedInterests: [] }));
+      mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
+
+      await createFeedback("u1", { conversationId: "c1" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(mockedMergeInterests).not.toHaveBeenCalled();
+    });
+
+    it("관심사 갱신이 실패해도 피드백 생성 자체는 정상적으로 완료된다", async () => {
+      mockedRepo.findConversationForFeedback.mockResolvedValue(buildConversation());
+      mockedRepo.findFeedbackByConversationId.mockResolvedValue(null as never);
+      mockedRepo.createPendingFeedback.mockResolvedValue({ id: "f1" } as never);
+      mockedGenerate.mockResolvedValue(llmSuccess({ extractedInterests: ["카페"] }));
+      mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());
+      mockedMergeInterests.mockRejectedValue(new Error("DB 오류"));
+
+      const result = await createFeedback("u1", { conversationId: "c1" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(result.status).toBe("ready");
+    });
   });
 
   // #247 — 채점 프롬프트에 "최소한의 의사 표현만 한 경우 50~59점" 밴드가 명시돼 있음에도
@@ -249,6 +318,7 @@ describe("createFeedback — 최소 입력 점수 상한(#247)", () => {
       conversationSummary: "카페에서 처음 만난 사람과 날씨 이야기를 나눴습니다.",
       cardSummary: "처음 만난 사람과 인사를 나눴어요.",
       conversationHighlights: ["먼저 인사를 건넸어요", "날씨 이야기로 대화를 이어갔어요"],
+      extractedInterests: [],
       savedPhrase: "오늘 날씨가 좋네요.",
     });
     mockedRepo.findFeedbackByIdAndUserId.mockResolvedValue(buildFeedbackRow());

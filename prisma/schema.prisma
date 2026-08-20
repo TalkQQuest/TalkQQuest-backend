@@ -290,7 +290,13 @@ model User_Profiles {
   personality_type        PersonalityType?
   difficult_situations    Json?
   preferred_style         String?          @db.VarChar(255)
+  // 온보딩에서 사용자가 직접 고른 관심사. 사용자가 신중하게 선택한 값이라 자동으로
+  // 밀려나거나 지워지면 안 된다 — 대화에서 추출된 관심사는 별도 컬럼(extracted_interests)에
+  // 쌓는다(#262 리뷰 반영).
   interests               Json?
+  // 대화 내용에서 LLM이 자동으로 추출한 관심사. interests(온보딩 값)와 구분해서 쌓고,
+  // 미션 추천 시 두 값을 함께 참고하되 온보딩 값을 우선한다(#262).
+  extracted_interests     Json?
   purpose                 Json? // 연습하고 싶은 대화 유형 배열 (최대 2개)
   avatar_url              String?          @db.VarChar(500)
   bio                     String?          @db.Text
